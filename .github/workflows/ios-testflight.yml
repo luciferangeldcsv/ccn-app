@@ -6,10 +6,12 @@ name: iOS TestFlight
 on:
   push:
     branches: [main, vardiya-panosu]
+  # GitHub'da Actions → iOS TestFlight → "Run workflow" düğmesiyle elle de başlatılır
+  workflow_dispatch:
 
 jobs:
   testflight:
-    if: contains(github.event.head_commit.message, '[testflight]')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[testflight]')
     runs-on: macos-latest
     timeout-minutes: 60
     env:
