@@ -70,6 +70,8 @@ function defaultStore() {
       colors: { red: 'OFF', orange: '', yellow: '', green: '', blue: '', purple: '', gray: '' },
       // paylaşılan liste: başlıklar kalın mı, isimler numaralı / maddeli / düz
       share: { bold: true, style: 'num' },
+      // OFF / rapor / izin: 'return' = kişinin döndüğü vardiya (3 → OFF → 1 ise 1.), 'team' = kişinin kendi listesinin vardiyası
+      offRule: 'return',
     },
   };
 }
@@ -317,7 +319,8 @@ function absenceShift(p, date) {
 function dayLists(date) {
   const people = allPeople();
   const out = {};
-  const absShift = {}; for (const p of people) if (p.days[date] && !['1', '2', '3'].includes(p.days[date])) absShift[p.key] = absenceShift(p, date);
+  const team = store.settings.offRule === 'team';
+  const absShift = {}; for (const p of people) if (p.days[date] && !['1', '2', '3'].includes(p.days[date])) absShift[p.key] = team && p.group ? p.group : absenceShift(p, date);
   for (const g of ['1', '2', '3']) {
     const working = people.filter((p) => p.days[date] === g).sort(cmpName);
     const absent = {};
@@ -570,7 +573,7 @@ function viewReview() {
       <div class="stack" style="gap:8px;min-width:0">
         <div class="row" style="flex-wrap:nowrap"><b class="fname">${esc(P.file)}</b><span style="flex:1"></span><button class="iconbtn" data-act="rv-remove" data-id="${P.id}" aria-label="${esc(P.file)} görselini çıkar">${ICON_TRASH}</button></div>
         <span class="small muted">${P.rows.filter((r) => !r.skip).length} kişi · ${P.ncols} gün · ${fmtShort(P.start)} – ${fmtShort(P.dates ? P.dates[P.dates.length - 1] : addDays(P.start, P.ncols - 1))}</span>
-        ${P.group || P.rows.every((r) => r.group) ? '' : '<span class="small" style="color:var(--off)">Bu tablonun vardiyasını seçin; seçilmezse yazısız hücreler çalışma sayılmaz.</span>'}
+        ${P.group || P.rows.every((r) => r.group) ? '' : '<span class="small" style="color:var(--off);font-weight:600">Bu tablonun vardiyası okunamadı: aşağıdan 1., 2. ya da 3. vardiyayı seçin. Seçmeden kaydedilmez.</span>'}
         <div class="settings-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">
           <label class="field">Vardiya<select class="rv-group" data-id="${P.id}">${[['1', '1. Vardiya'], ['2', '2. Vardiya'], ['3', '3. Vardiya'], ['', 'Karışık']].map(([v, l]) => `<option value="${v}" ${P.group === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label class="field">İlk sütun tarihi<input type="date" class="rv-start" data-id="${P.id}" value="${P.start}"></label>
@@ -602,6 +605,11 @@ function viewSettings() {
     <h2 style="font-size:22px">Görünüm</h2>
     <div class="seg seg3" role="radiogroup" aria-label="Tema">${[['auto', 'Sistem'], ['light', 'Açık'], ['dark', 'Koyu']].map(([v, l]) => `<button role="radio" data-act="set-theme" data-theme-val="${v}" aria-selected="${prefs.theme === v}" aria-checked="${prefs.theme === v}">${l}</button>`).join('')}</div>
     <p class="small muted" style="margin:0">“Sistem” seçiliyken telefonun koyu/açık mod ayarı kullanılır.</p>
+  </div>
+  <div class="card stack">
+    <h2 style="font-size:22px">OFF ve izinliler hangi vardiyada görünsün?</h2>
+    <div class="seg" role="radiogroup" aria-label="OFF kuralı">${[['return', 'Döndüğü vardiya'], ['team', 'Kendi listesinin vardiyası']].map(([v, l]) => `<button role="radio" data-act="set-off-rule" data-v="${v}" aria-selected="${(S.offRule || 'return') === v}" aria-checked="${(S.offRule || 'return') === v}">${l}</button>`).join('')}</div>
+    <p class="small muted" style="margin:0">${(S.offRule || 'return') === 'team' ? 'Kişi hangi vardiya listesinden okunduysa OFF, rapor ve izin günleri o vardiyada görünür.' : 'OFF günü, kişinin OFF’tan sonra döndüğü vardiyaya yazılır: 3. vardiyadan çıkıp 1.’ye dönenin OFF’u 1. vardiyadadır; 1 → OFF → 1 de 1. vardiyadır.'}</p>
   </div>
   <div class="card stack">
     <h2 style="font-size:22px">Paylaşılan liste biçimi</h2>
@@ -747,6 +755,7 @@ const actions = {
       bad.forEach(([k]) => { delete store.people[k]; renameDayAreas(k, null); }); save(); render(); toast(`${bad.length} hatalı kayıt silindi`);
     });
   },
+  'set-off-rule': (el) => { store.settings.offRule = el.dataset.v; save(); render(); },
   'set-sh-style': (el) => { store.settings.share.style = el.dataset.v; save(); render(); },
   'set-theme': (el) => { prefs.theme = el.dataset.themeVal; savePrefs(); applyTheme(); render(); },
   'photo-allow': () => askPhotoAccess(() => { render(); toast('Fotoğraf izni verildi'); }),
@@ -849,6 +858,9 @@ function renameReviewRow(key, value) {
 
 function saveReview() {
   const R = ui.review; if (!R) { go('gunluk'); return; }
+  // vardiyası bilinmeyen tablodaki boş günler çalışma sayılamaz, OFF'lar da yanlış vardiyaya düşer: önce seçtir
+  const noGroup = R.parts.filter((P) => !P.group && !P.rows.every((r) => r.group));
+  if (noGroup.length) { toast(`Önce “${noGroup[0].file}” tablosunun vardiyasını seçin (1., 2. ya da 3.)`); const el = document.querySelector(`.rv-group[data-id="${noGroup[0].id}"]`); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } return; }
   const M = mergedReview();
   const rows = M.rows.filter((m) => !isSkipped(m) && m.name);
   if (!rows.length) { toast('Kaydedilecek kişi yok. İsimleri yazın ya da satırları işaretleyin.'); return; }
@@ -906,9 +918,20 @@ function handleFiles(files) {
 }
 async function nextQueued() {
   const f = queue.shift();
-  if (!f) { ui.busy = null; batch = { done: 0, total: 0 }; render(); return; }
+  if (!f) { fillMissingGroups(); ui.busy = null; batch = { done: 0, total: 0 }; render(); return; }
   await analyzeFile(f); batch.done++;
   nextQueued();
+}
+// 1., 2., 3. vardiya listeleri birlikte yüklendi ve yalnız birinin vardiyası bulunamadıysa: kalan vardiya odur
+function fillMissingGroups() {
+  const R = ui.review; if (!R) return;
+  const missing = R.parts.filter((P) => P.needGroup && !P.group);
+  const used = new Set(R.parts.filter((P) => P.group).map((P) => P.group));
+  const left = ['1', '2', '3'].filter((g) => !used.has(g));
+  if (missing.length === 1 && left.length === 1) {
+    missing[0].group = left[0]; missing[0].needGroup = false;
+    missing[0].warnings.push(`Vardiya başlıkta okunamadı; diğer tablolar ${[...used].sort().join('. ve ')}. vardiya olduğu için bu tablo ${left[0]}. vardiya seçildi. Yanlışsa aşağıdan değiştirin.`);
+  }
 }
 function setBusy(text, pct) {
   // okuma bittikten sonra gelen geç ilerleme mesajları yok sayılır (ekran "okunuyor"da takılı kalmasın)
@@ -934,7 +957,8 @@ async function analyzeFile(file) {
         const cnt = {}; res.rows.forEach((r) => { const p = store.people[nameKey(r.name)]; if (p && p.group) cnt[p.group] = (cnt[p.group] || 0) + 1; });
         const best = Object.entries(cnt).sort((x, y) => y[1] - x[1])[0];
         if (best && best[1] >= Math.max(2, res.rows.length * 0.5)) { res.group = best[0]; res.warnings.push(`Vardiya başlıkta yok; kayıtlı isimlere göre ${best[0]}. vardiya seçildi.`); }
-        else if (prev) { res.group = prev.group; res.warnings.push(`Vardiya başlıkta yok; önceki tablodaki gibi ${prev.group ? prev.group + '. vardiya' : 'karışık'} seçildi.`); }
+        // önceki tablonun vardiyası kopyalanmaz (1., 2., 3. vardiya listeleri birlikte yüklenince hepsi 1. sayılıyordu)
+        else { res.group = ''; res.needGroup = true; }
       }
       if (!res.dateFound && prev && prev.dates && prev.ncols === res.cols.length) res.dates = prev.dates.slice();
       if (!res.dateFound) {
@@ -942,7 +966,7 @@ async function analyzeFile(file) {
         if (last) { res.start = last.start; res.warnings = res.warnings.filter((w) => !/tarih/i.test(w)); res.warnings.push(`Tarih bulunamadı; ${prev ? 'önceki tablonun' : 'son yüklenen listenin'} tarihleri kullanıldı.`); }
       }
       const name = (file.name || 'Liste') + (results.length > 1 ? ` · tablo ${res.table}` : '');
-      ui.review.parts.push({ id: uid(), file: name, start: res.start, dates: res.dates || null, group: res.group, ncols: res.cols.length, preview: res.preview, rows: res.rows, warnings: res.warnings, claude: res.claude });
+      ui.review.parts.push({ id: uid(), file: name, needGroup: !!res.needGroup, start: res.start, dates: res.dates || null, group: res.group, ncols: res.cols.length, preview: res.preview, rows: res.rows, warnings: res.warnings, claude: res.claude });
     }
   } catch (e) {
     console.error(e);
@@ -1367,7 +1391,8 @@ async function readTableWithClaude(src, rowsB, colsB, progress) {
   let group = shift; let groupFound = !!shift;
   if (!group) {
     const tot = Object.values(digitCount).reduce((a, b) => a + b, 0); const best = Object.entries(digitCount).sort((a, b) => b[1] - a[1])[0];
-    if (best[1] && best[1] >= tot * 0.8) { group = best[0]; groupFound = true; }
+    const second = Object.values(digitCount).sort((a, b) => b - a)[1] || 0;
+    if (best[1] && best[1] >= tot * 0.6 && best[1] >= second * 2) { group = best[0]; groupFound = true; }
   }
   if (out.some((r) => r.group)) { const secs = new Set(out.map((r) => r.group).filter(Boolean)); if (secs.size > 1) group = ''; else if (!group) group = [...secs][0]; groupFound = true; }
   progress('Bitti', 1);
@@ -1990,8 +2015,11 @@ async function analyzeTable(img, progress) {
   if (sectionsUsed.size > 1) group = '';
   else if (sectionsUsed.size === 1 && !group) group = [...sectionsUsed][0];
   if (!group && !sectionsUsed.size) { const best = Object.entries(digitCount).sort((a, b) => b[1] - a[1])[0]; const nonzero = Object.values(digitCount).filter((n) => n > 0).length; const totalDigits = Object.values(digitCount).reduce((a, b) => a + b, 0);
-    // OCR birkaç rakamı yanlış okusa da baskın vardiya (%80+) tablonun vardiyasıdır
-    if (best[1] && (nonzero === 1 || best[1] >= totalDigits * 0.8)) group = best[0]; else if (!best[1]) { group = '1'; groupDefault = true; } }
+    // baskın vardiya rakamı (rakamlı hücrelerin %60'ı ve en yakın rakibin 2 katı) tablonun vardiyasıdır
+    const second = Object.values(digitCount).sort((a, b) => b - a)[1] || 0;
+    if (best[1] && (nonzero === 1 || (best[1] >= totalDigits * 0.6 && best[1] >= second * 2))) group = best[0];
+    // bulunamazsa tahmin edilmez: diğer tablolardan çıkarılır ya da kullanıcı seçer
+    else groupDefault = true; }
   // Yazısız beyaz hücreler = listenin vardiyası (kaydederken de uygulanır)
   if (!rows.length) warnings.push('Hiç kişi satırı bulunamadı. “Satır ekle” ile elle ekleyebilirsiniz.');
   progress('Bitti', 1);
