@@ -23,6 +23,12 @@ RedirectMatch 404 /\.git
 </IfModule>
 
 # Uygulama dosyaları önbelleğe alınmasın (güncellemeler hemen görünsün); model dosyası uzun süre saklanır
+# sayfa ve kod dosyaları her açılışta sunucuya sorulur (güncelleme hemen görünsün)
+<FilesMatch "\.(html|js|css|php)$">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "no-cache"
+  </IfModule>
+</FilesMatch>
 <IfModule mod_expires.c>
   ExpiresActive On
   ExpiresByType text/html "access plus 0 seconds"
