@@ -1518,12 +1518,14 @@ async function readStrip(worker, clean, y0, y1, cols, psm) {
   return out;
 }
 
+// hücre yazısı okunur mu: beyaz zemin ya da OFF/izin gibi bir anlama bağlanmamış renkli zemin (yeşil "1", sarı "3" …)
+const readable = (st) => st.fill === 'white' || (st.fill !== 'gray' && !store.settings.colors[st.fill]);
 async function readRowCells(worker, clean, [y0, y1], cols, stats) {
   const out = await readStrip(worker, clean, y0, y1, cols, '7');
   // yazısı olup satır okumasında kaçan hücreleri tek tek dene
   for (let k = 0; k < cols.length; k++) {
     const st = stats[k];
-    if (out[k] || st.gray || st.inkFrac < 0.012 || st.fill !== 'white') continue;
+    if (out[k] || st.gray || st.inkFrac < 0.012 || !readable(st)) continue;
     const hgt = y1 - y0; const s = hgt < 40 ? 48 / hgt : 1.5;
     const { c } = crop(clean, cols[k][0], y0, cols[k][1], y1, s);
     out[k] = (await ocr(worker, c, { tessedit_pageseg_mode: '7', tessedit_char_whitelist: '' })).text.trim();
@@ -1537,6 +1539,9 @@ function parseCode(t) {
   if (tm) { const h = +tm[1]; if (h >= 5 && h < 12) return '1'; if (h >= 12 && h < 20) return '2'; if (h <= 24) return '3'; }
   const s = t.replace(/[l|]/g, '1').toLocaleUpperCase('tr').replace(/[^A-ZÇĞİÖŞÜ0-9]/g, '');
   if (!s) return '';
+  // tek başına "I/İ" ya da "1I" kalın "1" rakamının yanlış okunmasıdır; tek "Z" ise "2"
+  if (/^[1Iİ]+$/.test(s) && s.length <= 2) return '1';
+  if (s === 'Z') return '2';
   if (/^(S|SB|SBH|SABAH)$/.test(s)) return '1';
   if (/^(A|AK|AKŞ|AKS|AKŞAM|AKSAM)$/.test(s)) return '2';
   if (/^(G|GC|GCE|GECE)$/.test(s)) return '3';
@@ -1545,7 +1550,7 @@ function parseCode(t) {
   if (/^(OFF|0FF|OF|FF|0F|O)$/.test(s)) return 'OFF';
   if (/^(Yİ|YI|Y1|YL|Y)$/.test(s)) return 'YI';
   if (/^(R|RP|RAP|RAPOR|RS|RE|RA)$/.test(s)) return 'R';
-  if (/^(İ|I|İZ|IZ|İZİN|IZIN|Mİ|MI|Üİ|UI|Üİ)$/.test(s)) return 'MI';
+  if (/^(İZ|IZ|İZİN|IZIN|Mİ|MI|Üİ|UI|ÜI|ÜL|UL|Ü1|U1|Ü)$/.test(s)) return 'MI';
   if (/^[123]$/.test(s)) return s;
   if (/^1+$/.test(s)) return '1';
   return null; // okunamadı
@@ -1641,7 +1646,8 @@ function findTables(img) {
     const ox = Math.min(A.x1, B.x1) - Math.max(A.x0, B.x0), oy = Math.min(A.y1, B.y1) - Math.max(A.y0, B.y0);
     if (ox <= 0 || oy <= 0) continue;
     const small = Math.min((A.x1 - A.x0) * (A.y1 - A.y0), (B.x1 - B.x0) * (B.y1 - B.y0));
-    if (ox * oy < 0.7 * small) continue;
+    // yan yana kesişen parçalar (aynı satırları paylaşıyorsa) da tek tablodur: soluk çizgiler tabloyu bölmüş
+    if (ox * oy < 0.7 * small && oy < 0.6 * Math.min(A.y1 - A.y0, B.y1 - B.y0)) continue;
     const rhs = [A.rowH, B.rowH].filter((x) => x > 4);
     regs[i] = { x0: Math.min(A.x0, B.x0), x1: Math.max(A.x1, B.x1), y0: Math.min(A.y0, B.y0), y1: Math.max(A.y1, B.y1), n: A.n + B.n, rowH: rhs.length ? Math.min(...rhs) : 0, ys: [...new Set([...A.ys, ...B.ys])].sort((a, b) => a - b) };
     regs.splice(j, 1); j = i;
@@ -1735,7 +1741,7 @@ async function analyzeTable(img, progress) {
   if (nameCol < 0) nameCol = 0;
   const right = colsB.map((c, i) => i).filter((i) => i > nameCol);
   const med = right.map((i) => widths[i]).sort((a, b) => a - b)[Math.floor(right.length / 2)] || 1;
-  let dayCols = right.filter((i) => widths[i] >= med * 0.55 && widths[i] <= med * 1.8);
+  let dayCols = right.filter((i) => !grayCol[i] && widths[i] >= med * 0.55 && widths[i] <= med * 1.8);
   const tableTop = grid.hs[0].a, tableLeft = grid.vs[0].a;
 
   // 3) Metin tanıma için temiz (siyah-beyaz, çizgisiz) kopya
@@ -1827,7 +1833,7 @@ async function analyzeTable(img, progress) {
   const resetDayCols = () => {
     const right2 = colsB.map((c, i) => i).filter((i) => i > nameCol);
     const med2 = right2.map((i) => widths[i]).sort((a, b) => a - b)[Math.floor(right2.length / 2)] || 1;
-    dayCols = right2.filter((i) => widths[i] >= med2 * 0.55 && widths[i] <= med2 * 1.8);
+    dayCols = right2.filter((i) => !grayCol[i] && widths[i] >= med2 * 0.55 && widths[i] <= med2 * 1.8);
     stats = all.map((row) => dayCols.map((ci) => row[ci]));
   };
   if (worker) {
@@ -1860,8 +1866,15 @@ async function analyzeTable(img, progress) {
       const dc = dCols.map((ci) => colsB[ci]);
       progress('Hücreler okunuyor', 0.56);
       const rowTexts = rowsB.map(() => dc.map(() => ''));
-      const groups = groupCells(cd.data, w, rowsB, dc, (r, k) => !grayRow[r] && !st[r][k].gray && st[r][k].fill === 'white' && st[r][k].inkFrac >= 0.004);
+      const groups = groupCells(cd.data, w, rowsB, dc, (r, k) => !grayRow[r] && !st[r][k].gray && readable(st[r][k]) && st[r][k].inkFrac >= 0.004);
       const labels = await labelGroups(worker, clean, rowsB, dc, groups);
+      // okunamayan grup, okunmuş bir rakam grubuna çok benziyorsa (aynı rakamın biraz farklı basılmışı: "2" → "Z") onun yazısını alır
+      groups.forEach((G, i) => {
+        if (labels[i] != null) return; let best = -1, bd = 1e9;
+        groups.forEach((H, j) => { if (labels[j] == null || Math.abs(H.ar - G.ar) > 0.25 * Math.max(1, H.ar) || Math.abs(H.hr - G.hr) > 0.15) return; const d = hamming(H.f, G.f); if (d < bd) { bd = d; best = j; } });
+        // yalnızca rakamlar (Tesseract'ın tek başına en çok karıştırdığı yazılar; harfli kodlar için tahmin yapılmaz)
+        if (best >= 0 && bd <= 16 * 16 * 0.12 && /^[123]$/.test(parseCode(labels[best]) || '')) labels[i] = labels[best];
+      });
       const redo = new Set();
       groups.forEach((G, i) => { if (labels[i] == null) G.m.forEach(([r]) => redo.add(r)); else G.m.forEach(([r, k]) => { rowTexts[r][k] = labels[i]; }); });
       // emin olunamayan satırlar eski yöntemle (satır şeridi) okunur
@@ -1917,7 +1930,7 @@ async function analyzeTable(img, progress) {
   if (textOk) { while (firstPerson < rowsB.length && !looksData(firstPerson) && (isHeader(names[firstPerson]) || names[firstPerson].replace(/[^A-Za-zÇĞİÖŞÜçğıöşü]/g, '').length < 3)) firstPerson++; if (firstPerson >= rowsB.length) firstPerson = 1; }
   else firstPerson = 1;
   // Başlıktaki gün numaraları
-  const headerDays = [];
+  const headerDays = []; let fullDates = null;
   if (textOk && firstPerson > 0) {
     const cols = dayCols.map((ci) => colsB[ci]);
     let bestNums = [], bestCnt = -1;
@@ -1929,6 +1942,37 @@ async function analyzeTable(img, progress) {
       const cnt = nums.filter((n) => n).length; if (cnt > bestCnt) { bestCnt = cnt; bestNums = nums; }
     }
     headerDays.push(...bestNums);
+    // Dikey yazılmış tarihler (Excel'de 90° döndürülmüş başlık, ör. "31.10.2026"): her gün sütununun başlığı
+    // döndürülüp okunur. Renkli (mavi/kırmızı) tarih yazısı da kalsın diye parlaklığa göre siyah-beyaz yapılır.
+    if (bestCnt < cols.length * 0.6) {
+      const bodyH = rowsB.slice(firstPerson).map(([a, b]) => b - a).sort((a, b) => a - b); const medH = bodyH[Math.floor(bodyH.length / 2)] || 20;
+      let hr = -1; for (let r = 0; r < firstPerson; r++) if (rowsB[r][1] - rowsB[r][0] > medH * 2.5 && (hr < 0 || rowsB[r][1] - rowsB[r][0] > rowsB[hr][1] - rowsB[hr][0])) hr = r;
+      if (hr >= 0) {
+        const [y0, y1] = rowsB[hr];
+        // başlığın altındaki süzgeç düğmeleri (Excel ▼) okunmasın
+        const yb = y1 - Math.round(medH * 1.1);
+        const slots = cols.map(([x0, x1], k) => {
+          const cw = Math.round(x1 - x0) - 4, ch = Math.round(yb - y0) - 2; const X0 = Math.round(x0) + 2, Y0 = Math.round(y0) + 1;
+          const t = document.createElement('canvas'); t.width = cw; t.height = ch; const tc = t.getContext('2d'); const id = tc.createImageData(cw, ch);
+          for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) { const p = ((Y0 + y) * w + X0 + x) * 4; const lum = (px[p] * 299 + px[p + 1] * 587 + px[p + 2] * 114) / 1000; const v = lum < 175 ? 0 : 255; const q = (y * cw + x) * 4; id.data[q] = id.data[q + 1] = id.data[q + 2] = v; id.data[q + 3] = 255; }
+          tc.putImageData(id, 0, 0);
+          // saat yönünde 90° döndür (aşağıdan yukarı yazılmış metin soldan sağa okunur), küçükse büyüt
+          const sc = Math.max(1, Math.min(3, 40 / cw)); const pad = 10;
+          const c = document.createElement('canvas'); c.width = Math.round(ch * sc) + pad * 2; c.height = Math.round(cw * sc) + pad * 2;
+          const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingEnabled = true;
+          g.translate(pad + ch * sc, pad); g.rotate(Math.PI / 2); g.drawImage(t, 0, 0, cw * sc, ch * sc);
+          return { k, c };
+        });
+        const got = cols.map(() => null);
+        try {
+          await stackedOcr(worker, slots, 14, (slot, words) => {
+            const t = words.map((x) => x.text).join(''); const m = t.match(/(\d{1,2})\D{0,2}(\d{1,2})\D{0,2}(\d{4})/) || t.replace(/\D/g, '').match(/^(\d{2})(\d{2})(\d{4})$/);
+            if (m && +m[1] >= 1 && +m[1] <= 31 && +m[2] >= 1 && +m[2] <= 12) got[slot.k] = new Date(+m[3], +m[2] - 1, +m[1]);
+          });
+        } catch (e) { console.warn('dikey tarih', e); }
+        if (got.filter(Boolean).length > bestCnt) { fullDates = got; headerDays.length = 0; headerDays.push(...got.map((d) => (d ? d.getDate() : null))); }
+      }
+    }
     // sondaki gün olmayan sütunları at (Toplam vb.)
     const found = headerDays.filter((n) => n).length;
     // (başlıktaki numarası okunamayan ama kişilerin vardiya/OFF bilgisini taşıyan son gün sütunu atılmaz)
@@ -1962,6 +2006,12 @@ async function analyzeTable(img, progress) {
     for (let m = -2; m <= 2; m++) { const d = new Date(ref.getFullYear(), ref.getMonth() + m, s0); const diff = Math.abs(d - ref); if (diff < bestDiff) { bestDiff = diff; bestD = d; } }
     start = iso(bestD);
   } else if (dates.length) start = iso(dates[0]);
+  // başlıkta tam tarihler okunduysa (gün.ay.yıl) ilk sütunun tarihi bunlardan oy çokluğuyla bulunur
+  if (fullDates) {
+    const fv = {}; fullDates.forEach((d, k) => { if (d) { const s0 = addDays(iso(d), -k); fv[s0] = (fv[s0] || 0) + 1; } });
+    const top = Object.entries(fv).sort((x, y) => y[1] - x[1])[0];
+    if (top && (top[1] >= 2 || fullDates.filter(Boolean).length === 1)) start = top[0];
+  }
   if (aiMeta.firstDay) start = aiMeta.firstDay;
   const dateFound = !!start;
   if (!start) { start = todayIso(); warnings.push('Liste tarihleri okunamadı. “İlk sütunun tarihi” alanını kontrol edin.'); }
