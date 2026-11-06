@@ -42,9 +42,9 @@ switch ($r) {
 
     $kimlik = str_in('kimlik', 40); $tel = norm_phone(str_in('telefon', 30));
     $pin = str_in('pin', 12); $yeni = str_in('yeniPin', 12); $hatirla = !empty(body()['hatirla']);
-    if ($kimlik === '' || $tel === '') fail(400, 'Sicil / TC numarası ve telefon numarasını girin.');
+    if ($kimlik === '' || $tel === '') fail(400, 'Personel ID / TC ve telefon numarasını girin.');
     $p = find_person($kimlik);
-    $generic = 'Bilgiler eşleşmedi. Sicil / TC, telefon ve şifrenizi kontrol edin.';
+    $generic = 'Bilgiler eşleşmedi. Personel ID / TC, telefon ve şifrenizi kontrol edin.';
     if (!$p) fail(401, $generic);
     if ($p['locked_until'] && $p['locked_until'] > now()) {
       $min = max(1, (int)ceil((strtotime($p['locked_until'] . ' UTC') - time()) / 60));
@@ -257,7 +257,7 @@ function save_person(array $in, array $u, bool $bulk = false): array {
     $st = db()->prepare('SELECT * FROM personnel WHERE id = ?'); $st->execute([$id]); $old = $st->fetch();
     if (!$old) $err('Kişi bulunamadı.');
     // toplu eklemede sicil/TC başka isimli bir kişide kayıtlıysa o kişinin kaydı DEĞİŞTİRİLMEZ
-    if ($bulk && $name !== '' && name_key($name) !== name_key($old['name'])) $err("Bu sicil ya da TC numarası başka bir kişide kayıtlı: {$old['name']} ($name)");
+    if ($bulk && $name !== '' && name_key($name) !== name_key($old['name'])) $err("Bu Personel ID ya da TC numarası başka bir kişide kayıtlı: {$old['name']} ($name)");
     if ($old['role'] === 'admin' && $role !== 'admin' && !$bulk) {
       $n = (int)db()->query("SELECT COUNT(*) FROM personnel WHERE role = 'admin'")->fetchColumn();
       if ($n <= 1) $err('Sistemde en az bir yönetici kalmalı.');
@@ -268,17 +268,17 @@ function save_person(array $in, array $u, bool $bulk = false): array {
     if ($tel !== '') { $sets['phone_hash = ?'] = hmac('tel:' . $tel); $sets['phone_last4 = ?'] = substr($tel, -4); }
     try {
       db()->prepare('UPDATE personnel SET ' . implode(', ', array_keys($sets)) . ' WHERE id = ?')->execute([...array_values($sets), $id]);
-    } catch (PDOException $e) { $err('Bu sicil ya da TC numarası başka bir kişide kayıtlı.'); }
+    } catch (PDOException $e) { $err('Bu Personel ID ya da TC numarası başka bir kişide kayıtlı.'); }
     if (!$bulk) audit($u, 'personel-guncellendi', $name ?: $old['name']);
     return ['id' => $id, 'yeni' => false];
   }
   if ($name === '') $err('Ad soyad gerekli.');
-  if ($sicil === '' && !$tcHash) $err("Sicil no ya da TC numarasından en az biri gerekli ($name).");
+  if ($sicil === '' && !$tcHash) $err("Personel ID ya da TC numarasından en az biri gerekli ($name).");
   if ($tel === '') $err("Telefon numarası gerekli ($name).");
   try {
     db()->prepare('INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, created_at) VALUES (?,?,?,?,?,?,?,?)')
       ->execute([$name, $sicil !== '' ? $sicil : null, $tcHash, $tcHash ? substr($tcRaw, -2) : null, hmac('tel:' . $tel), substr($tel, -4), $role, now()]);
-  } catch (PDOException $e) { $err("Bu sicil ya da TC numarası başka bir kişide kayıtlı ($name)."); }
+  } catch (PDOException $e) { $err("Bu Personel ID ya da TC numarası başka bir kişide kayıtlı ($name)."); }
   $nid = (int)db()->lastInsertId();
   if (!$bulk) audit($u, 'personel-eklendi', $name);
   return ['id' => $nid, 'yeni' => true];

@@ -27,7 +27,7 @@ const DAY_NAMES = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cu
 const DAY_SHORT = ['Pz', 'Pt', 'Sa', 'Ça', 'Pe', 'Cu', 'Ct'];
 const MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 // Sunucu modu: web panelinde (api.php ile aynı adreste) ya da sunucu adresiyle derlenmiş telefon uygulamasında
-// liste, personel ve duyurular sunucudan gelir; kişi sicil/TC + telefon + şifre ile girer. Değilse tek cihazlık eski mod.
+// liste, personel ve duyurular sunucudan gelir; kişi Personel ID/TC + telefon + şifre ile girer. Değilse tek cihazlık eski mod.
 // Telefon uygulamasında birden çok sunucu adresi olabilir (virgülle): ilki çalışmazsa sıradaki denenir.
 const API_LIST = (() => {
   const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
@@ -967,7 +967,7 @@ function viewSettings() {
   const online = navigator.onLine; const errs = readLS(ERR_KEY, []).length;
   const account = SERVER && auth ? `<div class="card stack">
     <h2 style="font-size:22px">Hesap</h2>
-    <div class="permrow"><span><b>${esc(auth.ben.ad)}</b><br><span class="small muted">${auth.ben.rol === 'admin' ? 'Yönetici' : 'Personel'}${auth.ben.sicil ? ' · Sicil ' + esc(auth.ben.sicil) : ''} · ${auth.hatirla ? 'oturum açık kalır' : 'uygulama kapanınca oturum kapanır'}</span></span><span></span><button class="btn" data-act="logout">Çıkış yap</button></div>
+    <div class="permrow"><span><b>${esc(auth.ben.ad)}</b><br><span class="small muted">${auth.ben.rol === 'admin' ? 'Yönetici' : 'Personel'}${auth.ben.sicil ? ' · Personel ID ' + esc(auth.ben.sicil) : ''} · ${auth.hatirla ? 'oturum açık kalır' : 'uygulama kapanınca oturum kapanır'}</span></span><span></span><button class="btn" data-act="logout">Çıkış yap</button></div>
     ${store.pub ? `<p class="small muted" style="margin:0">Yayındaki liste: ${fmtWhen(store.pub.tarih)}${store.pub.yayinlayan ? ' · ' + esc(store.pub.yayinlayan) : ''}</p>` : ''}
   </div>` : '';
   const shared = !SERVER || isAdmin();
@@ -1150,7 +1150,7 @@ const actions = {
     const D = ui.missDraft || {};
     const rows = Object.entries(D).map(([ad, v]) => ({ ad, sicil: (v.sicil || '').trim(), tc: (v.tc || '').trim(), telefon: (v.telefon || '').trim() })).filter((r) => r.telefon && (r.sicil || r.tc));
     const half = Object.entries(D).filter(([, v]) => (v.sicil || v.tc || v.telefon) && !(v.telefon && (v.sicil || v.tc))).map(([n]) => n);
-    if (!rows.length) { toast(half.length ? 'Her kişi için telefon ve sicil/TC birlikte gerekli' : 'Önce sicil/TC ve telefon yazın'); return; }
+    if (!rows.length) { toast(half.length ? 'Her kişi için telefon ve Personel ID / TC birlikte gerekli' : 'Önce Personel ID / TC ve telefon yazın'); return; }
     el.disabled = true;
     try {
       const j = await api('personel-toplu', { kisiler: rows });
@@ -1165,7 +1165,7 @@ const actions = {
   'per-edit': (el) => personnelSheet(+el.dataset.id),
   'per-bulk': () => bulkSheet(),
   'per-log': async () => { try { srv.kayitlar = (await api('kayitlar')).kayitlar; render(); } catch (e) { toast(e.message); } },
-  'logout': () => confirmSheet('Çıkış yapılsın mı?', 'Bu cihazdaki oturum kapanır. Yeniden girmek için sicil/TC, telefon ve şifreniz gerekir.', 'Çıkış yap', async () => { try { await api('cikis', {}); } catch (e) { /* yoksay */ } signOut(''); }),
+  'logout': () => confirmSheet('Çıkış yapılsın mı?', 'Bu cihazdaki oturum kapanır. Yeniden girmek için Personel ID / TC, telefon ve şifreniz gerekir.', 'Çıkış yap', async () => { try { await api('cikis', {}); } catch (e) { /* yoksay */ } signOut(''); }),
   'sample': async (el) => {
     const ns = el.dataset.n === 'all' ? ['1', '2', '3'] : [el.dataset.n];
     try { handleFiles(await Promise.all(ns.map(async (n) => new File([await (await fetch(`samples/vardiya-${n}.png`)).blob()], `vardiya-${n}.png`, { type: 'image/png' })))); }
@@ -1207,11 +1207,11 @@ function viewLogin() {
   const L = ui.login || (ui.login = { step: 'giris', hatirla: true, err: '' });
   const err = L.err ? `<div class="aibad"><span>${esc(L.err)}</span></div>` : '';
   const form = L.step === 'pin'
-    ? `<p style="margin:0">Merhaba <b>${esc(L.ad || '')}</b>. İlk girişiniz: kendinize <b>6 haneli bir şifre</b> belirleyin. Bundan sonra sicil/TC, telefon ve bu şifreyle gireceksiniz.</p>
+    ? `<p style="margin:0">Merhaba <b>${esc(L.ad || '')}</b>. İlk girişiniz: kendinize <b>6 haneli bir şifre</b> belirleyin. Bundan sonra Personel ID / TC, telefon ve bu şifreyle gireceksiniz.</p>
       <label class="field">Yeni şifre<input id="lg-new" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required></label>
       <label class="field">Şifre (tekrar)<input id="lg-new2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required></label>
       <div class="row"><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Kaydediliyor…' : 'Şifreyi kaydet ve gir'}</button><button class="btn" type="button" data-act="login-back">Geri</button></div>`
-    : `<label class="field">Sicil no ya da TC kimlik no<input id="lg-kimlik" autocomplete="username" autocapitalize="off" value="${esc(L.kimlik || '')}" required></label>
+    : `<label class="field">Personel ID ya da TC kimlik no<input id="lg-kimlik" autocomplete="username" autocapitalize="off" value="${esc(L.kimlik || '')}" required></label>
       <label class="field">Telefon numarası<input id="lg-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="05xx xxx xx xx" value="${esc(L.telefon || '')}" required></label>
       <label class="field">Şifre (6 hane)<input id="lg-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password"></label>
       <p class="small muted" style="margin:-4px 0 0">İlk kez giriyorsanız şifreyi boş bırakın; bir sonraki adımda belirleyeceksiniz.</p>
@@ -1238,7 +1238,7 @@ function bindLogin() {
       Object.assign(body, { kimlik: L.kimlik, telefon: L.telefon, yeniPin: a, hatirla: L.hatirla });
     } else {
       L.kimlik = f.querySelector('#lg-kimlik').value.trim(); L.telefon = f.querySelector('#lg-tel').value.trim(); L.hatirla = f.querySelector('#lg-remember').checked;
-      if (!L.kimlik || !L.telefon) { L.err = 'Sicil / TC numarası ve telefon numarasını girin.'; render(); return; }
+      if (!L.kimlik || !L.telefon) { L.err = 'Personel ID / TC ve telefon numarasını girin.'; render(); return; }
       Object.assign(body, { kimlik: L.kimlik, telefon: L.telefon, pin: f.querySelector('#lg-pin').value.trim(), hatirla: L.hatirla });
     }
     L.busy = true; L.err = ''; render();
@@ -1289,10 +1289,10 @@ function viewPersonnel() {
   const listCard = listed.length ? `<div class="card stack">
     <div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Vardiya listesindeki isimler</div><h2 style="font-size:22px">${listed.length} kişi · ${listed.length - missing.length} hesap açık · ${missing.length} bekliyor</h2></div>
       ${missing.length ? `<button class="btn" data-act="miss-toggle">${ui.missOpen ? 'Gizle' : 'Hesap aç'}</button>` : ''}</div>
-    ${missing.length ? `<p class="small muted" style="margin:0">Listede olup hesabı olmayan kişilerin sicil no ya da TC'sini ve telefonunu yazıp kaydedin. İsim listedekiyle aynı kaydedilir; kişi girince kendi vardiyasını görür.</p>` : '<p class="small muted" style="margin:0">Listedeki herkesin hesabı açık.</p>'}
-    ${missing.length && ui.missOpen ? `<div class="tablewrap"><table class="grid plist miss"><thead><tr><th class="name">Ad soyad</th><th>Sicil no</th><th>TC</th><th>Telefon</th></tr></thead><tbody>
+    ${missing.length ? `<p class="small muted" style="margin:0">Listede olup hesabı olmayan kişilerin Personel ID ya da TC'sini ve telefonunu yazıp kaydedin. İsim listedekiyle aynı kaydedilir; kişi girince kendi vardiyasını görür.</p>` : '<p class="small muted" style="margin:0">Listedeki herkesin hesabı açık.</p>'}
+    ${missing.length && ui.missOpen ? `<div class="tablewrap"><table class="grid plist miss"><thead><tr><th class="name">Ad soyad</th><th>Personel ID</th><th>TC</th><th>Telefon</th></tr></thead><tbody>
       ${missing.map((x) => `<tr><td class="name">${esc(x.name)}${x.group ? ` <span class="gtag k-${x.group}">${x.group}</span>` : ''}</td>
-        <td><input class="ms-in" data-n="${esc(x.name)}" data-f="sicil" value="${dv(x.name, 'sicil')}" maxlength="32" aria-label="${esc(x.name)} sicil"></td>
+        <td><input class="ms-in" data-n="${esc(x.name)}" data-f="sicil" value="${dv(x.name, 'sicil')}" maxlength="32" aria-label="${esc(x.name)} Personel ID"></td>
         <td><input class="ms-in" data-n="${esc(x.name)}" data-f="tc" value="${dv(x.name, 'tc')}" inputmode="numeric" maxlength="11" aria-label="${esc(x.name)} TC"></td>
         <td><input class="ms-in" data-n="${esc(x.name)}" data-f="telefon" value="${dv(x.name, 'telefon')}" type="tel" inputmode="tel" placeholder="05xx…" aria-label="${esc(x.name)} telefon"></td></tr>`).join('')}
     </tbody></table></div>
@@ -1301,10 +1301,10 @@ function viewPersonnel() {
   return listCard + `<div class="card stack">
     <div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Yönetim</div><h2 style="font-size:24px">Personel · ${srv.personel.length} kişi</h2></div>
       <button class="btn primary" data-act="per-add">${ICON_PLUS}Kişi ekle</button><button class="btn" data-act="per-bulk">Toplu ekle</button></div>
-    <p class="small muted" style="margin:0">Kişiler sicil no ya da TC ve telefon numarasıyla girer; ilk girişte kendi 6 haneli şifresini belirler. Sildiğiniz kişi uygulamadan hemen çıkarılır. TC ve telefon numaraları geri çözülemeyecek biçimde saklanır; burada yalnızca son haneleri görünür.</p>
-    <input type="search" id="pq" placeholder="İsim ya da sicil ara" value="${esc(ui.pq || '')}" aria-label="Personel ara">
+    <p class="small muted" style="margin:0">Kişiler Personel ID ya da TC ve telefon numarasıyla girer; ilk girişte kendi 6 haneli şifresini belirler. Sildiğiniz kişi uygulamadan hemen çıkarılır. TC ve telefon numaraları geri çözülemeyecek biçimde saklanır; burada yalnızca son haneleri görünür.</p>
+    <input type="search" id="pq" placeholder="İsim ya da Personel ID ara" value="${esc(ui.pq || '')}" aria-label="Personel ara">
   </div>
-  <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Listede</th><th>Sicil</th><th>TC</th><th>Telefon</th><th>Yetki</th><th>Durum</th><th></th></tr></thead><tbody>
+  <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Listede</th><th>Personel ID</th><th>TC</th><th>Telefon</th><th>Yetki</th><th>Durum</th><th></th></tr></thead><tbody>
     ${rows.map((p) => { const l = listOf(p.ad); return `<tr><td class="name">${esc(p.ad)}</td><td>${l ? (l.group ? `<span class="gtag k-${l.group}">${l.group}</span>` : '✓') : '<span class="small muted">yok</span>'}</td><td>${esc(p.sicil || '–')}</td><td>${esc(p.tc || '–')}</td><td class="nowrap">${esc(p.telefon)}</td>
       <td>${p.rol === 'admin' ? '<span class="pill ok">Yönetici</span>' : 'Personel'}</td>
       <td class="small">${p.kilitli ? '<span class="pill bad">Kilitli</span>' : p.sifreVar ? (p.sonGiris ? 'Son giriş ' + fmtWhen(p.sonGiris) : 'Şifre var') : '<span class="muted">Henüz girmedi</span>'}</td>
@@ -1326,7 +1326,7 @@ function personnelSheet(id) {
   sheet(`<h3>${id ? 'Personeli düzenle' : 'Personel ekle'}</h3>
     <label class="field">Ad soyad<input id="pe-ad" value="${esc(p.ad)}" maxlength="120" list="pe-names" autocomplete="off"></label>
     <datalist id="pe-names">${allPeople().sort(cmpName).map((x) => `<option value="${esc(x.name)}">`).join('')}</datalist>
-    <label class="field">Sicil no<input id="pe-sicil" value="${esc(p.sicil || '')}" maxlength="32"></label>
+    <label class="field">Personel ID<input id="pe-sicil" value="${esc(p.sicil || '')}" maxlength="32"></label>
     <label class="field">TC kimlik no${id && p.tc ? ` <span class="small muted">(kayıtlı: ${esc(p.tc)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tc" inputmode="numeric" maxlength="11" autocomplete="off"></label>
     <label class="field">Telefon${id ? ` <span class="small muted">(kayıtlı: ${esc(p.telefon)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tel" type="tel" inputmode="tel" placeholder="05xx xxx xx xx" autocomplete="off"></label>
     <label class="field">Yetki<select id="pe-rol"><option value="staff" ${p.rol !== 'admin' ? 'selected' : ''}>Personel (yalnızca görür)</option><option value="admin" ${p.rol === 'admin' ? 'selected' : ''}>Yönetici (liste yayınlar, personel yönetir)</option></select></label>
@@ -1361,7 +1361,7 @@ function parseBulk(text) {
 }
 function bulkSheet() {
   sheet(`<h3>Toplu personel ekle</h3>
-    <p class="small muted" style="margin:0">Excel'den 4 sütunu kopyalayıp yapıştırın: <b>Ad Soyad · Sicil No · TC · Telefon</b>. Sicil ya da TC'si kayıtlı olan kişinin bilgileri güncellenir, yetkisi değişmez.</p>
+    <p class="small muted" style="margin:0">Excel'den 4 sütunu kopyalayıp yapıştırın: <b>Ad Soyad · Personel ID · TC · Telefon</b>. Personel ID'si ya da TC'si kayıtlı olan kişinin bilgileri güncellenir, yetkisi değişmez.</p>
     <textarea id="bk-text" rows="8" placeholder="Ayşe Demir&#9;1001&#9;12345678950&#9;05321234567"></textarea>
     <div id="bk-res" class="small"></div>
     <div class="row"><button class="btn primary" id="bk-ok">Ekle</button><button class="btn" data-x="1">Kapat</button></div>`, (bg) => {
