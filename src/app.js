@@ -325,7 +325,7 @@ function signOut(msg) {
 }
 // Yayınlanan listenin parmak izi: yöneticinin cihazında yayınlanmamış değişiklik var mı?
 function pubHash() {
-  const t = JSON.stringify([Object.keys(store.people).sort().map((k) => [k, store.people[k].name, store.people[k].group, store.people[k].days, store.people[k].auto || null]), store.settings.company, store.settings.hours, store.settings.offRule, store.rules]);
+  const t = JSON.stringify([Object.keys(store.people).sort().map((k) => [k, store.people[k].name, store.people[k].group, store.people[k].days, store.people[k].auto || null]), store.rules]);
   let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
@@ -346,9 +346,12 @@ async function syncData(force) {
   auth.ben = j.ben; saveAuth();
   srv.v = j.surum; srv.duyurular = j.duyurular || [];
   const L = j.liste;
+  srv.ayarlar = j.ayarlar || null;
   // yöneticinin yayınlamadığı değişiklikler korunur; başka biri yeni liste yayınladıysa uyarılır
   if (!force && isDirty()) srv.conflict = !!(L && (!store.pub || L.id !== store.pub.id));
   else { srv.conflict = false; applyRoster(L); }
+  // ortak (yönetici) ayarlar ve kişinin kendi tercihleri listedekilerin önüne geçer
+  applyServerSettings(j.ayarlar, j.ben.tercih);
 }
 async function publish() {
   if (!Object.keys(store.people).length) { toast('Yayınlanacak liste yok'); return; }
@@ -363,7 +366,7 @@ async function checkServer() {
   if (!SERVER || !auth || document.visibilityState !== 'visible' || !navigator.onLine || srv.loading) return;
   try {
     const old = srv.v; const j = await api('surum'); const v = j.surum;
-    if (old && v.liste === old.liste && v.duyuru === old.duyuru && v.duyuruSayi === old.duyuruSayi) return;
+    if (old && v.liste === old.liste && v.duyuru === old.duyuru && v.duyuruSayi === old.duyuruSayi && v.ayar === old.ayar) return;
     srv.loading = true;
     try { await syncData(); } finally { srv.loading = false; }
     if (old && v.liste !== old.liste && !isAdmin()) toast('Yeni vardiya listesi yayınlandı');
@@ -986,64 +989,74 @@ function viewReview() {
 function viewSettings() {
   const S = store.settings;
   const online = navigator.onLine; const errs = readLS(ERR_KEY, []).length;
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark' || (!document.documentElement.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+  const sw = (attr, on, label, hint) => `<label class="setrow"><span><b>${label}</b>${hint ? `<small>${hint}</small>` : ''}</span><span class="switch"><input type="checkbox" ${attr} ${on ? 'checked' : ''}><i></i></span></label>`;
+  const admin = !SERVER || isAdmin();
+  const roleNote = SERVER ? '<span class="sect-note">Herkese uygulanır</span>' : '';
   const account = SERVER && auth ? `<div class="card stack">
-    <h2 style="font-size:22px">Hesap</h2>
-    <div class="permrow"><span><b>${esc(auth.ben.ad)}</b><br><span class="small muted">${titleOf(auth.ben)}${auth.ben.sicil ? ' · Personel ID ' + esc(auth.ben.sicil) : ''} · ${auth.hatirla ? 'oturum açık kalır' : 'uygulama kapanınca oturum kapanır'}</span></span><span></span><button class="btn" data-act="logout">Çıkış yap</button></div>
+    <div class="setrow"><span class="acc"><span class="av">${esc(initials(auth.ben.ad))}</span><span><b>${esc(auth.ben.ad)}</b><small>${esc(titleOf(auth.ben))}${auth.ben.sicil ? ' · Personel ID ' + esc(auth.ben.sicil) : ''} · ${auth.hatirla ? 'oturum açık kalır' : 'uygulama kapanınca oturum kapanır'}</small></span></span><button class="btn" data-act="logout">Çıkış yap</button></div>
     ${store.pub ? `<p class="small muted" style="margin:0">Yayındaki liste: ${fmtWhen(store.pub.tarih)}${store.pub.yayinlayan ? ' · ' + esc(store.pub.yayinlayan) : ''}</p>` : ''}
   </div>` : '';
-  const shared = !SERVER || isAdmin();
-  return account + `<div class="card stack">
-    <h2 style="font-size:22px">Görünüm</h2>
-    <div class="seg seg3" role="radiogroup" aria-label="Tema">${[['auto', 'Sistem'], ['light', 'Açık'], ['dark', 'Koyu']].map(([v, l]) => `<button role="radio" data-act="set-theme" data-theme-val="${v}" aria-selected="${prefs.theme === v}" aria-checked="${prefs.theme === v}">${l}</button>`).join('')}</div>
-    <p class="small muted" style="margin:0">“Sistem” seçiliyken telefonun koyu/açık mod ayarı kullanılır.</p>
-  </div>
-  ${shared ? `<div class="card stack">
-    <h2 style="font-size:22px">OFF ve izinliler hangi vardiyada görünsün?</h2>
-    <div class="seg" role="radiogroup" aria-label="OFF kuralı">${[['return', 'Döndüğü vardiya'], ['team', 'Kendi listesinin vardiyası']].map(([v, l]) => `<button role="radio" data-act="set-off-rule" data-v="${v}" aria-selected="${(S.offRule || 'return') === v}" aria-checked="${(S.offRule || 'return') === v}">${l}</button>`).join('')}</div>
-    <p class="small muted" style="margin:0">${(S.offRule || 'return') === 'team' ? 'Kişi hangi vardiya listesinden okunduysa OFF, rapor ve izin günleri o vardiyada görünür.' : 'OFF günü, kişinin OFF’tan sonra döndüğü vardiyaya yazılır: 3. vardiyadan çıkıp 1.’ye dönenin OFF’u 1. vardiyadadır; 1 → OFF → 1 de 1. vardiyadır.'}</p>
-  </div>
-` : ''}  <div class="card stack">
-    <h2 style="font-size:22px">Paylaşılan liste biçimi</h2>
-    <label class="row" style="gap:8px"><input type="checkbox" id="set-sh-bold" ${S.share.bold ? 'checked' : ''}> <span>Başlıklar <b>kalın</b> (WhatsApp)</span></label>
-    <div class="seg seg3" role="radiogroup" aria-label="İsim listesi">${[['num', '1. 2. 3.'], ['bullet', '• Maddeli'], ['plain', 'Düz']].map(([v, l]) => `<button role="radio" data-act="set-sh-style" data-v="${v}" aria-selected="${S.share.style === v}" aria-checked="${S.share.style === v}">${l}</button>`).join('')}</div>
-    <pre class="share-prev">${esc((S.share.bold ? '*1. VARDİYA*' : '1. VARDİYA') + '\n' + (S.share.bold ? '*Çalışanlar (2)*' : 'Çalışanlar (2)') + '\n' + ['Ayşe Demir', 'Mehmet Kaya'].map((n, i) => (S.share.style === 'num' ? i + 1 + '. ' : S.share.style === 'bullet' ? '• ' : '') + n).join('\n') + '\n\n' + (S.share.bold ? '*OFF (2)*' : 'OFF (2)') + '\n' + ['Elif Arslan', 'Hasan Doğan'].map((n, i) => (S.share.style === 'num' ? i + 1 + '. ' : S.share.style === 'bullet' ? '• ' : '') + n).join('\n'))}</pre>
-  </div>
-  ${shared ? `<div class="card stack">
-    <h2 style="font-size:22px">İzinler</h2>
-    <div class="permrow"><span><b>Fotoğraflar</b><br><span class="small muted">Vardiya listesi görsellerini seçmek için</span></span>
-      <span class="pill ${prefs.photoOk ? 'ok' : 'bad'}">${prefs.photoOk ? 'İzin verildi' : 'İzin yok'}</span>
-      <button class="btn" data-act="${prefs.photoOk ? 'photo-revoke' : 'photo-allow'}">${prefs.photoOk ? 'İzni kaldır' : 'İzin ver'}</button></div>
-    <div class="permrow"><span><b>İnternet</b><br><span class="small muted">Güncellemeleri denetlemek için</span></span>
-      <span class="pill ${online ? 'ok' : 'bad'}">${online ? 'Bağlı' : 'Bağlı değil'}</span><span></span></div>
-  </div>
-` : ''}  <div class="card stack">
-    <h2 style="font-size:22px">Güncelleme</h2>
-    <p class="small muted" style="margin:0">Yüklü sürüm: <b>${esc(APP_VERSION)}</b>. Yeni sürümler ${window.Capacitor && window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'ios' ? 'App Store' : 'Google Play'} üzerinden gelir.</p>
-    <div class="row"><button class="btn primary" data-act="check-update">Güncellemeleri denetle</button></div>
-  </div>
-  <div class="card stack">
-    <h2 style="font-size:22px">Hata bildirimi</h2>
-    <p class="small muted" style="margin:0">Uygulamada bir sorun olursa hata kaydı telefonda tutulur (${errs ? errs + ' kayıt' : 'kayıt yok'}). “Hata raporu gönder” ile sürüm, telefon modeli, Android sürümü, ekran bilgisi ve hata kayıtlarını içeren raporu seçtiğiniz uygulamayla (WhatsApp, e-posta) gönderebilirsiniz. Rapor siz göndermedikçe hiçbir yere gitmez; isimler rapora eklenmez.</p>
-    <div class="row"><button class="btn" data-act="send-report">Hata raporu gönder</button>${errs ? '<button class="btn" data-act="clear-errors">Kayıtları temizle</button>' : ''}</div>
-  </div>
-  ${shared ? `<div class="card stack">
-    <h2 style="font-size:22px">Genel</h2>
+  const personal = `<h2 class="sect">Kişisel ayarlar${SERVER ? '<span class="sect-note">Hesabınıza kaydedilir, her cihazda aynı</span>' : ''}</h2>
+  <div class="card setlist">
+    ${sw('data-pref="dark"', dark, 'Koyu tema', 'Kapalıyken açık (krem) tema')}
+    ${sw('data-pref="bold"', S.share.bold, 'Paylaşımda başlıklar kalın', 'WhatsApp’ta *kalın* görünür')}
+    <div class="setrow"><span><b>İsim listesi biçimi</b><small>Paylaşılan listede isimlerin başı</small></span>
+      <div class="seg seg3 mini" role="radiogroup" aria-label="İsim listesi">${[['num', '1. 2. 3.'], ['bullet', '• Madde'], ['plain', 'Düz']].map(([v, l]) => `<button role="radio" data-act="set-sh-style" data-v="${v}" aria-selected="${S.share.style === v}" aria-checked="${S.share.style === v}">${l}</button>`).join('')}</div></div>
+    <pre class="share-prev">${esc((S.share.bold ? '*1. VARDİYA*' : '1. VARDİYA') + '\n' + (S.share.bold ? '*Çalışanlar (2)*' : 'Çalışanlar (2)') + '\n' + ['Ayşe Demir', 'Mehmet Kaya'].map((n, i) => (S.share.style === 'num' ? i + 1 + '. ' : S.share.style === 'bullet' ? '• ' : '') + n).join('\n'))}</pre>
+  </div>`;
+  const adminPart = admin ? `<h2 class="sect">Yönetici ayarları${roleNote}</h2>
+  <div class="card setlist">
+    ${sw('data-org="offteam"', S.offRule === 'team', 'OFF ve izinliler kendi listesinin vardiyasında', S.offRule === 'team' ? 'Kişi hangi vardiya listesindeyse OFF/izin günleri o vardiyada görünür' : 'Kapalı: OFF, kişinin OFF’tan sonra döndüğü vardiyada görünür (3 → OFF → 1 ise 1. vardiya)')}
     <div class="settings-grid">
-      <label class="field">Şirket / bölüm adı (paylaşımda görünür)<input type="text" id="set-company" value="${esc(S.company)}" placeholder="Örn. Üretim Bölümü"></label>
-      ${['1', '2', '3'].map((g) => `<label class="field">${g}. vardiya saatleri<input type="text" id="set-h${g}" value="${esc(S.hours[g])}"></label>`).join('')}
+      <label class="field">Şirket / bölüm adı<input type="text" data-org="company" value="${esc(S.company)}" placeholder="Örn. Acil Servis"></label>
+      ${['1', '2', '3'].map((g) => `<label class="field">${g}. vardiya saatleri<input type="text" data-org="h${g}" value="${esc(S.hours[g])}"></label>`).join('')}
     </div>
   </div>
   <div class="card stack">
-    <h2 style="font-size:22px">Hücre renkleri</h2>
-    <p class="small muted" style="margin:0">Listede renkli hücreler ne anlama geliyor? Kırmızı varsayılan olarak OFF. Şirketiniz izinleri başka renkle gösteriyorsa buradan eşleştirin.</p>
-    <div class="settings-grid">${Object.keys(COLOR_NAMES).map((c) => `<label class="field"><span class="row" style="gap:6px"><span class="dot" style="background:${SWATCH[c]}"></span>${COLOR_NAMES[c]} hücre</span>
-      <select id="set-c-${c}">${[['', 'Dikkate alma'], ['OFF', 'OFF'], ['R', 'Raporlu'], ['YI', 'Yıllık İzin'], ['UI', 'Ücretsiz İzin'], ['MI', 'Diğer İzin']].map(([v, l]) => `<option value="${v}" ${S.colors[c] === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`).join('')}</div>
+    <div class="setrow" style="padding:0"><span><b>Hücre renkleri</b><small>Okutulan listede renkli hücreler ne demek? Kırmızı varsayılan olarak OFF.</small></span></div>
+    <div class="settings-grid colors">${Object.keys(COLOR_NAMES).map((c) => `<label class="field"><span class="row" style="gap:6px"><span class="dot" style="background:${SWATCH[c]}"></span>${COLOR_NAMES[c]}</span>
+      <select data-org="c-${c}">${[['', 'Dikkate alma'], ['OFF', 'OFF'], ['R', 'Raporlu'], ['YI', 'Yıllık İzin'], ['UI', 'Ücretsiz İzin'], ['MI', 'Diğer İzin']].map(([v, l]) => `<option value="${v}" ${S.colors[c] === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`).join('')}</div>
   </div>
-` : ''}  ${!SERVER ? `<div class="card stack">
-    <h2 style="font-size:22px">Veri</h2>
+  <div class="card setlist">${sw('data-pref="photo"', prefs.photoOk, 'Fotoğraflara erişim', 'Liste görsellerini seçebilmek için')}</div>` : '';
+  const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const appPart = `<h2 class="sect">Uygulama</h2>
+  <div class="card setlist">
+    <div class="setrow"><span><b>Sürüm ${esc(APP_VERSION)}</b><small>${native ? (window.Capacitor.getPlatform() === 'ios' ? 'App Store' : 'Google Play') + ' üzerinden güncellenir' : 'Web sürümü her açılışta güncel'} · İnternet: ${online ? 'bağlı' : 'yok'}</small></span>${native ? '<button class="btn" data-act="check-update">Güncellemeleri denetle</button>' : ''}</div>
+    <div class="setrow"><span><b>Hata bildirimi</b><small>${errs ? errs + ' hata kaydı var' : 'Hata kaydı yok'} · isimler rapora eklenmez</small></span><span class="row" style="gap:6px"><button class="btn" data-act="send-report">Rapor gönder</button>${errs ? '<button class="btn" data-act="clear-errors">Temizle</button>' : ''}</span></div>
+  </div>`;
+  const dataPart = !SERVER ? `<h2 class="sect">Veri</h2><div class="card stack">
     <p class="small muted" style="margin:0">Veriler yalnızca bu cihazda saklanır. Başka telefona aktarmak için yedeği kopyalayıp diğer cihazda “Yedekten yükle”ye yapıştırın.</p>
-    <div class="row"><button class="btn" data-act="backup">Yedeği kopyala</button><button class="btn" data-act="restore-open">Yedekten yükle</button><button class="btn" data-act="clean-bad">Hatalı isimleri temizle</button><button class="btn danger" data-act="wipe">Tüm verileri sil</button></div>
-  </div>` : ''}`;
+    <div class="row"><button class="btn" data-act="backup">Yedeği kopyala</button><button class="btn" data-act="restore-open">Yedekten yükle</button><button class="btn" data-act="clean-bad">Hatalı isimleri temizle</button><button class="btn danger" data-act="wipe">Tüm verileri sil</button></div></div>` : '';
+  return account + personal + adminPart + appPart + dataPart;
+}
+// yönetici ayarları sunucuya (herkese), kişisel tercihler hesaba kaydedilir
+const orgSettings = () => ({ company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule, colors: store.settings.colors });
+const myPrefs = () => ({ tema: prefs.theme, paylas: { bold: !!store.settings.share.bold, style: store.settings.share.style } });
+let orgT = null, prefT = null;
+function syncOrg() { save(); if (!SERVER || !auth) { toast('Kaydedildi'); return; } clearTimeout(orgT); orgT = setTimeout(async () => { try { const j = await api('ayar-kaydet', { ayarlar: orgSettings() }); if (srv.v) srv.v.ayar = j.surum.ayar; toast('Kaydedildi · herkese uygulandı'); } catch (e) { toast(e.message); } }, 400); }
+function syncPrefs() { savePrefs(); save(); if (!SERVER || !auth) return; clearTimeout(prefT); prefT = setTimeout(() => api('tercih-kaydet', { tercih: myPrefs() }).catch((e) => toast(e.message)), 400); }
+function applyServerSettings(a, t) {
+  if (a) { const S = store.settings; S.company = a.company || ''; for (const g of ['1', '2', '3']) if (a.hours && a.hours[g]) S.hours[g] = a.hours[g]; S.offRule = a.offRule === 'team' ? 'team' : 'return'; if (a.colors) S.colors = { ...S.colors, ...a.colors }; }
+  if (t) { if (t.tema && t.tema !== prefs.theme) { prefs.theme = t.tema; savePrefs(); applyTheme(); } if (t.paylas) store.settings.share = { bold: !!t.paylas.bold, style: t.paylas.style || 'num' }; }
+  save();
+}
+function bindSettings() {
+  $app.querySelectorAll('[data-pref]').forEach((el) => el.addEventListener('change', () => {
+    const k = el.dataset.pref;
+    if (k === 'dark') { prefs.theme = el.checked ? 'dark' : 'light'; applyTheme(); }
+    if (k === 'bold') store.settings.share.bold = el.checked;
+    if (k === 'photo') { if (el.checked) { el.checked = false; askPhotoAccess(() => render()); return; } prefs.photoOk = false; savePrefs(); render(); return; }
+    syncPrefs(); render();
+  }));
+  $app.querySelectorAll('[data-org]').forEach((el) => el.addEventListener('change', () => {
+    const k = el.dataset.org; const S = store.settings;
+    if (k === 'offteam') S.offRule = el.checked ? 'team' : 'return';
+    else if (k === 'company') { S.company = el.value.trim(); }
+    else if (/^h[123]$/.test(k)) S.hours[k[1]] = el.value.trim();
+    else if (k.startsWith('c-')) S.colors[k.slice(2)] = el.value;
+    syncOrg(); if (k === 'offteam' || k === 'company') render();
+  }));
 }
 
 const SWATCH = { red: '#e02828', orange: '#f08a1c', yellow: '#f2cf1d', green: '#2fa84f', blue: '#2f7de1', purple: '#8e44c9', gray: '#9aa3ad' };
@@ -1098,14 +1111,8 @@ function bindView() {
       P.start = el.value; render();
     }));
   }
-  if (ui.view === 'ayarlar') {
-    const S = store.settings;
-    const bind = (id, fn) => { const el = document.getElementById(id); if (!el) return; el.addEventListener('change', () => { fn(el.value); save(); toast('Kaydedildi'); }); };
-    const sb = document.getElementById('set-sh-bold'); if (sb) sb.addEventListener('change', () => { S.share.bold = sb.checked; save(); render(); });
-    bind('set-company', (v) => { S.company = v.trim(); document.getElementById('brand-sub').textContent = S.company || '1 · 2 · 3 vardiya, OFF ve izin takibi'; });
-    ['1', '2', '3'].forEach((g) => bind('set-h' + g, (v) => { S.hours[g] = v.trim(); }));
-    Object.keys(COLOR_NAMES).forEach((c) => bind('set-c-' + c, (v) => { S.colors[c] = v; }));
-  }
+  if (ui.view === 'ayarlar') bindSettings();
+
 }
 
 const actions = {
@@ -1212,8 +1219,8 @@ const actions = {
       bad.forEach(([k]) => { delete store.people[k]; renameDayAreas(k, null); }); save(); render(); toast(`${bad.length} hatalı kayıt silindi`);
     });
   },
-  'set-off-rule': (el) => { store.settings.offRule = el.dataset.v; save(); render(); },
-  'set-sh-style': (el) => { store.settings.share.style = el.dataset.v; save(); render(); },
+  'set-off-rule': (el) => { store.settings.offRule = el.dataset.v; syncOrg(); render(); },
+  'set-sh-style': (el) => { store.settings.share.style = el.dataset.v; syncPrefs(); render(); },
   'set-theme': (el) => { prefs.theme = el.dataset.themeVal; savePrefs(); applyTheme(); render(); },
   'photo-allow': () => askPhotoAccess(() => { render(); toast('Fotoğraf izni verildi'); }),
   'photo-revoke': () => { prefs.photoOk = false; savePrefs(); render(); toast('Fotoğraf izni kaldırıldı'); },
