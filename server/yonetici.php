@@ -31,14 +31,14 @@ $st = db()->prepare('SELECT id FROM personnel WHERE sicil = ? OR (tc_hash IS NOT
 $st->execute([$sicil, $tcHash ?? '']);
 $id = (int)($st->fetchColumn() ?: 0);
 if ($id) {
-  db()->prepare("UPDATE personnel SET name = ?, role = 'admin', phone_hash = ?, phone_last4 = ?, pin_hash = NULL, failed = 0, locked_until = NULL WHERE id = ?")
+  db()->prepare("UPDATE personnel SET name = ?, role = 'admin', title = 'yonetici', phone_hash = ?, phone_last4 = ?, pin_hash = NULL, failed = 0, locked_until = NULL WHERE id = ?")
     ->execute([$name, hmac('tel:' . $tel), substr($tel, -4), $id]);
   if ($tcHash) db()->prepare('UPDATE personnel SET tc_hash = ?, tc_last2 = ? WHERE id = ?')->execute([$tcHash, substr($tc, -2), $id]);
   db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$id]);
   audit(null, 'yonetici-cli', "$name yönetici yapıldı");
   echo "Var olan hesap yönetici yapıldı: $name (Personel ID $sicil, telefon ••••" . substr($tel, -4) . ")\n";
 } else {
-  db()->prepare("INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, created_at) VALUES (?,?,?,?,?,?,'admin',?)")
+  db()->prepare("INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, created_at) VALUES (?,?,?,?,?,?,'admin','yonetici',?)")
     ->execute([$name, $sicil, $tcHash, $tcHash ? substr($tc, -2) : null, hmac('tel:' . $tel), substr($tel, -4), now()]);
   audit(null, 'yonetici-cli', "$name yönetici olarak eklendi");
   echo "Yönetici hesabı açıldı: $name (Personel ID $sicil, telefon ••••" . substr($tel, -4) . ")\n";
