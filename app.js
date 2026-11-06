@@ -26,11 +26,13 @@ const DAY_SHORT = ['Pz', 'Pt', 'Sa', 'Ça', 'Pe', 'Cu', 'Ct'];
 const MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 // Sunucu modu: web panelinde (api.php ile aynı adreste) ya da sunucu adresiyle derlenmiş telefon uygulamasında
 // liste, personel ve duyurular sunucudan gelir; kişi sicil/TC + telefon + şifre ile girer. Değilse tek cihazlık eski mod.
-const API_URL = (() => {
+// Telefon uygulamasında birden çok sunucu adresi olabilir (virgülle): ilki çalışmazsa sıradaki denenir.
+const API_LIST = (() => {
   const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-  if (native) return /^https:\/\//.test('') ? '' : '';
-  return '1' === '1' && /^https?:$/.test(location.protocol) ? 'api.php' : '';
+  if (native) return ''.split(',').map((u) => u.trim()).filter((u) => /^https:\/\//.test(u));
+  return '1' === '1' && /^https?:$/.test(location.protocol) ? ['api.php'] : [];
 })();
+let API_URL = (() => { try { const u = localStorage.getItem('ccn-api'); if (API_LIST.includes(u)) return u; } catch (e) { /* yoksay */ } return API_LIST[0] || ''; })();
 const SERVER = !!API_URL;
 // v2: sıfırlandı — önceki hatalı okumalardan kalan kayıtlar yüklenmez. Sunucu modunun önbelleği ayrı tutulur.
 const STORE_KEY = SERVER ? 'ccn-sunucu-v1' : 'vardiya-panosu-v2';
@@ -293,8 +295,14 @@ async function api(r, body) {
   const headers = { 'Content-Type': 'application/json' };
   if (auth && auth.token) headers['X-Ccn-Token'] = auth.token;
   let res;
-  try { res = await fetch(API_URL + '?r=' + r, { method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' }); }
-  catch (e) { throw new Error('Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.'); }
+  const order = [API_URL, ...API_LIST.filter((u) => u !== API_URL)];
+  for (const base of order) {
+    try { res = await fetch(base + '?r=' + r, { method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' }); }
+    catch (e) { continue; } // bu adrese ulaşılamadı: sıradakini dene
+    if (base !== API_URL) { API_URL = base; try { localStorage.setItem('ccn-api', base); } catch (e) { /* yoksay */ } }
+    break;
+  }
+  if (!res) throw new Error('Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.');
   let j = null; try { j = await res.json(); } catch (e) { /* JSON değil */ }
   if (res.status === 401 && j && j.cikis && r !== 'giris') { signOut('Oturumunuz kapandı. Hesabınız kaldırılmış ya da oturum süresi dolmuş olabilir.'); throw new Error(j.hata); }
   if (!res.ok || !j || j.hata) throw new Error((j && j.hata) || `Sunucu hatası (${res.status})`);
@@ -809,6 +817,7 @@ function bindView() {
     }
     el.addEventListener('click', (e) => { e.preventDefault(); actions[act] && actions[act](el); });
   });
+  $app.querySelectorAll('.ms-in').forEach((inp) => inp.addEventListener('input', () => { const D = ui.missDraft || (ui.missDraft = {}); (D[inp.dataset.n] = D[inp.dataset.n] || {})[inp.dataset.f] = inp.value; }));
   const pq = document.getElementById('pq');
   if (pq) pq.addEventListener('input', () => { ui.pq = pq.value; const pos = pq.selectionStart; render(); const n = document.getElementById('pq'); n.focus(); n.setSelectionRange(pos, pos); });
   const qi = document.getElementById('q');
@@ -879,6 +888,23 @@ const actions = {
   },
   'ann-del': (el) => confirmSheet('Duyuru silinsin mi?', 'Duyuru herkesten kaldırılır.', 'Sil', async () => { try { await api('duyuru-sil', { id: +el.dataset.id }); await syncData(); render(); toast('Duyuru silindi'); } catch (e) { toast(e.message); } }),
   'per-add': () => personnelSheet(0),
+  'miss-toggle': () => { ui.missOpen = !ui.missOpen; render(); },
+  'miss-save': async (el) => {
+    const D = ui.missDraft || {};
+    const rows = Object.entries(D).map(([ad, v]) => ({ ad, sicil: (v.sicil || '').trim(), tc: (v.tc || '').trim(), telefon: (v.telefon || '').trim() })).filter((r) => r.telefon && (r.sicil || r.tc));
+    const half = Object.entries(D).filter(([, v]) => (v.sicil || v.tc || v.telefon) && !(v.telefon && (v.sicil || v.tc))).map(([n]) => n);
+    if (!rows.length) { toast(half.length ? 'Her kişi için telefon ve sicil/TC birlikte gerekli' : 'Önce sicil/TC ve telefon yazın'); return; }
+    el.disabled = true;
+    try {
+      const j = await api('personel-toplu', { kisiler: rows });
+      const bad = new Set(j.hatalar.map((h) => (h.match(/\(([^)]+)\)/) || [])[1]).filter(Boolean));
+      for (const r of rows) if (!bad.has(r.ad)) delete D[r.ad];
+      srv.personel = null; await loadPersonnel();
+      toast(`${j.eklenen} hesap açıldı${j.hatalar.length ? ', ' + j.hatalar.length + ' satır hatalı' : ''}`);
+      if (j.hatalar.length) setTimeout(() => { const m = document.getElementById('miss-res'); if (m) m.textContent = j.hatalar.join(' · '); }, 50);
+    } catch (e) { toast(e.message); }
+    el.disabled = false;
+  },
   'per-edit': (el) => personnelSheet(+el.dataset.id),
   'per-bulk': () => bulkSheet(),
   'per-log': async () => { try { srv.kayitlar = (await api('kayitlar')).kayitlar; render(); } catch (e) { toast(e.message); } },
@@ -996,17 +1022,36 @@ function viewPersonnel() {
   const q = nameKey(ui.pq || '');
   const rows = srv.personel.filter((p) => !q || nameKey(p.ad).includes(q) || String(p.sicil || '').includes(ui.pq || ''));
   const admins = srv.personel.filter((p) => p.rol === 'admin').length;
-  return `<div class="card stack">
+  // yayınlanan / yüklenen vardiya listesindeki isimler ile personel hesapları eşleştirilir
+  const listed = allPeople().sort(cmpName);
+  const listOf = (ad) => listed.find((x) => nameKey(x.name) === nameKey(ad)) || listed.find((x) => sameStrict(x.name, ad));
+  const hasAcc = (name) => srv.personel.some((p) => nameKey(p.ad) === nameKey(name) || sameStrict(p.ad, name));
+  const missing = listed.filter((x) => !hasAcc(x.name));
+  const D = ui.missDraft || (ui.missDraft = {});
+  const dv = (n, f) => esc((D[n] && D[n][f]) || '');
+  const listCard = listed.length ? `<div class="card stack">
+    <div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Vardiya listesindeki isimler</div><h2 style="font-size:22px">${listed.length} kişi · ${listed.length - missing.length} hesap açık · ${missing.length} bekliyor</h2></div>
+      ${missing.length ? `<button class="btn" data-act="miss-toggle">${ui.missOpen ? 'Gizle' : 'Hesap aç'}</button>` : ''}</div>
+    ${missing.length ? `<p class="small muted" style="margin:0">Listede olup hesabı olmayan kişilerin sicil no ya da TC'sini ve telefonunu yazıp kaydedin. İsim listedekiyle aynı kaydedilir; kişi girince kendi vardiyasını görür.</p>` : '<p class="small muted" style="margin:0">Listedeki herkesin hesabı açık.</p>'}
+    ${missing.length && ui.missOpen ? `<div class="tablewrap"><table class="grid plist miss"><thead><tr><th class="name">Ad soyad</th><th>Sicil no</th><th>TC</th><th>Telefon</th></tr></thead><tbody>
+      ${missing.map((x) => `<tr><td class="name">${esc(x.name)}${x.group ? ` <span class="gtag k-${x.group}">${x.group}</span>` : ''}</td>
+        <td><input class="ms-in" data-n="${esc(x.name)}" data-f="sicil" value="${dv(x.name, 'sicil')}" maxlength="32" aria-label="${esc(x.name)} sicil"></td>
+        <td><input class="ms-in" data-n="${esc(x.name)}" data-f="tc" value="${dv(x.name, 'tc')}" inputmode="numeric" maxlength="11" aria-label="${esc(x.name)} TC"></td>
+        <td><input class="ms-in" data-n="${esc(x.name)}" data-f="telefon" value="${dv(x.name, 'telefon')}" type="tel" inputmode="tel" placeholder="05xx…" aria-label="${esc(x.name)} telefon"></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="row"><button class="btn primary" data-act="miss-save">Doldurulanları kaydet</button><span class="small muted" id="miss-res"></span></div>` : ''}
+  </div>` : `<div class="card"><p class="small muted" style="margin:0">Vardiya listesi yüklenince listedeki isimler burada görünür ve tek tek hesap açılabilir.</p></div>`;
+  return listCard + `<div class="card stack">
     <div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Yönetim</div><h2 style="font-size:24px">Personel · ${srv.personel.length} kişi</h2></div>
       <button class="btn primary" data-act="per-add">${ICON_PLUS}Kişi ekle</button><button class="btn" data-act="per-bulk">Toplu ekle</button></div>
     <p class="small muted" style="margin:0">Kişiler sicil no ya da TC ve telefon numarasıyla girer; ilk girişte kendi 6 haneli şifresini belirler. Sildiğiniz kişi uygulamadan hemen çıkarılır. TC ve telefon numaraları geri çözülemeyecek biçimde saklanır; burada yalnızca son haneleri görünür.</p>
     <input type="search" id="pq" placeholder="İsim ya da sicil ara" value="${esc(ui.pq || '')}" aria-label="Personel ara">
   </div>
-  <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Sicil</th><th>TC</th><th>Telefon</th><th>Yetki</th><th>Durum</th><th></th></tr></thead><tbody>
-    ${rows.map((p) => `<tr><td class="name">${esc(p.ad)}</td><td>${esc(p.sicil || '–')}</td><td>${esc(p.tc || '–')}</td><td class="nowrap">${esc(p.telefon)}</td>
+  <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Listede</th><th>Sicil</th><th>TC</th><th>Telefon</th><th>Yetki</th><th>Durum</th><th></th></tr></thead><tbody>
+    ${rows.map((p) => { const l = listOf(p.ad); return `<tr><td class="name">${esc(p.ad)}</td><td>${l ? (l.group ? `<span class="gtag k-${l.group}">${l.group}</span>` : '✓') : '<span class="small muted">yok</span>'}</td><td>${esc(p.sicil || '–')}</td><td>${esc(p.tc || '–')}</td><td class="nowrap">${esc(p.telefon)}</td>
       <td>${p.rol === 'admin' ? '<span class="pill ok">Yönetici</span>' : 'Personel'}</td>
       <td class="small">${p.kilitli ? '<span class="pill bad">Kilitli</span>' : p.sifreVar ? (p.sonGiris ? 'Son giriş ' + fmtWhen(p.sonGiris) : 'Şifre var') : '<span class="muted">Henüz girmedi</span>'}</td>
-      <td class="nowrap"><button class="btn small" data-act="per-edit" data-id="${p.id}">Düzenle</button></td></tr>`).join('') || '<tr><td class="name" colspan="7">Kimse yok</td></tr>'}
+      <td class="nowrap"><button class="btn small" data-act="per-edit" data-id="${p.id}">Düzenle</button></td></tr>`; }).join('') || '<tr><td class="name" colspan="8">Kimse yok</td></tr>'}
   </tbody></table></div>
   <div class="card stack">
     <div class="row"><h2 style="font-size:20px;flex:1">İşlem kayıtları</h2><button class="btn" data-act="per-log">${srv.kayitlar ? 'Yenile' : 'Göster'}</button></div>
@@ -1022,7 +1067,8 @@ async function loadPersonnel() {
 function personnelSheet(id) {
   const p = id ? srv.personel.find((x) => x.id === id) : { ad: '', sicil: '', rol: 'staff' };
   sheet(`<h3>${id ? 'Personeli düzenle' : 'Personel ekle'}</h3>
-    <label class="field">Ad soyad<input id="pe-ad" value="${esc(p.ad)}" maxlength="120"></label>
+    <label class="field">Ad soyad<input id="pe-ad" value="${esc(p.ad)}" maxlength="120" list="pe-names" autocomplete="off"></label>
+    <datalist id="pe-names">${allPeople().sort(cmpName).map((x) => `<option value="${esc(x.name)}">`).join('')}</datalist>
     <label class="field">Sicil no<input id="pe-sicil" value="${esc(p.sicil || '')}" maxlength="32"></label>
     <label class="field">TC kimlik no${id && p.tc ? ` <span class="small muted">(kayıtlı: ${esc(p.tc)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tc" inputmode="numeric" maxlength="11" autocomplete="off"></label>
     <label class="field">Telefon${id ? ` <span class="small muted">(kayıtlı: ${esc(p.telefon)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tel" type="tel" inputmode="tel" placeholder="05xx xxx xx xx" autocomplete="off"></label>
@@ -1049,8 +1095,10 @@ function parseBulk(text) {
     if (!line.trim()) continue;
     const c = line.split(/\t|;|,(?=\s*\S)/).map((x) => x.trim());
     if (out.length === 0 && /ad|isim/i.test(c[0]) && !/\d/.test(line)) continue; // başlık satırı
-    const [ad, sicil = '', tc = '', telefon = ''] = c;
-    out.push({ ad, sicil, tc, telefon });
+    const [ad0, sicil = '', tc = '', telefon = ''] = c;
+    // isim vardiya listesindekiyle eşleşirse listedeki yazılışı kullanılır (kişi girince kendi vardiyasını görsün)
+    const hit = allPeople().find((x) => nameKey(x.name) === nameKey(ad0)) || allPeople().find((x) => sameStrict(x.name, ad0));
+    out.push({ ad: hit ? hit.name : ad0, sicil, tc, telefon });
   }
   return out;
 }
