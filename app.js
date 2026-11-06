@@ -292,6 +292,10 @@ function saveAuth() {
   try { localStorage.removeItem(AUTH_KEY); sessionStorage.removeItem(AUTH_KEY); if (auth) (auth.hatirla ? localStorage : sessionStorage).setItem(AUTH_KEY, JSON.stringify(auth)); } catch (e) { /* yoksay */ }
 }
 const isAdmin = () => !SERVER || !!(auth && auth.ben && auth.ben.rol === 'admin');
+// unvanlar: yönetici ve müdür yönetim paneline girer (sol menü); şef ve personel yalnızca görür
+const TITLES = [['yonetici', 'Yönetici', 'liste hazırlar, yayınlar, personel yönetir'], ['mudur', 'Müdür', 'liste hazırlar, yayınlar, personel yönetir'], ['sef', 'Şef', 'yalnızca görür'], ['personel', 'Personel', 'yalnızca görür']];
+const titleOf = (u) => (TITLES.find(([k]) => k === (u.unvan || (u.rol === 'admin' ? 'yonetici' : 'personel'))) || TITLES[3])[1];
+const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toLocaleUpperCase('tr');
 const srv = { v: null, duyurular: [], personel: null, kayitlar: null, conflict: false, loading: false };
 const serverPage = (f) => (API_URL.startsWith('http') ? API_URL.replace(/api\.php$/, f) : f);
 
@@ -419,8 +423,24 @@ TAB_ICON.personel = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const TAB_LABEL = { gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', duyuru: 'Duyurular', personel: 'Personel', ayarlar: 'Ayarlar' };
 $tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) go(b.dataset.view); });
 function unreadCount() { const seen = prefs.seenAnn || 0; return srv.duyurular.filter((a) => a.id > seen).length; }
+const $side = document.createElement('aside'); $side.id = 'side'; $side.setAttribute('aria-label', 'Yönetim menüsü'); document.body.prepend($side);
+$side.addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) go(b.dataset.view); else if (e.target.closest('[data-side-logout]')) actions.logout(); });
+const $prof = document.createElement('button'); $prof.id = 'prof'; $prof.type = 'button'; $prof.hidden = true; $tabs.after($prof);
+$prof.addEventListener('click', () => go('ayarlar'));
 function renderTabs() {
   const show = !SERVER || !!auth; $tabs.hidden = !show; document.body.classList.toggle('no-tabs', !show);
+  // yönetim paneli: yönetici / müdür girişinde solda menü (geniş ekranda), üstte profil
+  const side = SERVER && !!auth && isAdmin();
+  document.body.classList.toggle('has-side', side);
+  $prof.hidden = !(SERVER && auth);
+  if (SERVER && auth) $prof.innerHTML = `<span class="av">${esc(initials(auth.ben.ad))}</span><span class="pn"><b>${esc(auth.ben.ad)}</b><small>${esc(titleOf(auth.ben))}</small></span>`;
+  if (side) {
+    const un = unreadCount();
+    $side.innerHTML = `<div class="side-title">Yönetim paneli</div>
+      <div class="side-prof"><span class="av">${esc(initials(auth.ben.ad))}</span><div><b>${esc(auth.ben.ad)}</b><span class="role-badge">${esc(titleOf(auth.ben))}</span>${auth.ben.sicil ? `<small>Personel ID ${esc(auth.ben.sicil)}</small>` : ''}</div></div>
+      <nav class="side-nav">${tabList().map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}</button>`).join('')}</nav>
+      <button type="button" class="side-out" data-side-logout="1">Çıkış yap</button>`;
+  } else $side.innerHTML = '';
   if (!show) return;
   const un = SERVER ? unreadCount() : 0;
   $tabs.innerHTML = tabList().map((v) => `<button class="tab" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}${TAB_LABEL[v]}${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}</button>`).join('');
@@ -432,7 +452,7 @@ function render() {
   if (!allowedView(ui.view)) ui.view = 'gunluk';
   if (SERVER && ui.view === 'duyuru' && srv.duyurular.length) { const top = Math.max(...srv.duyurular.map((a) => a.id)); if (top > (prefs.seenAnn || 0)) { prefs.seenAnn = top; savePrefs(); } }
   renderTabs();
-  sub.textContent = store.settings.company ? store.settings.company : SERVER && auth ? auth.ben.ad : '1 · 2 · 3 vardiya, OFF ve izin takibi';
+  sub.textContent = store.settings.company ? store.settings.company : SERVER && auth ? (isAdmin() ? 'Yönetim paneli' : 'Vardiya listesi') : '1 · 2 · 3 vardiya, OFF ve izin takibi';
   let banner = store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '';
   if (isDirty() && ui.view !== 'yukle') banner += `<div class="banner pub"><p><b>Yayınlanmamış değişiklikler var.</b> Personel bu değişiklikleri siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`;
   const views = { gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, duyuru: viewAnnouncements, personel: viewPersonnel, ayarlar: viewSettings };
@@ -633,7 +653,8 @@ function gridDays() {
     const n = new Date(d0.getFullYear(), d0.getMonth() + 1, 0).getDate();
     return Array.from({ length: n }, (_, i) => addDays(s, i));
   }
-  return Array.from({ length: 14 }, (_, i) => addDays(ui.gridStart, i));
+  const n = { '7': 7, '21': 21 }[ui.gridSpan] || 14;
+  return Array.from({ length: n }, (_, i) => addDays(ui.gridStart, i));
 }
 function gridPeople() {
   let people = allPeople().sort((a, b) => (a.group || '9').localeCompare(b.group || '9') || cmpName(a, b));
@@ -661,7 +682,7 @@ function viewGrid() {
     const n = people.filter((p) => (c === 'IZ' ? ['R', 'YI', 'UI', 'MI'].includes(p.days[d]) : p.days[d] === c)).length;
     return `<td class="cnt xlc-${c}">${n || '·'}</td>`; }).join('')}</tr>`).join('');
   const filt = [['all', 'Tümü'], ['1', '1. Vardiya'], ['2', '2. Vardiya'], ['3', '3. Vardiya']].map(([v, l]) => `<button class="chip" data-act="grid-group" data-g="${v}" aria-pressed="${ui.gridGroup === v}">${l}</button>`).join('');
-  const span = [['14', '2 hafta'], ['ay', 'Ay']].map(([v, l]) => `<button class="chip" data-act="grid-span" data-v="${v}" aria-pressed="${(ui.gridSpan || '14') === v}">${l}</button>`).join('');
+  const span = [['7', '1 hafta'], ['14', '2 hafta'], ['21', '3 hafta'], ['ay', 'Ay']].map(([v, l]) => `<button class="chip" data-act="grid-span" data-v="${v}" aria-pressed="${(ui.gridSpan || '14') === v}">${l}</button>`).join('');
   const title = ui.gridSpan === 'ay' ? `${MONTHS[parseIso(days[0]).getMonth()]} ${parseIso(days[0]).getFullYear()}` : `${fmtShort(days[0])} – ${fmtShort(days[days.length - 1])}`;
   const tools = admin ? `<div class="xltools" role="toolbar" aria-label="Seçili hücrelere yaz">
       <span class="small muted">Seçili hücreler:</span>${['1', '2', '3', 'OFF', 'YI', 'UI', 'R', 'MI'].map((c) => `<button class="code xl xl-${c}" data-act="xl-set" data-code="${c}">${CODES[c].short}</button>`).join('')}<button class="btn small" data-act="xl-set" data-code="">Sil</button>
@@ -967,7 +988,7 @@ function viewSettings() {
   const online = navigator.onLine; const errs = readLS(ERR_KEY, []).length;
   const account = SERVER && auth ? `<div class="card stack">
     <h2 style="font-size:22px">Hesap</h2>
-    <div class="permrow"><span><b>${esc(auth.ben.ad)}</b><br><span class="small muted">${auth.ben.rol === 'admin' ? 'Yönetici' : 'Personel'}${auth.ben.sicil ? ' · Personel ID ' + esc(auth.ben.sicil) : ''} · ${auth.hatirla ? 'oturum açık kalır' : 'uygulama kapanınca oturum kapanır'}</span></span><span></span><button class="btn" data-act="logout">Çıkış yap</button></div>
+    <div class="permrow"><span><b>${esc(auth.ben.ad)}</b><br><span class="small muted">${titleOf(auth.ben)}${auth.ben.sicil ? ' · Personel ID ' + esc(auth.ben.sicil) : ''} · ${auth.hatirla ? 'oturum açık kalır' : 'uygulama kapanınca oturum kapanır'}</span></span><span></span><button class="btn" data-act="logout">Çıkış yap</button></div>
     ${store.pub ? `<p class="small muted" style="margin:0">Yayındaki liste: ${fmtWhen(store.pub.tarih)}${store.pub.yayinlayan ? ' · ' + esc(store.pub.yayinlayan) : ''}</p>` : ''}
   </div>` : '';
   const shared = !SERVER || isAdmin();
@@ -1098,10 +1119,10 @@ const actions = {
   'grid-move': (el) => {
     const n = +el.dataset.n; ui.sel = null;
     if (ui.gridSpan === 'ay') { const d = parseIso((ui.gridMonth || ui.date).slice(0, 7) + '-01'); d.setMonth(d.getMonth() + n); ui.gridMonth = iso(d); }
-    else ui.gridStart = addDays(ui.gridStart, 7 * n);
+    else ui.gridStart = addDays(ui.gridStart, n * ({ '7': 7, '21': 21 }[ui.gridSpan] || 14)); // seçilen süre kadar ilerler
     render();
   },
-  'grid-span': (el) => { ui.gridSpan = el.dataset.v === 'ay' ? 'ay' : '14'; ui.sel = null; if (ui.gridSpan === 'ay' && !ui.gridMonth) ui.gridMonth = (ui.gridStart ? addDays(ui.gridStart, 7) : ui.date).slice(0, 7) + '-01'; render(); },
+  'grid-span': (el) => { ui.gridSpan = ['7', '14', '21', 'ay'].includes(el.dataset.v) ? el.dataset.v : '14'; ui.sel = null; if (ui.gridSpan === 'ay' && !ui.gridMonth) ui.gridMonth = (ui.gridStart ? addDays(ui.gridStart, 7) : ui.date).slice(0, 7) + '-01'; render(); },
   'xl-set': (el) => writeSel(el.dataset.code),
   'xl-export': () => exportExcel(),
   'grid-from-staff': async () => {
@@ -1304,9 +1325,9 @@ function viewPersonnel() {
     <p class="small muted" style="margin:0">Kişiler Personel ID ya da TC ve telefon numarasıyla girer; ilk girişte kendi 6 haneli şifresini belirler. Sildiğiniz kişi uygulamadan hemen çıkarılır. TC ve telefon numaraları geri çözülemeyecek biçimde saklanır; burada yalnızca son haneleri görünür.</p>
     <input type="search" id="pq" placeholder="İsim ya da Personel ID ara" value="${esc(ui.pq || '')}" aria-label="Personel ara">
   </div>
-  <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Listede</th><th>Personel ID</th><th>TC</th><th>Telefon</th><th>Yetki</th><th>Durum</th><th></th></tr></thead><tbody>
+  <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Listede</th><th>Personel ID</th><th>TC</th><th>Telefon</th><th>Unvan</th><th>Durum</th><th></th></tr></thead><tbody>
     ${rows.map((p) => { const l = listOf(p.ad); return `<tr><td class="name">${esc(p.ad)}</td><td>${l ? (l.group ? `<span class="gtag k-${l.group}">${l.group}</span>` : '✓') : '<span class="small muted">yok</span>'}</td><td>${esc(p.sicil || '–')}</td><td>${esc(p.tc || '–')}</td><td class="nowrap">${esc(p.telefon)}</td>
-      <td>${p.rol === 'admin' ? '<span class="pill ok">Yönetici</span>' : 'Personel'}</td>
+      <td>${p.rol === 'admin' ? `<span class="pill ok">${titleOf(p)}</span>` : titleOf(p)}</td>
       <td class="small">${p.kilitli ? '<span class="pill bad">Kilitli</span>' : p.sifreVar ? (p.sonGiris ? 'Son giriş ' + fmtWhen(p.sonGiris) : 'Şifre var') : '<span class="muted">Henüz girmedi</span>'}</td>
       <td class="nowrap"><button class="btn small" data-act="per-edit" data-id="${p.id}">Düzenle</button></td></tr>`; }).join('') || '<tr><td class="name" colspan="8">Kimse yok</td></tr>'}
   </tbody></table></div>
@@ -1314,7 +1335,7 @@ function viewPersonnel() {
     <div class="row"><h2 style="font-size:20px;flex:1">İşlem kayıtları</h2><button class="btn" data-act="per-log">${srv.kayitlar ? 'Yenile' : 'Göster'}</button></div>
     ${srv.kayitlar ? `<div class="loglist">${srv.kayitlar.map((k) => `<div><span class="small muted nowrap">${fmtWhen(k.tarih)}</span> <b>${esc(k.kim || '–')}</b> · ${esc(LOG_NAMES[k.islem] || k.islem)}${k.detay ? ' · ' + esc(k.detay) : ''}</div>`).join('') || '<p class="empty">Kayıt yok</p>'}</div>` : '<p class="small muted" style="margin:0">Kim ne zaman giriş yaptı, liste yayınladı, personel ekledi/sildi.</p>'}
   </div>
-  <p class="small muted">${admins} yönetici. Bir kişiyi yönetici yapmak için “Düzenle”den yetkisini değiştirin.</p>`;
+  <p class="small muted">${admins} kişi yönetim paneline girebiliyor (yönetici / müdür). Unvanı değiştirmek için “Düzenle”. Şef ve personel siteye girer ama yalnızca listeleri görür.</p>`;
 }
 const LOG_NAMES = { giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', kurulum: 'kurulum' };
 async function loadPersonnel() {
@@ -1329,14 +1350,14 @@ function personnelSheet(id) {
     <label class="field">Personel ID<input id="pe-sicil" value="${esc(p.sicil || '')}" maxlength="32"></label>
     <label class="field">TC kimlik no${id && p.tc ? ` <span class="small muted">(kayıtlı: ${esc(p.tc)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tc" inputmode="numeric" maxlength="11" autocomplete="off"></label>
     <label class="field">Telefon${id ? ` <span class="small muted">(kayıtlı: ${esc(p.telefon)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tel" type="tel" inputmode="tel" placeholder="05xx xxx xx xx" autocomplete="off"></label>
-    <label class="field">Yetki<select id="pe-rol"><option value="staff" ${p.rol !== 'admin' ? 'selected' : ''}>Personel (yalnızca görür)</option><option value="admin" ${p.rol === 'admin' ? 'selected' : ''}>Yönetici (liste yayınlar, personel yönetir)</option></select></label>
+    <label class="field">Unvan / yetki<select id="pe-unvan">${TITLES.map(([k, l, d]) => `<option value="${k}" ${(p.unvan || (p.rol === 'admin' ? 'yonetici' : 'personel')) === k ? 'selected' : ''}>${l} (${d})</option>`).join('')}</select></label>
     <div class="row"><button class="btn primary" id="pe-save">Kaydet</button><button class="btn" data-x="1">Vazgeç</button></div>
     ${id ? `<div class="row" style="border-top:1px solid var(--line);padding-top:12px"><button class="btn" id="pe-reset">Şifreyi sıfırla</button><span style="flex:1"></span>${auth.ben.id === id ? '' : '<button class="btn danger" id="pe-del">Sistemden çıkar</button>'}</div>
       <p class="small muted" style="margin:0">Şifre sıfırlanınca kişi uygulamadan çıkar; bir sonraki girişte yeni şifresini kendisi belirler.</p>` : ''}`, (bg) => {
     const v = (s) => bg.querySelector(s).value.trim();
     bg.querySelector('#pe-save').addEventListener('click', async (e) => {
       const b = e.currentTarget; b.disabled = true;
-      try { await api('personel-kaydet', { id: id || 0, ad: v('#pe-ad'), sicil: v('#pe-sicil'), tc: v('#pe-tc'), telefon: v('#pe-tel'), rol: v('#pe-rol') }); closeSheet(); toast('Kaydedildi'); srv.personel = null; render(); }
+      try { await api('personel-kaydet', { id: id || 0, ad: v('#pe-ad'), sicil: v('#pe-sicil'), tc: v('#pe-tc'), telefon: v('#pe-tel'), unvan: v('#pe-unvan') }); closeSheet(); toast('Kaydedildi'); srv.personel = null; render(); }
       catch (err) { b.disabled = false; toast(err.message); }
     });
     const rs = bg.querySelector('#pe-reset');

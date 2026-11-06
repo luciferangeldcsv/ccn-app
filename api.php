@@ -25,7 +25,7 @@ function versions(): array {
   return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc];
 }
 function utc(string $t): string { return str_replace(' ', 'T', $t) . 'Z'; }
-function me_out(array $u): array { return ['id' => $u['id'], 'ad' => $u['name'], 'rol' => $u['role'], 'sicil' => $u['sicil']]; }
+function me_out(array $u): array { return ['id' => $u['id'], 'ad' => $u['name'], 'rol' => $u['role'], 'unvan' => $u['title'] ?? ($u['role'] === 'admin' ? 'yonetici' : 'personel'), 'sicil' => $u['sicil']]; }
 
 switch ($r) {
   case 'durum':
@@ -74,7 +74,7 @@ switch ($r) {
     db()->prepare('UPDATE personnel SET failed = 0, locked_until = NULL, last_login = ? WHERE id = ?')->execute([now(), $p['id']]);
     $tok = new_session((int)$p['id'], $hatirla);
     audit(['id' => $p['id'], 'name' => $p['name']], 'giris');
-    ok(['token' => $tok, 'ben' => ['id' => (int)$p['id'], 'ad' => $p['name'], 'rol' => $p['role'], 'sicil' => $p['sicil']], 'hatirla' => $hatirla]);
+    ok(['token' => $tok, 'ben' => me_out(['id' => (int)$p['id'], 'name' => $p['name'], 'role' => $p['role'], 'title' => $p['title'] ?? null, 'sicil' => $p['sicil']]), 'hatirla' => $hatirla]);
   }
 
   case 'cikis': {
@@ -155,9 +155,9 @@ switch ($r) {
 
   case 'personel': {
     require_admin();
-    $rows = db()->query('SELECT id, name, sicil, tc_last2, phone_last4, role, pin_hash IS NOT NULL has_pin, locked_until, last_login, created_at FROM personnel ORDER BY name')->fetchAll();
+    $rows = db()->query('SELECT id, name, sicil, tc_last2, phone_last4, role, title, pin_hash IS NOT NULL has_pin, locked_until, last_login, created_at FROM personnel ORDER BY name')->fetchAll();
     ok(['personel' => array_map(fn($p) => ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'tc' => $p['tc_last2'] ? '•••••••••' . $p['tc_last2'] : '', 'telefon' => '•••••• ' . $p['phone_last4'],
-      'rol' => $p['role'], 'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(), 'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null], $rows)]);
+      'rol' => $p['role'], 'unvan' => $p['title'], 'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(), 'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null], $rows)]);
   }
 
   case 'personel-kaydet': {
@@ -246,7 +246,10 @@ function save_person(array $in, array $u, bool $bulk = false): array {
   $sicil = clean_sicil((string)($in['sicil'] ?? ''));
   $tcRaw = digits((string)($in['tc'] ?? ''));
   $tel = norm_phone((string)($in['telefon'] ?? ''));
-  $role = ($in['rol'] ?? '') === 'admin' ? 'admin' : 'staff';
+  // unvan yetkiyi belirler (eski istemciler "rol" gönderir)
+  $title = (string)($in['unvan'] ?? '');
+  if (!isset(TITLES[$title])) $title = ($in['rol'] ?? '') === 'admin' ? 'yonetici' : 'personel';
+  $role = role_of($title);
   if ($tcRaw !== '' && !valid_tc($tcRaw)) $err('TC kimlik numarası geçersiz' . ($name ? " ($name)" : '') . '.');
   if (($in['telefon'] ?? '') !== '' && $tel === '') $err('Telefon numarası geçersiz' . ($name ? " ($name)" : '') . '.');
   $tcHash = $tcRaw !== '' ? hmac('tc:' . $tcRaw) : null;
@@ -265,8 +268,8 @@ function save_person(array $in, array $u, bool $bulk = false): array {
       $n = (int)db()->query("SELECT COUNT(*) FROM personnel WHERE role = 'admin'")->fetchColumn();
       if ($n <= 1) $err('Sistemde en az bir yönetici kalmalı.');
     }
-    if ($bulk) $role = $old['role']; // toplu yükleme yetkileri değiştirmez
-    $sets = ['name = ?' => $name ?: $old['name'], 'sicil = ?' => $sicil !== '' ? $sicil : $old['sicil'], 'role = ?' => $role];
+    if ($bulk) { $role = $old['role']; $title = $old['title']; } // toplu yükleme yetkileri değiştirmez
+    $sets = ['name = ?' => $name ?: $old['name'], 'sicil = ?' => $sicil !== '' ? $sicil : $old['sicil'], 'role = ?' => $role, 'title = ?' => $title];
     if ($tcHash) { $sets['tc_hash = ?'] = $tcHash; $sets['tc_last2 = ?'] = substr($tcRaw, -2); }
     if ($tel !== '') { $sets['phone_hash = ?'] = hmac('tel:' . $tel); $sets['phone_last4 = ?'] = substr($tel, -4); }
     try {
@@ -279,8 +282,8 @@ function save_person(array $in, array $u, bool $bulk = false): array {
   if ($sicil === '' && !$tcHash) $err("Personel ID ya da TC numarasından en az biri gerekli ($name).");
   if ($tel === '') $err("Telefon numarası gerekli ($name).");
   try {
-    db()->prepare('INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, created_at) VALUES (?,?,?,?,?,?,?,?)')
-      ->execute([$name, $sicil !== '' ? $sicil : null, $tcHash, $tcHash ? substr($tcRaw, -2) : null, hmac('tel:' . $tel), substr($tel, -4), $role, now()]);
+    db()->prepare('INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+      ->execute([$name, $sicil !== '' ? $sicil : null, $tcHash, $tcHash ? substr($tcRaw, -2) : null, hmac('tel:' . $tel), substr($tel, -4), $role, $bulk ? 'personel' : $title, now()]);
   } catch (PDOException $e) { $err("Bu Personel ID ya da TC numarası başka bir kişide kayıtlı ($name)."); }
   $nid = (int)db()->lastInsertId();
   if (!$bulk) audit($u, 'personel-eklendi', $name);

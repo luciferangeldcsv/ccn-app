@@ -25,11 +25,22 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 1;
+const SCHEMA_V = 2;
+// unvan → yetki: yönetici ve müdür yönetim paneline girer; şef ve personel yalnızca görür
+const TITLES = ['yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
+function role_of(string $t): string { return in_array($t, ['yonetici', 'mudur'], true) ? 'admin' : 'staff'; }
 function migrate(PDO $pdo): void {
   $pdo->exec('CREATE TABLE IF NOT EXISTS meta (k VARCHAR(40) PRIMARY KEY, v TEXT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
   $v = (int)($pdo->query("SELECT v FROM meta WHERE k='schema'")->fetchColumn() ?: 0);
   if ($v >= SCHEMA_V) return;
+  if ($v === 1) {
+    // 1 → 2: unvan sütunu (yönetici / müdür / şef / personel)
+    $has = $pdo->query("SHOW COLUMNS FROM personnel LIKE 'title'")->fetch();
+    if (!$has) $pdo->exec("ALTER TABLE personnel ADD COLUMN title VARCHAR(20) NOT NULL DEFAULT 'personel' AFTER role");
+    $pdo->exec("UPDATE personnel SET title = 'yonetici' WHERE role = 'admin' AND title = 'personel'");
+    $pdo->prepare("REPLACE INTO meta (k, v) VALUES ('schema', ?)")->execute([(string)SCHEMA_V]);
+    return;
+  }
   $T = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci';
   $pdo->exec("CREATE TABLE IF NOT EXISTS personnel (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -40,6 +51,7 @@ function migrate(PDO $pdo): void {
     phone_hash CHAR(64) NOT NULL,
     phone_last4 CHAR(4) NOT NULL,
     role ENUM('admin','staff') NOT NULL DEFAULT 'staff',
+    title VARCHAR(20) NOT NULL DEFAULT 'personel',
     pin_hash VARCHAR(255) NULL,
     failed INT NOT NULL DEFAULT 0,
     locked_until DATETIME NULL,
@@ -152,14 +164,14 @@ function current_user(bool $required = true): ?array {
   if ($u !== false) return $u ?: ($required ? fail(401, 'Oturum geçersiz.', ['cikis' => true]) : null);
   $u = null; $t = token_in();
   if ($t) {
-    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.sicil FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
+    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.sicil FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
     $st->execute([hash('sha256', $t)]);
     $r = $st->fetch();
     if ($r && $r['expires_at'] > now()) {
       // "beni hatırla" oturumu kullanıldıkça uzar; diğeri 12 saatte biter
       $exp = $r['remember'] ? gmdate('Y-m-d H:i:s', time() + 180 * 86400) : $r['expires_at'];
       db()->prepare('UPDATE sessions SET last_seen = ?, expires_at = ? WHERE id = ?')->execute([now(), $exp, $r['sid']]);
-      $u = ['id' => (int)$r['id'], 'name' => $r['name'], 'role' => $r['role'], 'sicil' => $r['sicil'], 'sid' => (int)$r['sid']];
+      $u = ['id' => (int)$r['id'], 'name' => $r['name'], 'role' => $r['role'], 'title' => $r['title'] ?: ($r['role'] === 'admin' ? 'yonetici' : 'personel'), 'sicil' => $r['sicil'], 'sid' => (int)$r['sid']];
     } elseif ($r) {
       db()->prepare('DELETE FROM sessions WHERE id = ?')->execute([$r['sid']]);
     }
