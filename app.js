@@ -691,7 +691,7 @@ function viewGrid() {
     return `<td class="cnt xlc-${c}">${n || '·'}</td>`; }).join('')}</tr>`).join('');
   const filt = [['all', 'Tümü'], ['1', '1. Vardiya'], ['2', '2. Vardiya'], ['3', '3. Vardiya']].map(([v, l]) => `<button class="chip" data-act="grid-group" data-g="${v}" aria-pressed="${ui.gridGroup === v}">${l}</button>`).join('');
   const span = [['7', '1 hafta'], ['14', '2 hafta'], ['21', '3 hafta'], ['ay', 'Ay'], ['ozel', 'Tarih aralığı']].map(([v, l]) => `<button class="chip" data-act="grid-span" data-v="${v}" aria-pressed="${(ui.gridSpan || '14') === v}">${l}</button>`).join('');
-  const rangeBar = ui.gridSpan === 'ozel' ? `<div class="row rangebar"><label class="field">Başlangıç<input type="date" id="gr-from" value="${days[0]}"></label><label class="field">Bitiş<input type="date" id="gr-to" value="${days[days.length - 1]}"></label>
+  const rangeBar = true ? `<div class="row rangebar"><label class="field">Başlangıç<input type="date" id="gr-from" value="${days[0]}"></label><label class="field">Bitiş<input type="date" id="gr-to" value="${days[days.length - 1]}"></label>
       <div class="chips">${[['bu-ay', 'Bu ay'], ['gelecek-ay', 'Gelecek ay'], ['4h', 'Bugünden 4 hafta']].map(([v, l]) => `<button class="chip" data-act="grid-quick" data-v="${v}">${l}</button>`).join('')}</div>
       <span class="small muted">${days.length} gün · en fazla ${MAX_RANGE} gün</span></div>` : '';
   const title = ui.gridSpan === 'ozel' ? `${fmtShort(days[0])} – ${fmtShort(days[days.length - 1])}` : ui.gridSpan === 'ay' ? `${MONTHS[parseIso(days[0]).getMonth()]} ${parseIso(days[0]).getFullYear()}` : `${fmtShort(days[0])} – ${fmtShort(days[days.length - 1])}`;
@@ -1114,7 +1114,7 @@ function bindView() {
       let a = gf.value, b = gt.value; if (!a || !b) return;
       if (b < a) { toast('Bitiş, başlangıçtan önce olamaz'); gt.value = ui.gridTo; return; }
       if ((parseIso(b) - parseIso(a)) / 864e5 + 1 > MAX_RANGE) { b = addDays(a, MAX_RANGE - 1); toast(`En fazla ${MAX_RANGE} gün seçilebilir`); }
-      ui.gridFrom = a; ui.gridTo = b; ui.sel = null; render();
+      ui.gridFrom = a; ui.gridTo = b; ui.gridSpan = 'ozel'; ui.sel = null; render();
     };
     if (gf) { gf.addEventListener('change', setRange); gt.addEventListener('change', setRange); }
   }
@@ -1154,7 +1154,7 @@ const actions = {
     ui.gridSpan = ['7', '14', '21', 'ay', 'ozel'].includes(el.dataset.v) ? el.dataset.v : '14'; ui.sel = null; if (ui.gridSpan === 'ay' && !ui.gridMonth) ui.gridMonth = (ui.gridStart ? addDays(ui.gridStart, 7) : ui.date).slice(0, 7) + '-01'; render(); },
   'xl-set': (el) => writeSel(el.dataset.code),
   'grid-quick': (el) => {
-    const t = parseIso(todayIso()); ui.sel = null;
+    const t = parseIso(todayIso()); ui.sel = null; ui.gridSpan = 'ozel';
     if (el.dataset.v === '4h') { ui.gridFrom = todayIso(); ui.gridTo = addDays(ui.gridFrom, 27); }
     else { const m = el.dataset.v === 'gelecek-ay' ? 1 : 0; const a = new Date(t.getFullYear(), t.getMonth() + m, 1), b = new Date(t.getFullYear(), t.getMonth() + m + 1, 0); ui.gridFrom = iso(a); ui.gridTo = iso(b); }
     render();
