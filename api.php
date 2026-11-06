@@ -13,7 +13,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat'];
+$POST_ONLY = ['ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -22,10 +22,11 @@ function versions(): array {
   $l = (int)(db()->query('SELECT MAX(id) FROM rosters')->fetchColumn() ?: 0);
   $d = (int)(db()->query('SELECT MAX(id) FROM announcements')->fetchColumn() ?: 0);
   $dc = (int)(db()->query('SELECT COUNT(*) FROM announcements')->fetchColumn() ?: 0);
-  return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc];
+  return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc, 'ayar' => (int)(meta_get('ayar_surum') ?? 0)];
 }
 function utc(string $t): string { return str_replace(' ', 'T', $t) . 'Z'; }
-function me_out(array $u): array { return ['id' => $u['id'], 'ad' => $u['name'], 'rol' => $u['role'], 'unvan' => $u['title'] ?? ($u['role'] === 'admin' ? 'yonetici' : 'personel'), 'sicil' => $u['sicil']]; }
+function me_out(array $u): array { return ['id' => $u['id'], 'ad' => $u['name'], 'rol' => $u['role'], 'unvan' => $u['title'] ?? ($u['role'] === 'admin' ? 'yonetici' : 'personel'), 'sicil' => $u['sicil'], 'tercih' => json_decode((string)($u['prefs'] ?? ''), true) ?: null]; }
+const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'];
 
 switch ($r) {
   case 'durum':
@@ -74,7 +75,7 @@ switch ($r) {
     db()->prepare('UPDATE personnel SET failed = 0, locked_until = NULL, last_login = ? WHERE id = ?')->execute([now(), $p['id']]);
     $tok = new_session((int)$p['id'], $hatirla);
     audit(['id' => $p['id'], 'name' => $p['name']], 'giris');
-    ok(['token' => $tok, 'ben' => me_out(['id' => (int)$p['id'], 'name' => $p['name'], 'role' => $p['role'], 'title' => $p['title'] ?? null, 'sicil' => $p['sicil']]), 'hatirla' => $hatirla]);
+    ok(['token' => $tok, 'ben' => me_out(['id' => (int)$p['id'], 'name' => $p['name'], 'role' => $p['role'], 'title' => $p['title'] ?? null, 'prefs' => $p['prefs'] ?? null, 'sicil' => $p['sicil']]), 'hatirla' => $hatirla]);
   }
 
   case 'cikis': {
@@ -98,7 +99,7 @@ switch ($r) {
     $u = current_user();
     $l = db()->query('SELECT id, data, published_at, published_name FROM rosters ORDER BY id DESC LIMIT 1')->fetch();
     $d = db()->query('SELECT id, title, body, pinned, created_name, created_at FROM announcements ORDER BY pinned DESC, id DESC LIMIT 100')->fetchAll();
-    ok(['ben' => me_out($u), 'surum' => versions(),
+    ok(['ben' => me_out($u), 'surum' => versions(), 'ayarlar' => json_decode((string)(meta_get('ayarlar') ?? ''), true) ?: null,
       'liste' => $l ? ['id' => (int)$l['id'], 'veri' => json_decode($l['data'], true), 'tarih' => utc($l['published_at']), 'yayinlayan' => $l['published_name']] : null,
       'duyurular' => array_map(fn($a) => ['id' => (int)$a['id'], 'baslik' => $a['title'], 'metin' => $a['body'], 'sabit' => (bool)$a['pinned'], 'yazan' => $a['created_name'], 'tarih' => utc($a['created_at'])], $d)]);
   }
@@ -151,6 +152,29 @@ switch ($r) {
     db()->prepare('DELETE FROM rosters WHERE id < ?')->execute([$id - 30]);
     audit($u, 'liste-yayinlandi', count($people) . " kişi, $min – $max");
     ok(['id' => $id, 'kisi' => count($people)]);
+  }
+
+  // yönetici ayarları (şirket adı, vardiya saatleri, OFF kuralı, hücre renkleri): kaydedilince herkese uygulanır
+  case 'ayar-kaydet': {
+    $u = require_admin();
+    $in = is_array(body()['ayarlar'] ?? null) ? body()['ayarlar'] : [];
+    $hours = []; foreach (['1', '2', '3'] as $g) $hours[$g] = mb_substr(trim((string)($in['hours'][$g] ?? '')), 0, 40);
+    $colors = []; foreach (COLOR_KEYS as $c) { $v = (string)($in['colors'][$c] ?? ''); $colors[$c] = in_array($v, ['', 'OFF', 'R', 'YI', 'UI', 'MI'], true) ? $v : ''; }
+    $a = ['company' => mb_substr(trim((string)($in['company'] ?? '')), 0, 80), 'hours' => $hours, 'offRule' => ($in['offRule'] ?? '') === 'team' ? 'team' : 'return', 'colors' => $colors];
+    meta_set('ayarlar', json_encode($a, JSON_UNESCAPED_UNICODE));
+    meta_set('ayar_surum', (string)((int)(meta_get('ayar_surum') ?? 0) + 1));
+    audit($u, 'ayar', 'yönetici ayarları güncellendi');
+    ok(['ayarlar' => $a, 'surum' => versions()]);
+  }
+
+  // kişisel tercihler (tema, paylaşım biçimi): hesapta saklanır, web ve telefonda aynı olur
+  case 'tercih-kaydet': {
+    $u = current_user();
+    $in = is_array(body()['tercih'] ?? null) ? body()['tercih'] : [];
+    $t = ['tema' => in_array($in['tema'] ?? '', ['light', 'dark', 'auto'], true) ? $in['tema'] : 'auto',
+      'paylas' => ['bold' => !empty($in['paylas']['bold']), 'style' => in_array($in['paylas']['style'] ?? '', ['num', 'bullet', 'plain'], true) ? $in['paylas']['style'] : 'num']];
+    db()->prepare('UPDATE personnel SET prefs = ? WHERE id = ?')->execute([json_encode($t), $u['id']]);
+    ok(['tercih' => $t]);
   }
 
   case 'personel': {

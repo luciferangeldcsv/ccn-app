@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 2;
+const SCHEMA_V = 3;
 // unvan → yetki: yönetici ve müdür yönetim paneline girer; şef ve personel yalnızca görür
 const TITLES = ['yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 function role_of(string $t): string { return in_array($t, ['yonetici', 'mudur'], true) ? 'admin' : 'staff'; }
@@ -33,11 +33,14 @@ function migrate(PDO $pdo): void {
   $pdo->exec('CREATE TABLE IF NOT EXISTS meta (k VARCHAR(40) PRIMARY KEY, v TEXT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
   $v = (int)($pdo->query("SELECT v FROM meta WHERE k='schema'")->fetchColumn() ?: 0);
   if ($v >= SCHEMA_V) return;
-  if ($v === 1) {
+  if ($v >= 1) {
     // 1 → 2: unvan sütunu (yönetici / müdür / şef / personel)
-    $has = $pdo->query("SHOW COLUMNS FROM personnel LIKE 'title'")->fetch();
-    if (!$has) $pdo->exec("ALTER TABLE personnel ADD COLUMN title VARCHAR(20) NOT NULL DEFAULT 'personel' AFTER role");
-    $pdo->exec("UPDATE personnel SET title = 'yonetici' WHERE role = 'admin' AND title = 'personel'");
+    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'title'")->fetch()) {
+      $pdo->exec("ALTER TABLE personnel ADD COLUMN title VARCHAR(20) NOT NULL DEFAULT 'personel' AFTER role");
+      $pdo->exec("UPDATE personnel SET title = 'yonetici' WHERE role = 'admin'");
+    }
+    // 2 → 3: kişisel tercihler (tema, paylaşım biçimi) hesapta saklanır, her cihazda aynı olur
+    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'prefs'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN prefs TEXT NULL AFTER title');
     $pdo->prepare("REPLACE INTO meta (k, v) VALUES ('schema', ?)")->execute([(string)SCHEMA_V]);
     return;
   }
@@ -52,6 +55,7 @@ function migrate(PDO $pdo): void {
     phone_last4 CHAR(4) NOT NULL,
     role ENUM('admin','staff') NOT NULL DEFAULT 'staff',
     title VARCHAR(20) NOT NULL DEFAULT 'personel',
+    prefs TEXT NULL,
     pin_hash VARCHAR(255) NULL,
     failed INT NOT NULL DEFAULT 0,
     locked_until DATETIME NULL,
@@ -137,6 +141,8 @@ function valid_tc(string $tc): bool {
 function clean_name(string $s): string { $s = trim(preg_replace('/\s+/u', ' ', $s) ?? ''); return mb_substr($s, 0, 120); }
 function clean_sicil(string $s): string { return mb_substr(preg_replace('/[^\p{L}\p{N}\-\/]/u', '', $s) ?? '', 0, 32); }
 
+function meta_get(string $k): ?string { $st = db()->prepare('SELECT v FROM meta WHERE k = ?'); $st->execute([$k]); $v = $st->fetchColumn(); return $v === false ? null : (string)$v; }
+function meta_set(string $k, string $v): void { db()->prepare('REPLACE INTO meta (k, v) VALUES (?, ?)')->execute([$k, $v]); }
 function audit(?array $who, string $action, string $detail = ''): void {
   db()->prepare('INSERT INTO audit (personnel_id, who, action, detail, ip, at) VALUES (?,?,?,?,?,?)')
     ->execute([$who['id'] ?? null, $who['name'] ?? null, $action, mb_substr($detail, 0, 500), client_ip(), now()]);
@@ -164,14 +170,14 @@ function current_user(bool $required = true): ?array {
   if ($u !== false) return $u ?: ($required ? fail(401, 'Oturum geçersiz.', ['cikis' => true]) : null);
   $u = null; $t = token_in();
   if ($t) {
-    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.sicil FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
+    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.prefs, p.sicil FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
     $st->execute([hash('sha256', $t)]);
     $r = $st->fetch();
     if ($r && $r['expires_at'] > now()) {
       // "beni hatırla" oturumu kullanıldıkça uzar; diğeri 12 saatte biter
       $exp = $r['remember'] ? gmdate('Y-m-d H:i:s', time() + 180 * 86400) : $r['expires_at'];
       db()->prepare('UPDATE sessions SET last_seen = ?, expires_at = ? WHERE id = ?')->execute([now(), $exp, $r['sid']]);
-      $u = ['id' => (int)$r['id'], 'name' => $r['name'], 'role' => $r['role'], 'title' => $r['title'] ?: ($r['role'] === 'admin' ? 'yonetici' : 'personel'), 'sicil' => $r['sicil'], 'sid' => (int)$r['sid']];
+      $u = ['id' => (int)$r['id'], 'name' => $r['name'], 'role' => $r['role'], 'title' => $r['title'] ?: ($r['role'] === 'admin' ? 'yonetici' : 'personel'), 'prefs' => $r['prefs'], 'sicil' => $r['sicil'], 'sid' => (int)$r['sid']];
     } elseif ($r) {
       db()->prepare('DELETE FROM sessions WHERE id = ?')->execute([$r['sid']]);
     }
