@@ -20,6 +20,8 @@ jobs:
       - run: npm ci
       - name: Web dosyalarını iPhone projesine kopyala
         run: node tools/build.mjs && npx cap sync ios
+        env:
+          CCN_API_URL: https://srv2025553.hstgr.cloud/api.php,https://vardiya.179-198-217-149.sslip.io/api.php
       - name: Xcode sürümü
         run: xcodebuild -version
       - name: iPhone uygulamasını derle (simülatör, imzasız)
