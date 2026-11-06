@@ -11,8 +11,8 @@
 #  * edge-proxy (Caddy) ayar dosyasına yalnızca bu alan adı için bir site bloğu ekler; önce yedek alır,
 #    ayar geçersizse yedeği geri koyar. Diğer sitelere, konteynerlere ve veritabanlarına dokunmaz.
 set -euo pipefail
-DOMAIN="${1:-}"
-[ -n "$DOMAIN" ] || { echo "Kullanım: bash kurulum.sh vardiya.ornek.com"; exit 1; }
+# Alan adı vermek gerekmez: VPS'in ücretsiz Hostinger adresi (srvXXXX.hstgr.cloud) ve DNS ayarı istemeyen
+# vardiya.<ip>.sslip.io adresi birlikte kullanılır. İsterseniz adres(ler)i argüman olarak verebilirsiniz.
 [ "$(id -u)" = 0 ] || { echo "root olarak çalıştırın"; exit 1; }
 DIR=/opt/ccn-vardiya
 REPO=https://github.com/luciferangeldcsv/ccn-app.git
@@ -29,6 +29,13 @@ fi
 [ -n "$EDGE_NET" ] && [ -f "$CADDYFILE" ] || { echo "edge-proxy ağı ya da Caddyfile bulunamadı (ağ: '$EDGE_NET', dosya: '$CADDYFILE')"; exit 1; }
 echo "edge-proxy ağı: $EDGE_NET · Caddyfile: $CADDYFILE"
 
+IP=$(curl -s -4 --max-time 10 ifconfig.me || hostname -I | awk '{print $1}')
+if [ $# -gt 0 ]; then NAMES=("$@"); else
+  NAMES=()
+  case "$(hostname -f)" in *.hstgr.cloud) NAMES+=("$(hostname -f)") ;; esac
+  NAMES+=("vardiya.${IP//./-}.sslip.io")
+fi
+echo "Adresler: ${NAMES[*]}"
 mkdir -p "$DIR/yedek"; cd "$DIR"; chmod 700 "$DIR"
 rnd() { head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 
@@ -129,28 +136,40 @@ fi
 docker compose up -d --build
 echo "Konteynerler:"; docker compose ps --format '{{.Name}} {{.Status}}'
 
-# 4) edge-proxy (Caddy): yalnızca bu alan adı için site bloğu
-if ! grep -qE "^[[:space:]]*$DOMAIN[[:space:]]*\{" "$CADDYFILE"; then
+# 4) edge-proxy (Caddy): yalnızca bu sistemin adresleri için tek bir site bloğu
+MARK="# CCN Vardiya (kurulum.sh)"
+if grep -qF "$MARK" "$CADDYFILE"; then
+  echo "Caddy: CCN Vardiya bloğu zaten var"
+  USE=($(awk -v m="$MARK" '$0==m{getline; gsub(/[{,]/," "); print; exit}' "$CADDYFILE"))
+else
+  USE=()
+  for n in "${NAMES[@]}"; do
+    # başka bir sitenin kullandığı adres alınmaz
+    if grep -vE '^[[:space:]]*#' "$CADDYFILE" | grep -qE "(^|[[:space:],/])${n//./\\.}([[:space:]:,{]|$)"; then echo "Caddy: $n başka bir site tarafından kullanılıyor, atlandı"; else USE+=("$n"); fi
+  done
+  [ ${#USE[@]} -gt 0 ] || { echo "Kullanılabilir adres kalmadı"; exit 1; }
   cp -a "$CADDYFILE" "$CADDYFILE.yedek-$(date +%Y%m%d%H%M%S)"
   BACKUP=$(ls -t "$CADDYFILE".yedek-* | head -1)
-  printf '\n# CCN Vardiya (kurulum.sh)\n%s {\n\tencode gzip\n\treverse_proxy ccn-web:80\n}\n' "$DOMAIN" >> "$CADDYFILE"
+  { printf '\n%s\n' "$MARK"; (IFS=,; printf '%s {\n' "${USE[*]}" | sed 's/,/, /g'); printf '\tencode gzip\n\treverse_proxy ccn-web:80\n}\n'; } >> "$CADDYFILE"
   if docker exec edge-proxy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
     docker exec edge-proxy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
-    echo "Caddy: $DOMAIN eklendi ve yeniden yüklendi (yedek: $BACKUP)"
+    echo "Caddy: ${USE[*]} eklendi ve yeniden yüklendi (yedek: $BACKUP)"
   else
     cp -a "$BACKUP" "$CADDYFILE"; echo "Caddy ayarı doğrulanamadı; eski hali geri kondu. Kurulum yarım kaldı."; exit 1
   fi
-else
-  echo "Caddy: $DOMAIN zaten tanımlı"
 fi
 
 # 5) Kontrol
-IP=$(curl -s -4 ifconfig.me || true); DNS=$(getent ahostsv4 "${DOMAIN#*://}" | awk 'NR==1{print $1}' || true)
-[ "$DNS" = "$IP" ] || echo "UYARI: $DOMAIN şu an '$DNS' adresini gösteriyor, bu sunucu $IP. Alan adının DNS'inde A kaydını $IP yapın; SSL sertifikası kayıt yayılınca otomatik alınır."
 for i in $(seq 1 30); do
   if docker exec ccn-web php -r 'exit(@file_get_contents("http://localhost/api.php?r=durum", false, stream_context_create(["http"=>["header"=>"X-Forwarded-Proto: https\r\n"]])) ? 0 : 1);'; then echo "Arayüz çalışıyor (veritabanı bağlı)."; break; fi
   sleep 2
 done
+for n in "${USE[@]}"; do
+  h=${n#*://}; d=$(getent ahostsv4 "$h" | awk 'NR==1{print $1}' || true)
+  [ "$d" = "$IP" ] && echo "DNS tamam: $h → $IP" || echo "UYARI: $h şu an '$d' adresini gösteriyor (bu sunucu $IP)"
+done
+echo "SSL sertifikaları Caddy tarafından otomatik alınır (1-2 dakika)."
 echo
-echo "KURULUM TAMAM. İlk yönetici hesabı: https://${DOMAIN#*://}/kurulum.php"
+for n in "${USE[@]}"; do echo "Adres: https://${n#*://}"; done
+echo "KURULUM TAMAM. İlk yönetici hesabı: https://${USE[0]#*://}/kurulum.php"
 echo "Kurulum anahtarını görmek için:  grep setup_key $DIR/ccn-config.php"

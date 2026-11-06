@@ -215,6 +215,12 @@ switch ($r) {
 }
 
 // Yeni kişi ekle ya da var olanı güncelle. Toplu eklemede sicil/TC ile eşleşen kişi güncellenir.
+// isim karşılaştırma: büyük/küçük harf ve Türkçe karakter farkı yok sayılır (uygulamadaki nameKey ile aynı)
+function name_key(string $s): string {
+  $s = mb_strtolower(str_replace(['I', 'İ'], ['ı', 'i'], $s), 'UTF-8');
+  $s = strtr($s, ['ç' => 'c', 'ğ' => 'g', 'ı' => 'i', 'ö' => 'o', 'ş' => 's', 'ü' => 'u', 'â' => 'a', 'î' => 'i', 'û' => 'u']);
+  return preg_replace('/[^a-z]/', '', $s) ?? '';
+}
 function save_person(array $in, array $u, bool $bulk = false): array {
   $err = fn(string $m) => $bulk ? throw new RuntimeException($m) : fail(400, $m);
   $id = (int)($in['id'] ?? 0);
@@ -235,6 +241,8 @@ function save_person(array $in, array $u, bool $bulk = false): array {
   if ($id) {
     $st = db()->prepare('SELECT * FROM personnel WHERE id = ?'); $st->execute([$id]); $old = $st->fetch();
     if (!$old) $err('Kişi bulunamadı.');
+    // toplu eklemede sicil/TC başka isimli bir kişide kayıtlıysa o kişinin kaydı DEĞİŞTİRİLMEZ
+    if ($bulk && $name !== '' && name_key($name) !== name_key($old['name'])) $err("Bu sicil ya da TC numarası başka bir kişide kayıtlı: {$old['name']} ($name)");
     if ($old['role'] === 'admin' && $role !== 'admin' && !$bulk) {
       $n = (int)db()->query("SELECT COUNT(*) FROM personnel WHERE role = 'admin'")->fetchColumn();
       if ($n <= 1) $err('Sistemde en az bir yönetici kalmalı.');
