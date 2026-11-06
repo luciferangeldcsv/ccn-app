@@ -65,6 +65,9 @@ switch ($r) {
       if (preg_match('/^(\d)\1{5}$/', $yeni) || in_array($yeni, ['123456', '654321', '012345', '123123'], true)) fail(400, 'Bu şifre çok kolay tahmin edilir. Başka bir şifre seçin.');
       db()->prepare('UPDATE personnel SET pin_hash = ? WHERE id = ? AND pin_hash IS NULL')->execute([password_hash($yeni, PASSWORD_DEFAULT), $p['id']]);
       audit(['id' => $p['id'], 'name' => $p['name']], 'sifre-olusturuldu');
+    } elseif ($pin === '') {
+      // telefon doğru, şifre boş: hatalı deneme sayılmaz, ne yapılacağı söylenir
+      fail(401, 'Bu hesabın şifresi belirlenmiş. 6 haneli şifrenizi yazın; unuttuysanız yöneticiniz sıfırlayabilir.');
     } elseif (!password_verify($pin, $p['pin_hash'])) {
       $bad();
     }
