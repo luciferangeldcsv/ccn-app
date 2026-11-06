@@ -9,6 +9,18 @@ const CCN = 1;
 require __DIR__ . '/lib.php';
 
 [$_, $cmd, $name, $sicil, $tel, $tc] = $argv + [null, '', '', '', '', ''];
+// Tanı: php yonetici.php kontrol PERSONEL_ID TELEFON  → kayıt bulunuyor mu, telefon eşleşiyor mu (gizli bilgi yazmaz)
+if ($cmd === 'kontrol') {
+  [$kid, $ktel] = [(string)$name, (string)$sicil];
+  echo 'veritabani=', cfg()['db_name'], ' kisi_sayisi=', db()->query('SELECT COUNT(*) FROM personnel')->fetchColumn(), "\n";
+  foreach (db()->query('SELECT id, name, sicil, role, phone_last4, pin_hash IS NULL pin_bos, failed, locked_until FROM personnel ORDER BY id') as $r)
+    echo '  #', $r['id'], ' ', $r['name'], ' | id=', json_encode($r['sicil']), ' | rol=', $r['role'], ' | tel=••', $r['phone_last4'], ' | sifre_bos=', $r['pin_bos'], ' | hatali=', $r['failed'], ' | kilit=', $r['locked_until'] ?? '-', "\n";
+  $p = find_person($kid);
+  echo 'aranan_id=', json_encode($kid), ' temiz=', json_encode(clean_sicil($kid)), ' bulundu=', $p ? 'EVET #' . $p['id'] : 'HAYIR', "\n";
+  if ($p) echo 'telefon=', json_encode(norm_phone($ktel)), ' eslesiyor=', hash_equals($p['phone_hash'], hmac('tel:' . norm_phone($ktel))) ? 'EVET' : 'HAYIR', "\n";
+  foreach (db()->query('SELECT action, detail, at FROM audit ORDER BY id DESC LIMIT 6') as $a) echo '  kayit: ', $a['at'], ' ', $a['action'], ' ', $a['detail'], "\n";
+  exit;
+}
 if ($cmd !== 'ekle') { fwrite(STDERR, "Kullanım: php yonetici.php ekle \"Ad Soyad\" PERSONEL_ID TELEFON [TC]\n"); exit(1); }
 $name = clean_name((string)$name); $sicil = clean_sicil((string)$sicil); $tel = norm_phone((string)$tel); $tc = digits((string)$tc);
 if ($name === '' || $sicil === '' || $tel === '') { fwrite(STDERR, "Ad soyad, Personel ID ve telefon gerekli.\n"); exit(1); }
