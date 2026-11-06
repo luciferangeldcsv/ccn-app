@@ -1,4 +1,5 @@
 // src/ -> www/ : Capacitor (APK) ve normal tarayıcı için tam HTML belgesi üretir
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, rmSync, cpSync, mkdirSync, readdirSync } from 'node:fs';
 const root = new URL('..', import.meta.url).pathname;
 // OCR dosyalarını node_modules'tan src/vendor'a kopyala (git'e girmez)
@@ -40,6 +41,9 @@ writeFileSync(root + 'www/app.js', readFileSync(root + 'www/app.js', 'utf8').rep
   // sunucu modu: web paneli (CCN_SERVER=1) ya da sunucu adresli telefon uygulaması (CCN_API_URL=https://…/api.php)
   .replaceAll('__API_URL__', process.env.CCN_API_URL || '').replaceAll('__SERVER_MODE__', process.env.CCN_SERVER || ''));
 let body = readFileSync(root + 'src/index.html', 'utf8');
+// önbellek kırıcı: app.js her değiştiğinde adresi de değişir, tarayıcı eski dosyayı göstermez
+const appHash = createHash('sha256').update(readFileSync(root + 'www/app.js')).digest('hex').slice(0, 10);
+body = body.replace(/(<script[^>]*src=")app\.js(")/, `$1app.js?v=${appHash}$2`);
 body = body.replace(/<link rel="preconnect"[^>]*>\n?/, '').replace(/<link rel="stylesheet" href="https:\/\/fonts\.googleapis\.com[^>]*>/, '<link rel="stylesheet" href="fonts/fonts.css">');
 writeFileSync(root + 'www/index.html', `<!doctype html>
 <html lang="tr">
