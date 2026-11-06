@@ -24,8 +24,16 @@ const COLOR_NAMES = { red: 'Kırmızı', orange: 'Turuncu', yellow: 'Sarı', gre
 const DAY_NAMES = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
 const DAY_SHORT = ['Pz', 'Pt', 'Sa', 'Ça', 'Pe', 'Cu', 'Ct'];
 const MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
-// v2: sıfırlandı — önceki hatalı okumalardan kalan kayıtlar yüklenmez
-const STORE_KEY = 'vardiya-panosu-v2';
+// Sunucu modu: web panelinde (api.php ile aynı adreste) ya da sunucu adresiyle derlenmiş telefon uygulamasında
+// liste, personel ve duyurular sunucudan gelir; kişi sicil/TC + telefon + şifre ile girer. Değilse tek cihazlık eski mod.
+const API_URL = (() => {
+  const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  if (native) return /^https:\/\//.test('__API_URL__') ? '__API_URL__' : '';
+  return '__SERVER_MODE__' === '1' && /^https?:$/.test(location.protocol) ? 'api.php' : '';
+})();
+const SERVER = !!API_URL;
+// v2: sıfırlandı — önceki hatalı okumalardan kalan kayıtlar yüklenmez. Sunucu modunun önbelleği ayrı tutulur.
+const STORE_KEY = SERVER ? 'ccn-sunucu-v1' : 'vardiya-panosu-v2';
 try { localStorage.removeItem('vardiya-panosu-v1'); } catch (e) { /* yoksay */ }
 
 // ---------- Tarih yardımcıları (yerel saat, saat dilimi kayması olmadan) ----------
@@ -266,6 +274,96 @@ function makeDemo() {
   return s;
 }
 
+// ---------- Sunucu: oturum ve ortak veri ----------
+const AUTH_KEY = 'ccn-oturum';
+// "Beni hatırla" seçiliyse oturum kalıcı (uygulama kapanıp açılsa da sürer), değilse uygulama kapanınca biter
+function loadAuth() {
+  if (!SERVER) return null;
+  try { return JSON.parse(localStorage.getItem(AUTH_KEY)) || JSON.parse(sessionStorage.getItem(AUTH_KEY)); } catch (e) { return null; }
+}
+let auth = loadAuth();
+function saveAuth() {
+  try { localStorage.removeItem(AUTH_KEY); sessionStorage.removeItem(AUTH_KEY); if (auth) (auth.hatirla ? localStorage : sessionStorage).setItem(AUTH_KEY, JSON.stringify(auth)); } catch (e) { /* yoksay */ }
+}
+const isAdmin = () => !SERVER || !!(auth && auth.ben && auth.ben.rol === 'admin');
+const srv = { v: null, duyurular: [], personel: null, kayitlar: null, conflict: false, loading: false };
+const serverPage = (f) => (API_URL.startsWith('http') ? API_URL.replace(/api\.php$/, f) : f);
+
+async function api(r, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (auth && auth.token) headers['X-Ccn-Token'] = auth.token;
+  let res;
+  try { res = await fetch(API_URL + '?r=' + r, { method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' }); }
+  catch (e) { throw new Error('Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.'); }
+  let j = null; try { j = await res.json(); } catch (e) { /* JSON değil */ }
+  if (res.status === 401 && j && j.cikis && r !== 'giris') { signOut('Oturumunuz kapandı. Hesabınız kaldırılmış ya da oturum süresi dolmuş olabilir.'); throw new Error(j.hata); }
+  if (!res.ok || !j || j.hata) throw new Error((j && j.hata) || `Sunucu hatası (${res.status})`);
+  return j;
+}
+function signOut(msg) {
+  auth = null; saveAuth(); clearInterval(pollT);
+  store = defaultStore(); try { localStorage.removeItem(STORE_KEY); } catch (e) { /* yoksay */ }
+  srv.v = null; srv.duyurular = []; srv.personel = null; srv.kayitlar = null;
+  ui.login = { step: 'giris', hatirla: true, err: msg || '' }; ui.review = null; ui.view = 'gunluk';
+  closeSheet(); render();
+}
+// Yayınlanan listenin parmak izi: yöneticinin cihazında yayınlanmamış değişiklik var mı?
+function pubHash() {
+  const t = JSON.stringify([Object.keys(store.people).sort().map((k) => [k, store.people[k].name, store.people[k].group, store.people[k].days]), store.settings.company, store.settings.hours, store.settings.offRule]);
+  let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+const isDirty = () => SERVER && isAdmin() && Object.keys(store.people).length > 0 && (!store.pub || store.pub.sig !== pubHash());
+function applyRoster(L) {
+  const v = (L && L.veri) || { people: {}, settings: {} }; const s = v.settings || {};
+  store.people = v.people || {}; store.demo = false;
+  store.settings.company = s.company || '';
+  for (const g of ['1', '2', '3']) if (s.hours && s.hours[g]) store.settings.hours[g] = s.hours[g];
+  store.settings.offRule = s.offRule === 'team' ? 'team' : 'return';
+  save();
+  store.pub = L ? { id: L.id, tarih: L.tarih, yayinlayan: L.yayinlayan, sig: pubHash() } : null;
+  save();
+}
+async function syncData(force) {
+  const j = await api('veri');
+  auth.ben = j.ben; saveAuth();
+  srv.v = j.surum; srv.duyurular = j.duyurular || [];
+  const L = j.liste;
+  // yöneticinin yayınlamadığı değişiklikler korunur; başka biri yeni liste yayınladıysa uyarılır
+  if (!force && isDirty()) srv.conflict = !!(L && (!store.pub || L.id !== store.pub.id));
+  else { srv.conflict = false; applyRoster(L); }
+}
+async function publish() {
+  if (!Object.keys(store.people).length) { toast('Yayınlanacak liste yok'); return; }
+  const j = await api('yayinla', { veri: { people: store.people, settings: { company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule } } });
+  srv.conflict = false;
+  await syncData(true);
+  toast(`Liste yayınlandı · ${j.kisi} kişi`);
+}
+let pollT = null;
+function startPoll() { clearInterval(pollT); if (SERVER && auth) pollT = setInterval(checkServer, 60000); }
+async function checkServer() {
+  if (!SERVER || !auth || document.visibilityState !== 'visible' || !navigator.onLine || srv.loading) return;
+  try {
+    const old = srv.v; const j = await api('surum'); const v = j.surum;
+    if (old && v.liste === old.liste && v.duyuru === old.duyuru && v.duyuruSayi === old.duyuruSayi) return;
+    srv.loading = true;
+    try { await syncData(); } finally { srv.loading = false; }
+    if (old && v.liste !== old.liste && !isAdmin()) toast('Yeni vardiya listesi yayınlandı');
+    if (old && v.duyuru > old.duyuru) toast('Yeni duyuru var');
+    const a = document.activeElement;
+    // yazı yazılırken ekran yenilenmez
+    if (!$overlay.innerHTML && !ui.busy && !ui.review && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) render(); else renderTabs();
+  } catch (e) { /* bağlantı yoksa sonra yeniden denenir */ }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkServer(); });
+async function bootServer() {
+  if (!SERVER || !auth) return;
+  srv.loading = true;
+  try { await syncData(); } catch (e) { if (auth) toast(e.message); } finally { srv.loading = false; }
+  if (auth) { startPoll(); render(); }
+}
+
 // ---------- Uygulama durumu ----------
 const ui = {
   view: 'gunluk',
@@ -288,21 +386,43 @@ function dataRange() {
 }
 
 // ---------- Yönlendirme ----------
-const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'ayarlar'];
+const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarlar'];
+// sekmeler kullanıcının rolüne göre
+function tabList() {
+  if (!SERVER) return ['gunluk', 'ara', 'cizelge', 'yukle', 'ayarlar'];
+  return isAdmin() ? ['gunluk', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarlar'] : ['gunluk', 'ara', 'cizelge', 'duyuru', 'ayarlar'];
+}
+const allowedView = (v) => VIEWS.includes(v) && (v === 'ara' || tabList().includes(v));
 function go(view) {
-  ui.view = VIEWS.includes(view) ? view : 'gunluk'; render(); window.scrollTo(0, 0);
+  ui.view = allowedView(view) ? view : 'gunluk'; render(); window.scrollTo(0, 0);
   try { if (location.hash !== '#' + ui.view) location.hash = ui.view; } catch (e) { /* çerçeve izin vermezse yoksay */ }
 }
-function fromHash() { const h = location.hash.replace('#', ''); const v = VIEWS.includes(h) ? h : 'gunluk'; if (v !== ui.view || !$app.innerHTML) { ui.view = v; render(); } }
+function fromHash() { const h = location.hash.replace('#', ''); const v = allowedView(h) ? h : 'gunluk'; if (v !== ui.view || !$app.innerHTML) { ui.view = v; render(); } }
 window.addEventListener('hashchange', fromHash);
-document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => go(b.dataset.view)));
+const $tabs = document.querySelector('.tabs');
+const TAB_ICON = {}; document.querySelectorAll('.tab').forEach((b) => { TAB_ICON[b.dataset.view] = b.querySelector('svg').outerHTML; });
+TAB_ICON.duyuru = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 5.5a9 9 0 0 1 0 13"/></svg>';
+TAB_ICON.personel = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 20a6.5 6.5 0 0 0-3-5.5"/></svg>';
+const TAB_LABEL = { gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', duyuru: 'Duyurular', personel: 'Personel', ayarlar: 'Ayarlar' };
+$tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) go(b.dataset.view); });
+function unreadCount() { const seen = prefs.seenAnn || 0; return srv.duyurular.filter((a) => a.id > seen).length; }
+function renderTabs() {
+  const show = !SERVER || !!auth; $tabs.hidden = !show; document.body.classList.toggle('no-tabs', !show);
+  if (!show) return;
+  const un = SERVER ? unreadCount() : 0;
+  $tabs.innerHTML = tabList().map((v) => `<button class="tab" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}${TAB_LABEL[v]}${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}</button>`).join('');
+}
 
 function render() {
-  document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-current', b.dataset.view === ui.view ? 'page' : 'false'));
   const sub = document.getElementById('brand-sub');
-  sub.textContent = store.settings.company ? store.settings.company : '1 · 2 · 3 vardiya, OFF ve izin takibi';
-  const banner = store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '';
-  const views = { gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, ayarlar: viewSettings };
+  if (SERVER && !auth) { renderTabs(); sub.textContent = 'Personel girişi'; $app.innerHTML = viewLogin(); bindLogin(); return; }
+  if (!allowedView(ui.view)) ui.view = 'gunluk';
+  if (SERVER && ui.view === 'duyuru' && srv.duyurular.length) { const top = Math.max(...srv.duyurular.map((a) => a.id)); if (top > (prefs.seenAnn || 0)) { prefs.seenAnn = top; savePrefs(); } }
+  renderTabs();
+  sub.textContent = store.settings.company ? store.settings.company : SERVER && auth ? auth.ben.ad : '1 · 2 · 3 vardiya, OFF ve izin takibi';
+  let banner = store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '';
+  if (isDirty() && ui.view !== 'yukle') banner += `<div class="banner pub"><p><b>Yayınlanmamış değişiklikler var.</b> Personel bu değişiklikleri siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`;
+  const views = { gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, duyuru: viewAnnouncements, personel: viewPersonnel, ayarlar: viewSettings };
   $app.innerHTML = banner + views[ui.view]();
   bindView();
 }
@@ -339,6 +459,7 @@ function shiftStats(L) {
   return st;
 }
 
+const i0 = (x, t) => (x === t ? 'Bugün' : x === addDays(t, 1) ? 'Yarın' : `${DAY_SHORT[parseIso(x).getDay()]} ${fmtShort(x).slice(0, 5)}`);
 function viewDaily() {
   const d = ui.date; const lists = dayLists(d); const t = todayIso();
   if (!ui.dayShift) ui.dayShift = shiftNow();
@@ -355,8 +476,16 @@ function viewDaily() {
     </section>` : '';
   const unkOpen = !!ui.collapsed['unk-' + g];
   const tile = (n, label, cls = '') => `<div class="stat ${cls}"><b>${n}</b><span>${label}</span></div>`;
+  // giriş yapan kişinin kendi günleri (bugünden itibaren 7 gün)
+  const me = myRecord();
+  const mine = me ? `<section class="card stack mine">
+      <div class="row"><h3 style="flex:1;font-size:18px;margin:0">Benim vardiyam</h3><span class="small muted">${esc(me.name)}</span></div>
+      <div class="pdays">${Array.from({ length: 7 }, (_, i) => addDays(t, i)).map((x) => { const c = me.days[x] || ''; return `<button class="pday k-${c} ${x === d ? 'sel' : ''}" data-act="set-date" data-date="${x}"><span>${i0(x, t)}</span><b>${CODES[c] ? CODES[c].short : '–'}</b></button>`; }).join('')}</div>
+    </section>` : '';
+  const pubInfo = SERVER && store.pub ? `<p class="small muted" style="margin:0">Liste ${fmtWhen(store.pub.tarih)} tarihinde${store.pub.yayinlayan ? ' ' + esc(store.pub.yayinlayan) + ' tarafından' : ''} yayınlandı.</p>` : '';
+  const pinned = SERVER ? srv.duyurular.filter((a) => a.sabit).slice(0, 2).map((a) => `<button class="banner ann-mini" data-act="goto" data-view="duyuru"><b>📌 ${esc(a.baslik)}</b><span class="small">${esc(a.metin.slice(0, 120))}${a.metin.length > 120 ? '…' : ''}</span></button>`).join('') : '';
 
-  return `
+  return `${pinned}${mine}
   <div class="card stack">
     <div class="datebar">
       <button class="iconbtn" aria-label="Önceki gün" data-act="shift-date" data-n="-1">${ICON_LEFT}</button>
@@ -366,6 +495,7 @@ function viewDaily() {
     <div class="row"><div class="chips">${chips}</div><input type="date" id="date-pick" value="${d}" aria-label="Tarih seç"></div>
     ${outOfRange ? `<div class="note">Bu tarih yüklenen listelerin dışında. Yüklü liste: <b>${fmtShort(range.min)} – ${fmtShort(range.max)}</b>. Yeni dönemin listesini “Liste Yükle”den ekleyin.<div class="row" style="margin-top:8px"><button class="chip" data-act="set-date" data-date="${range.min}">İlk gün ${fmtShort(range.min)}</button><button class="chip" data-act="set-date" data-date="${range.max}">Son gün ${fmtShort(range.max)}</button></div></div>` : ''}
     <div class="shiftchips">${tabs}</div>
+    ${pubInfo}
   </div>
   ${hasAny ? `<section class="card stack dayshift" data-s="${g}">
     <div class="dhead">
@@ -381,7 +511,7 @@ function viewDaily() {
     ${L.unknown.length ? `<div class="unk"><button class="btn ghost small" data-act="toggle-unk" data-g="${g}">${unkOpen ? 'Gizle' : 'Göster'}: ${L.unknown.length} kişinin bu gün için kaydı yok</button>${unkOpen ? `<p class="small muted">${L.unknown.map((p) => esc(p.name)).join(', ')}</p>` : ''}</div>` : ''}
   </section>
   <div class="row"><button class="btn" data-act="share" data-g="all">${ICON_SHARE}Üç vardiyayı birlikte paylaş</button></div>`
-  : `<div class="card stack"><h2>Henüz liste yok</h2><p class="muted">Şirketin gönderdiği vardiya listesi görsellerini yükleyin; isimler ve günler otomatik okunur, kırmızı hücreler OFF sayılır.</p><div><button class="btn primary" data-act="goto" data-view="yukle">${ICON_UPLOAD}Liste yükle</button></div></div>`}`;
+  : SERVER && !isAdmin() ? `<div class="card stack"><h2>Henüz liste yayınlanmadı</h2><p class="muted">Yöneticiniz vardiya listesini yayınlayınca burada görünür.</p></div>` : `<div class="card stack"><h2>Henüz liste yok</h2><p class="muted">Şirketin gönderdiği vardiya listesi görsellerini yükleyin; isimler ve günler otomatik okunur, kırmızı hücreler OFF sayılır.</p><div><button class="btn primary" data-act="goto" data-view="yukle">${ICON_UPLOAD}Liste yükle</button></div></div>`}`;
 }
 
 function shareText(date, which, fmt) {
@@ -473,10 +603,10 @@ function viewGrid() {
   return `<div class="card stack">
     <div class="datebar">
       <button class="iconbtn" aria-label="Önceki hafta" data-act="grid-move" data-n="-7">${ICON_LEFT}</button>
-      <div class="dtitle"><h2>${fmtShort(days[0])} – ${fmtShort(days[13])}</h2><span>${people.length} kişi · hücreye dokunarak güncelleyin</span></div>
+      <div class="dtitle"><h2>${fmtShort(days[0])} – ${fmtShort(days[13])}</h2><span>${people.length} kişi${isAdmin() ? ' · hücreye dokunarak güncelleyin' : ''}</span></div>
       <button class="iconbtn" aria-label="Sonraki hafta" data-act="grid-move" data-n="7">${ICON_RIGHT}</button>
     </div>
-    <div class="row"><div class="chips">${filt}</div><span style="flex:1"></span><button class="btn" data-act="add-person">${ICON_PLUS}Kişi ekle</button></div>
+    <div class="row"><div class="chips">${filt}</div><span style="flex:1"></span>${isAdmin() ? `<button class="btn" data-act="add-person">${ICON_PLUS}Kişi ekle</button>` : ''}</div>
     <div class="legend">${CODE_ORDER.filter((c) => c).map((c) => `<span><span class="dot k-${c}"></span>${CODES[c].short} = ${CODES[c].label}</span>`).join('')}</div>
   </div>
   <div class="tablewrap"><table class="grid"><thead><tr><th class="name">Ad Soyad</th>${head}</tr></thead><tbody>${rows || `<tr><td class="name">Kimse yok</td></tr>`}</tbody><tfoot>${foot}</tfoot></table></div>`;
@@ -601,23 +731,29 @@ function viewReview() {
 function viewSettings() {
   const S = store.settings;
   const online = navigator.onLine; const errs = readLS(ERR_KEY, []).length;
-  return `<div class="card stack">
+  const account = SERVER && auth ? `<div class="card stack">
+    <h2 style="font-size:22px">Hesap</h2>
+    <div class="permrow"><span><b>${esc(auth.ben.ad)}</b><br><span class="small muted">${auth.ben.rol === 'admin' ? 'Yönetici' : 'Personel'}${auth.ben.sicil ? ' · Sicil ' + esc(auth.ben.sicil) : ''} · ${auth.hatirla ? 'oturum açık kalır' : 'uygulama kapanınca oturum kapanır'}</span></span><span></span><button class="btn" data-act="logout">Çıkış yap</button></div>
+    ${store.pub ? `<p class="small muted" style="margin:0">Yayındaki liste: ${fmtWhen(store.pub.tarih)}${store.pub.yayinlayan ? ' · ' + esc(store.pub.yayinlayan) : ''}</p>` : ''}
+  </div>` : '';
+  const shared = !SERVER || isAdmin();
+  return account + `<div class="card stack">
     <h2 style="font-size:22px">Görünüm</h2>
     <div class="seg seg3" role="radiogroup" aria-label="Tema">${[['auto', 'Sistem'], ['light', 'Açık'], ['dark', 'Koyu']].map(([v, l]) => `<button role="radio" data-act="set-theme" data-theme-val="${v}" aria-selected="${prefs.theme === v}" aria-checked="${prefs.theme === v}">${l}</button>`).join('')}</div>
     <p class="small muted" style="margin:0">“Sistem” seçiliyken telefonun koyu/açık mod ayarı kullanılır.</p>
   </div>
-  <div class="card stack">
+  ${shared ? `<div class="card stack">
     <h2 style="font-size:22px">OFF ve izinliler hangi vardiyada görünsün?</h2>
     <div class="seg" role="radiogroup" aria-label="OFF kuralı">${[['return', 'Döndüğü vardiya'], ['team', 'Kendi listesinin vardiyası']].map(([v, l]) => `<button role="radio" data-act="set-off-rule" data-v="${v}" aria-selected="${(S.offRule || 'return') === v}" aria-checked="${(S.offRule || 'return') === v}">${l}</button>`).join('')}</div>
     <p class="small muted" style="margin:0">${(S.offRule || 'return') === 'team' ? 'Kişi hangi vardiya listesinden okunduysa OFF, rapor ve izin günleri o vardiyada görünür.' : 'OFF günü, kişinin OFF’tan sonra döndüğü vardiyaya yazılır: 3. vardiyadan çıkıp 1.’ye dönenin OFF’u 1. vardiyadadır; 1 → OFF → 1 de 1. vardiyadır.'}</p>
   </div>
-  <div class="card stack">
+` : ''}  <div class="card stack">
     <h2 style="font-size:22px">Paylaşılan liste biçimi</h2>
     <label class="row" style="gap:8px"><input type="checkbox" id="set-sh-bold" ${S.share.bold ? 'checked' : ''}> <span>Başlıklar <b>kalın</b> (WhatsApp)</span></label>
     <div class="seg seg3" role="radiogroup" aria-label="İsim listesi">${[['num', '1. 2. 3.'], ['bullet', '• Maddeli'], ['plain', 'Düz']].map(([v, l]) => `<button role="radio" data-act="set-sh-style" data-v="${v}" aria-selected="${S.share.style === v}" aria-checked="${S.share.style === v}">${l}</button>`).join('')}</div>
     <pre class="share-prev">${esc((S.share.bold ? '*1. VARDİYA*' : '1. VARDİYA') + '\n' + (S.share.bold ? '*Çalışanlar (2)*' : 'Çalışanlar (2)') + '\n' + ['Ayşe Demir', 'Mehmet Kaya'].map((n, i) => (S.share.style === 'num' ? i + 1 + '. ' : S.share.style === 'bullet' ? '• ' : '') + n).join('\n') + '\n\n' + (S.share.bold ? '*OFF (2)*' : 'OFF (2)') + '\n' + ['Elif Arslan', 'Hasan Doğan'].map((n, i) => (S.share.style === 'num' ? i + 1 + '. ' : S.share.style === 'bullet' ? '• ' : '') + n).join('\n'))}</pre>
   </div>
-  <div class="card stack">
+  ${shared ? `<div class="card stack">
     <h2 style="font-size:22px">İzinler</h2>
     <div class="permrow"><span><b>Fotoğraflar</b><br><span class="small muted">Vardiya listesi görsellerini seçmek için</span></span>
       <span class="pill ${prefs.photoOk ? 'ok' : 'bad'}">${prefs.photoOk ? 'İzin verildi' : 'İzin yok'}</span>
@@ -625,7 +761,7 @@ function viewSettings() {
     <div class="permrow"><span><b>İnternet</b><br><span class="small muted">Güncellemeleri denetlemek için</span></span>
       <span class="pill ${online ? 'ok' : 'bad'}">${online ? 'Bağlı' : 'Bağlı değil'}</span><span></span></div>
   </div>
-  <div class="card stack">
+` : ''}  <div class="card stack">
     <h2 style="font-size:22px">Güncelleme</h2>
     <p class="small muted" style="margin:0">Yüklü sürüm: <b>${esc(APP_VERSION)}</b>. Yeni sürümler ${window.Capacitor && window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'ios' ? 'App Store' : 'Google Play'} üzerinden gelir.</p>
     <div class="row"><button class="btn primary" data-act="check-update">Güncellemeleri denetle</button></div>
@@ -635,7 +771,7 @@ function viewSettings() {
     <p class="small muted" style="margin:0">Uygulamada bir sorun olursa hata kaydı telefonda tutulur (${errs ? errs + ' kayıt' : 'kayıt yok'}). “Hata raporu gönder” ile sürüm, telefon modeli, Android sürümü, ekran bilgisi ve hata kayıtlarını içeren raporu seçtiğiniz uygulamayla (WhatsApp, e-posta) gönderebilirsiniz. Rapor siz göndermedikçe hiçbir yere gitmez; isimler rapora eklenmez.</p>
     <div class="row"><button class="btn" data-act="send-report">Hata raporu gönder</button>${errs ? '<button class="btn" data-act="clear-errors">Kayıtları temizle</button>' : ''}</div>
   </div>
-  <div class="card stack">
+  ${shared ? `<div class="card stack">
     <h2 style="font-size:22px">Genel</h2>
     <div class="settings-grid">
       <label class="field">Şirket / bölüm adı (paylaşımda görünür)<input type="text" id="set-company" value="${esc(S.company)}" placeholder="Örn. Üretim Bölümü"></label>
@@ -648,11 +784,11 @@ function viewSettings() {
     <div class="settings-grid">${Object.keys(COLOR_NAMES).map((c) => `<label class="field"><span class="row" style="gap:6px"><span class="dot" style="background:${SWATCH[c]}"></span>${COLOR_NAMES[c]} hücre</span>
       <select id="set-c-${c}">${[['', 'Dikkate alma'], ['OFF', 'OFF'], ['R', 'Raporlu'], ['YI', 'Yıllık İzin'], ['MI', 'Diğer İzin']].map(([v, l]) => `<option value="${v}" ${S.colors[c] === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`).join('')}</div>
   </div>
-  <div class="card stack">
+` : ''}  ${!SERVER ? `<div class="card stack">
     <h2 style="font-size:22px">Veri</h2>
     <p class="small muted" style="margin:0">Veriler yalnızca bu cihazda saklanır. Başka telefona aktarmak için yedeği kopyalayıp diğer cihazda “Yedekten yükle”ye yapıştırın.</p>
     <div class="row"><button class="btn" data-act="backup">Yedeği kopyala</button><button class="btn" data-act="restore-open">Yedekten yükle</button><button class="btn" data-act="clean-bad">Hatalı isimleri temizle</button><button class="btn danger" data-act="wipe">Tüm verileri sil</button></div>
-  </div>`;
+  </div>` : ''}`;
 }
 
 const SWATCH = { red: '#e02828', orange: '#f08a1c', yellow: '#f2cf1d', green: '#2fa84f', blue: '#2f7de1', purple: '#8e44c9', gray: '#9aa3ad' };
@@ -673,6 +809,8 @@ function bindView() {
     }
     el.addEventListener('click', (e) => { e.preventDefault(); actions[act] && actions[act](el); });
   });
+  const pq = document.getElementById('pq');
+  if (pq) pq.addEventListener('input', () => { ui.pq = pq.value; const pos = pq.selectionStart; render(); const n = document.getElementById('pq'); n.focus(); n.setSelectionRange(pos, pos); });
   const qi = document.getElementById('q');
   let qT;
   if (qi) qi.addEventListener('input', () => { ui.q = qi.value; clearTimeout(qT); qT = setTimeout(() => { const res = document.getElementById('ara-res'); if (!res) return; res.innerHTML = searchResults(); bindResults(); }, 120); });
@@ -705,8 +843,8 @@ function bindView() {
   }
   if (ui.view === 'ayarlar') {
     const S = store.settings;
-    const bind = (id, fn) => { const el = document.getElementById(id); el.addEventListener('change', () => { fn(el.value); save(); toast('Kaydedildi'); }); };
-    const sb = document.getElementById('set-sh-bold'); sb.addEventListener('change', () => { S.share.bold = sb.checked; save(); render(); });
+    const bind = (id, fn) => { const el = document.getElementById(id); if (!el) return; el.addEventListener('change', () => { fn(el.value); save(); toast('Kaydedildi'); }); };
+    const sb = document.getElementById('set-sh-bold'); if (sb) sb.addEventListener('change', () => { S.share.bold = sb.checked; save(); render(); });
     bind('set-company', (v) => { S.company = v.trim(); document.getElementById('brand-sub').textContent = S.company || '1 · 2 · 3 vardiya, OFF ve izin takibi'; });
     ['1', '2', '3'].forEach((g) => bind('set-h' + g, (v) => { S.hours[g] = v.trim(); }));
     Object.keys(COLOR_NAMES).forEach((c) => bind('set-c-' + c, (v) => { S.colors[c] = v; }));
@@ -722,14 +860,29 @@ const actions = {
   'share': (el) => doShare(shareText(ui.date, el.dataset.g), el.dataset.g === 'all' ? 'Günün vardiya listesi' : `${el.dataset.g}. vardiya listesi`),
   'grid-group': (el) => { ui.gridGroup = el.dataset.g; render(); },
   'grid-move': (el) => { ui.gridStart = addDays(ui.gridStart, +el.dataset.n); render(); },
-  'cell': (el) => pickCode(store.people[el.dataset.key].days[el.dataset.date] || '', `${store.people[el.dataset.key].name} · ${fmtShort(el.dataset.date)}`, (code) => {
+  'cell': (el) => !isAdmin() ? toast('Listeyi yöneticiler günceller') : pickCode(store.people[el.dataset.key].days[el.dataset.date] || '', `${store.people[el.dataset.key].name} · ${fmtShort(el.dataset.date)}`, (code) => {
     const p = store.people[el.dataset.key]; if (code) p.days[el.dataset.date] = code; else delete p.days[el.dataset.date];
     store.demo = false; save(); render();
   }),
-  'person': (el) => personSheet(el.dataset.key),
+  'person': (el) => (isAdmin() ? personSheet(el.dataset.key) : (ui.q = store.people[el.dataset.key].name, go('ara'))),
   'day-shift': (el) => { ui.dayShift = el.dataset.g; render(); },
   'toggle-unk': (el) => { ui.collapsed['unk-' + el.dataset.g] = !ui.collapsed['unk-' + el.dataset.g]; render(); },
   'add-person': () => personSheet(null),
+  'publish': async (el) => { el.disabled = true; try { await publish(); } catch (e) { toast(e.message); } render(); },
+  'discard': () => confirmSheet('Yayındaki listeye dönülsün mü?', 'Bu cihazda yapıp yayınlamadığınız değişiklikler silinir; personelin gördüğü liste yüklenir.', 'Yayındakine dön', async () => { try { srv.conflict = false; await syncData(true); } catch (e) { toast(e.message); } render(); }),
+  'ann-post': async (el) => {
+    const t = document.getElementById('an-title').value.trim(), b = document.getElementById('an-body').value.trim();
+    if (!t || !b) { toast('Başlık ve metin yazın'); return; }
+    el.disabled = true;
+    try { await api('duyuru', { baslik: t, metin: b, sabit: document.getElementById('an-pin').checked }); await syncData(); toast('Duyuru yayınlandı'); render(); }
+    catch (e) { el.disabled = false; toast(e.message); }
+  },
+  'ann-del': (el) => confirmSheet('Duyuru silinsin mi?', 'Duyuru herkesten kaldırılır.', 'Sil', async () => { try { await api('duyuru-sil', { id: +el.dataset.id }); await syncData(); render(); toast('Duyuru silindi'); } catch (e) { toast(e.message); } }),
+  'per-add': () => personnelSheet(0),
+  'per-edit': (el) => personnelSheet(+el.dataset.id),
+  'per-bulk': () => bulkSheet(),
+  'per-log': async () => { try { srv.kayitlar = (await api('kayitlar')).kayitlar; render(); } catch (e) { toast(e.message); } },
+  'logout': () => confirmSheet('Çıkış yapılsın mı?', 'Bu cihazdaki oturum kapanır. Yeniden girmek için sicil/TC, telefon ve şifreniz gerekir.', 'Çıkış yap', async () => { try { await api('cikis', {}); } catch (e) { /* yoksay */ } signOut(''); }),
   'sample': async (el) => {
     const ns = el.dataset.n === 'all' ? ['1', '2', '3'] : [el.dataset.n];
     try { handleFiles(await Promise.all(ns.map(async (n) => new File([await (await fetch(`samples/vardiya-${n}.png`)).blob()], `vardiya-${n}.png`, { type: 'image/png' })))); }
@@ -765,6 +918,168 @@ const actions = {
   'clear-errors': () => { writeLS(ERR_KEY, []); render(); toast('Hata kayıtları temizlendi'); },
   'wipe': () => confirmSheet('Tüm veriler silinsin mi?', 'Yüklenen bütün listeler ve kişiler bu cihazdan silinir. Bu işlem geri alınamaz.', 'Hepsini sil', () => { store = defaultStore(); save(); render(); toast('Tüm veriler silindi'); }),
 };
+
+// ---------- Sunucu ekranları: giriş, duyurular, personel ----------
+function viewLogin() {
+  const L = ui.login || (ui.login = { step: 'giris', hatirla: true, err: '' });
+  const err = L.err ? `<div class="aibad"><span>${esc(L.err)}</span></div>` : '';
+  const form = L.step === 'pin'
+    ? `<p style="margin:0">Merhaba <b>${esc(L.ad || '')}</b>. İlk girişiniz: kendinize <b>6 haneli bir şifre</b> belirleyin. Bundan sonra sicil/TC, telefon ve bu şifreyle gireceksiniz.</p>
+      <label class="field">Yeni şifre<input id="lg-new" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required></label>
+      <label class="field">Şifre (tekrar)<input id="lg-new2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required></label>
+      <div class="row"><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Kaydediliyor…' : 'Şifreyi kaydet ve gir'}</button><button class="btn" type="button" data-act="login-back">Geri</button></div>`
+    : `<label class="field">Sicil no ya da TC kimlik no<input id="lg-kimlik" autocomplete="username" autocapitalize="off" value="${esc(L.kimlik || '')}" required></label>
+      <label class="field">Telefon numarası<input id="lg-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="05xx xxx xx xx" value="${esc(L.telefon || '')}" required></label>
+      <label class="field">Şifre (6 hane)<input id="lg-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password"></label>
+      <p class="small muted" style="margin:-4px 0 0">İlk kez giriyorsanız şifreyi boş bırakın; bir sonraki adımda belirleyeceksiniz.</p>
+      <label class="row" style="gap:8px"><input type="checkbox" id="lg-remember" ${L.hatirla !== false ? 'checked' : ''}> <span>Beni hatırla <span class="small muted">(uygulama kapansa da oturum açık kalır)</span></span></label>
+      <div><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Giriş yapılıyor…' : 'Giriş yap'}</button></div>`;
+  return `<div class="card stack login">
+    <div class="eyebrow">Personel girişi</div><h2 style="font-size:24px">Giriş yap</h2>
+    ${err}
+    <form id="lg-form" class="stack" novalidate>${form}</form>
+    <p class="small muted" style="margin:0">Şifrenizi unuttuysanız ya da giremiyorsanız yöneticinize başvurun; şifrenizi sıfırlayabilir. Bilgileriniz <a href="${esc(serverPage('gizlilik.html'))}" target="_blank" rel="noopener">aydınlatma metninde</a> açıklandığı gibi yalnızca vardiya listesi için kullanılır.</p>
+  </div>`;
+}
+function bindLogin() {
+  const f = document.getElementById('lg-form'); if (!f) return;
+  $app.querySelectorAll('[data-act="login-back"]').forEach((b) => b.addEventListener('click', () => { ui.login.step = 'giris'; ui.login.err = ''; render(); }));
+  const first = f.querySelector('input'); if (first && !('ontouchstart' in window)) first.focus();
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault(); const L = ui.login; if (L.busy) return;
+    const body = {};
+    if (L.step === 'pin') {
+      const a = f.querySelector('#lg-new').value.trim(), b = f.querySelector('#lg-new2').value.trim();
+      if (!/^\d{6}$/.test(a)) { L.err = 'Şifre 6 haneli bir sayı olmalı.'; render(); return; }
+      if (a !== b) { L.err = 'İki şifre aynı değil.'; render(); return; }
+      Object.assign(body, { kimlik: L.kimlik, telefon: L.telefon, yeniPin: a, hatirla: L.hatirla });
+    } else {
+      L.kimlik = f.querySelector('#lg-kimlik').value.trim(); L.telefon = f.querySelector('#lg-tel').value.trim(); L.hatirla = f.querySelector('#lg-remember').checked;
+      if (!L.kimlik || !L.telefon) { L.err = 'Sicil / TC numarası ve telefon numarasını girin.'; render(); return; }
+      Object.assign(body, { kimlik: L.kimlik, telefon: L.telefon, pin: f.querySelector('#lg-pin').value.trim(), hatirla: L.hatirla });
+    }
+    L.busy = true; L.err = ''; render();
+    try {
+      const j = await api('giris', body);
+      L.busy = false;
+      if (j.durum === 'pin-olustur') { L.step = 'pin'; L.ad = j.ad; render(); return; }
+      auth = { token: j.token, ben: j.ben, hatirla: !!j.hatirla }; saveAuth();
+      ui.login = null; ui.view = 'gunluk'; ui.date = todayIso();
+      await bootServer();
+      toast(`Hoş geldiniz, ${j.ben.ad}`);
+    } catch (err) { L.busy = false; L.err = err.message; render(); }
+  });
+}
+
+function fmtWhen(t) { if (!t) return ''; const d = new Date(t); return isNaN(d) ? '' : `${fmtShort(iso(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+
+function viewAnnouncements() {
+  const list = srv.duyurular;
+  const compose = isAdmin() ? `<div class="card stack">
+    <h2 style="font-size:22px">Yeni duyuru</h2>
+    <label class="field">Başlık<input id="an-title" maxlength="160" placeholder="Örn. Cuma toplantısı"></label>
+    <label class="field">Metin<textarea id="an-body" rows="4" maxlength="5000" placeholder="Duyuru metni"></textarea></label>
+    <label class="row" style="gap:8px"><input type="checkbox" id="an-pin"> <span>Üstte sabitle</span></label>
+    <div><button class="btn primary" data-act="ann-post">Duyuruyu yayınla</button></div>
+    <p class="small muted" style="margin:0">Yayınlanan duyuruyu uygulamayı kullanan herkes görür.</p>
+  </div>` : '';
+  const items = list.length ? list.map((a) => `<article class="card stack ann ${a.sabit ? 'pinned' : ''}">
+      <div class="row" style="flex-wrap:nowrap;align-items:flex-start"><h3 style="flex:1;min-width:0;font-size:18px;margin:0">${a.sabit ? '📌 ' : ''}${esc(a.baslik)}</h3>${isAdmin() ? `<button class="iconbtn" data-act="ann-del" data-id="${a.id}" aria-label="Duyuruyu sil">${ICON_TRASH}</button>` : ''}</div>
+      <p style="margin:0;white-space:pre-wrap">${esc(a.metin)}</p>
+      <span class="small muted">${esc(a.yazan || '')} · ${fmtWhen(a.tarih)}</span>
+    </article>`).join('') : `<div class="card"><p class="empty" style="margin:0">Henüz duyuru yok.</p></div>`;
+  return compose + `<div class="stack">${items}</div>`;
+}
+
+function viewPersonnel() {
+  if (!srv.personel) { loadPersonnel(); return `<div class="card"><p class="muted" style="margin:0">Personel listesi yükleniyor…</p></div>`; }
+  const q = nameKey(ui.pq || '');
+  const rows = srv.personel.filter((p) => !q || nameKey(p.ad).includes(q) || String(p.sicil || '').includes(ui.pq || ''));
+  const admins = srv.personel.filter((p) => p.rol === 'admin').length;
+  return `<div class="card stack">
+    <div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Yönetim</div><h2 style="font-size:24px">Personel · ${srv.personel.length} kişi</h2></div>
+      <button class="btn primary" data-act="per-add">${ICON_PLUS}Kişi ekle</button><button class="btn" data-act="per-bulk">Toplu ekle</button></div>
+    <p class="small muted" style="margin:0">Kişiler sicil no ya da TC ve telefon numarasıyla girer; ilk girişte kendi 6 haneli şifresini belirler. Sildiğiniz kişi uygulamadan hemen çıkarılır. TC ve telefon numaraları geri çözülemeyecek biçimde saklanır; burada yalnızca son haneleri görünür.</p>
+    <input type="search" id="pq" placeholder="İsim ya da sicil ara" value="${esc(ui.pq || '')}" aria-label="Personel ara">
+  </div>
+  <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Sicil</th><th>TC</th><th>Telefon</th><th>Yetki</th><th>Durum</th><th></th></tr></thead><tbody>
+    ${rows.map((p) => `<tr><td class="name">${esc(p.ad)}</td><td>${esc(p.sicil || '–')}</td><td>${esc(p.tc || '–')}</td><td class="nowrap">${esc(p.telefon)}</td>
+      <td>${p.rol === 'admin' ? '<span class="pill ok">Yönetici</span>' : 'Personel'}</td>
+      <td class="small">${p.kilitli ? '<span class="pill bad">Kilitli</span>' : p.sifreVar ? (p.sonGiris ? 'Son giriş ' + fmtWhen(p.sonGiris) : 'Şifre var') : '<span class="muted">Henüz girmedi</span>'}</td>
+      <td class="nowrap"><button class="btn small" data-act="per-edit" data-id="${p.id}">Düzenle</button></td></tr>`).join('') || '<tr><td class="name" colspan="7">Kimse yok</td></tr>'}
+  </tbody></table></div>
+  <div class="card stack">
+    <div class="row"><h2 style="font-size:20px;flex:1">İşlem kayıtları</h2><button class="btn" data-act="per-log">${srv.kayitlar ? 'Yenile' : 'Göster'}</button></div>
+    ${srv.kayitlar ? `<div class="loglist">${srv.kayitlar.map((k) => `<div><span class="small muted nowrap">${fmtWhen(k.tarih)}</span> <b>${esc(k.kim || '–')}</b> · ${esc(LOG_NAMES[k.islem] || k.islem)}${k.detay ? ' · ' + esc(k.detay) : ''}</div>`).join('') || '<p class="empty">Kayıt yok</p>'}</div>` : '<p class="small muted" style="margin:0">Kim ne zaman giriş yaptı, liste yayınladı, personel ekledi/sildi.</p>'}
+  </div>
+  <p class="small muted">${admins} yönetici. Bir kişiyi yönetici yapmak için “Düzenle”den yetkisini değiştirin.</p>`;
+}
+const LOG_NAMES = { giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', kurulum: 'kurulum' };
+async function loadPersonnel() {
+  try { const j = await api('personel'); srv.personel = j.personel; } catch (e) { srv.personel = []; toast(e.message); }
+  if (ui.view === 'personel') render();
+}
+function personnelSheet(id) {
+  const p = id ? srv.personel.find((x) => x.id === id) : { ad: '', sicil: '', rol: 'staff' };
+  sheet(`<h3>${id ? 'Personeli düzenle' : 'Personel ekle'}</h3>
+    <label class="field">Ad soyad<input id="pe-ad" value="${esc(p.ad)}" maxlength="120"></label>
+    <label class="field">Sicil no<input id="pe-sicil" value="${esc(p.sicil || '')}" maxlength="32"></label>
+    <label class="field">TC kimlik no${id && p.tc ? ` <span class="small muted">(kayıtlı: ${esc(p.tc)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tc" inputmode="numeric" maxlength="11" autocomplete="off"></label>
+    <label class="field">Telefon${id ? ` <span class="small muted">(kayıtlı: ${esc(p.telefon)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tel" type="tel" inputmode="tel" placeholder="05xx xxx xx xx" autocomplete="off"></label>
+    <label class="field">Yetki<select id="pe-rol"><option value="staff" ${p.rol !== 'admin' ? 'selected' : ''}>Personel (yalnızca görür)</option><option value="admin" ${p.rol === 'admin' ? 'selected' : ''}>Yönetici (liste yayınlar, personel yönetir)</option></select></label>
+    <div class="row"><button class="btn primary" id="pe-save">Kaydet</button><button class="btn" data-x="1">Vazgeç</button></div>
+    ${id ? `<div class="row" style="border-top:1px solid var(--line);padding-top:12px"><button class="btn" id="pe-reset">Şifreyi sıfırla</button><span style="flex:1"></span>${auth.ben.id === id ? '' : '<button class="btn danger" id="pe-del">Sistemden çıkar</button>'}</div>
+      <p class="small muted" style="margin:0">Şifre sıfırlanınca kişi uygulamadan çıkar; bir sonraki girişte yeni şifresini kendisi belirler.</p>` : ''}`, (bg) => {
+    const v = (s) => bg.querySelector(s).value.trim();
+    bg.querySelector('#pe-save').addEventListener('click', async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      try { await api('personel-kaydet', { id: id || 0, ad: v('#pe-ad'), sicil: v('#pe-sicil'), tc: v('#pe-tc'), telefon: v('#pe-tel'), rol: v('#pe-rol') }); closeSheet(); toast('Kaydedildi'); srv.personel = null; render(); }
+      catch (err) { b.disabled = false; toast(err.message); }
+    });
+    const rs = bg.querySelector('#pe-reset');
+    rs && rs.addEventListener('click', async () => { if (!rs.dataset.sure) { rs.dataset.sure = '1'; rs.textContent = 'Sıfırlamayı onayla'; return; } try { await api('pin-sifirla', { id }); closeSheet(); toast('Şifre sıfırlandı'); srv.personel = null; render(); } catch (err) { toast(err.message); } });
+    const del = bg.querySelector('#pe-del');
+    del && del.addEventListener('click', async () => { if (!del.dataset.sure) { del.dataset.sure = '1'; del.textContent = `${p.ad} çıkarılsın mı? Onayla`; return; } try { await api('personel-sil', { id }); closeSheet(); toast(`${p.ad} sistemden çıkarıldı`); srv.personel = null; render(); } catch (err) { toast(err.message); } });
+  });
+}
+// Excel'den kopyalanan satırlar: Ad Soyad | Sicil | TC | Telefon (sekme, ; veya , ile ayrılmış)
+function parseBulk(text) {
+  const out = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const c = line.split(/\t|;|,(?=\s*\S)/).map((x) => x.trim());
+    if (out.length === 0 && /ad|isim/i.test(c[0]) && !/\d/.test(line)) continue; // başlık satırı
+    const [ad, sicil = '', tc = '', telefon = ''] = c;
+    out.push({ ad, sicil, tc, telefon });
+  }
+  return out;
+}
+function bulkSheet() {
+  sheet(`<h3>Toplu personel ekle</h3>
+    <p class="small muted" style="margin:0">Excel'den 4 sütunu kopyalayıp yapıştırın: <b>Ad Soyad · Sicil No · TC · Telefon</b>. Sicil ya da TC'si kayıtlı olan kişinin bilgileri güncellenir, yetkisi değişmez.</p>
+    <textarea id="bk-text" rows="8" placeholder="Ayşe Demir&#9;1001&#9;12345678950&#9;05321234567"></textarea>
+    <div id="bk-res" class="small"></div>
+    <div class="row"><button class="btn primary" id="bk-ok">Ekle</button><button class="btn" data-x="1">Kapat</button></div>`, (bg) => {
+    bg.querySelector('#bk-ok').addEventListener('click', async (e) => {
+      const btn = e.currentTarget; const rows = parseBulk(bg.querySelector('#bk-text').value); const res = bg.querySelector('#bk-res');
+      if (!rows.length) { res.textContent = 'Yapıştırılmış satır yok.'; return; }
+      btn.disabled = true;
+      try {
+        const j = await api('personel-toplu', { kisiler: rows });
+        res.innerHTML = `<b>${j.eklenen} kişi eklendi, ${j.guncellenen} kişi güncellendi.</b>${j.hatalar.length ? '<br>Eklenemeyenler:<br>' + j.hatalar.map(esc).join('<br>') : ''}`;
+        srv.personel = null; render();
+        if (!j.hatalar.length) { closeSheet(); toast(`${j.eklenen} eklendi, ${j.guncellenen} güncellendi`); }
+      } catch (err) { res.textContent = err.message; }
+      btn.disabled = false;
+    });
+  });
+}
+// Giriş yapan kişinin kendi vardiyası (yayınlanan listedeki ismiyle eşleşirse)
+function myRecord() {
+  if (!SERVER || !auth) return null;
+  const me = auth.ben.ad; const k = nameKey(me);
+  return allPeople().find((p) => p.key === k) || allPeople().find((p) => sameStrict(p.name, me)) || null;
+}
 
 // ---------- Paylaşım ----------
 async function doShare(text, title) {
@@ -2088,5 +2403,5 @@ const ICON_CHECK = svg('<path d="M20 6L9 17l-5-5"/>');
 const ICON_LIST = svg('<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>');
 const ICON_TRASH = svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>');
 
-{ const h = location.hash.replace('#', ''); ui.view = VIEWS.includes(h) ? h : 'gunluk'; render(); }
-initRemote();
+{ const h = location.hash.replace('#', ''); ui.view = allowedView(h) ? h : 'gunluk'; render(); }
+if (SERVER) bootServer(); else initRemote();

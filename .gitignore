@@ -5,3 +5,4 @@ src/vendor/
 android/local.properties
 *.aab
 *.jks
+dist-server/

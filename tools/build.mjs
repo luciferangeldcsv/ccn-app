@@ -36,7 +36,9 @@ for (const [pkg, weights] of [['barlow', [400, 500, 600]], ['barlow-semi-condens
 writeFileSync(root + 'www/fonts/fonts.css', fontCss);
 // sürüm numarası Ayarlar'da görünür
 const version = JSON.parse(readFileSync(root + 'package.json', 'utf8')).version;
-writeFileSync(root + 'www/app.js', readFileSync(root + 'www/app.js', 'utf8').replaceAll('__APP_VERSION__', version));
+writeFileSync(root + 'www/app.js', readFileSync(root + 'www/app.js', 'utf8').replaceAll('__APP_VERSION__', version)
+  // sunucu modu: web paneli (CCN_SERVER=1) ya da sunucu adresli telefon uygulaması (CCN_API_URL=https://…/api.php)
+  .replaceAll('__API_URL__', process.env.CCN_API_URL || '').replaceAll('__SERVER_MODE__', process.env.CCN_SERVER || ''));
 let body = readFileSync(root + 'src/index.html', 'utf8');
 body = body.replace(/<link rel="preconnect"[^>]*>\n?/, '').replace(/<link rel="stylesheet" href="https:\/\/fonts\.googleapis\.com[^>]*>/, '<link rel="stylesheet" href="fonts/fonts.css">');
 writeFileSync(root + 'www/index.html', `<!doctype html>

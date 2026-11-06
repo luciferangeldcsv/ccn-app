@@ -1,0 +1,41 @@
+name: Sunucu paketi (Hostinger)
+
+# main'e her gönderimde web paneli + PHP arayüzü derlenir ve "sunucu" dalına konur.
+# Hostinger (hPanel → Gelişmiş → GIT) bu dalı public_html klasörüne çeker; otomatik dağıtım açıksa hemen yayına girer.
+# Ayar dosyası (ccn-config.php, veritabanı şifresi) bu dalda YOKTUR; sunucuda public_html'in bir üst klasöründe durur.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: PHP söz dizimi denetimi
+        run: for f in server/*.php; do php -l "$f"; done
+      - name: Web paneli + PHP arayüzü
+        run: node tools/server-bundle.mjs
+      - name: Sunucu dalına gönder
+        # geçmiş korunur (zorla gönderim yok): Hostinger'ın "git pull"u her seferinde sorunsuz ilerler
+        run: |
+          REPO="https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
+          if git clone -q --depth 1 -b sunucu "$REPO" /tmp/srv 2>/dev/null; then :; else
+            mkdir /tmp/srv && cd /tmp/srv && git init -q -b sunucu && git remote add origin "$REPO" && cd -; fi
+          rsync -a --delete --exclude .git dist-server/ /tmp/srv/
+          cd /tmp/srv
+          git config user.name "github-actions" && git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then echo "Değişiklik yok"; exit 0; fi
+          git commit -q -m "Sunucu paketi ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})"
+          git push -q origin sunucu
