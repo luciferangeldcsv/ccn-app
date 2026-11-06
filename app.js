@@ -650,7 +650,12 @@ const offLabel = (key) => { const o = (store.rules && store.rules.off[key]) || [
 
 // ---------- Çizelge (yöneticide Excel gibi düzenlenir) ----------
 const XL_KEYS = { 1: '1', 2: '2', 3: '3', o: 'OFF', r: 'R', y: 'YI', u: 'UI', ü: 'UI', i: 'MI', ı: 'MI', m: 'MI' };
+const MAX_RANGE = 93; // seçilebilen en uzun aralık (gün)
 function gridDays() {
+  if (ui.gridSpan === 'ozel' && ui.gridFrom && ui.gridTo) {
+    const n = Math.min(MAX_RANGE, Math.round((parseIso(ui.gridTo) - parseIso(ui.gridFrom)) / 864e5) + 1);
+    return Array.from({ length: Math.max(1, n) }, (_, i) => addDays(ui.gridFrom, i));
+  }
   if (ui.gridSpan === 'ay') {
     const s = (ui.gridMonth || ui.date).slice(0, 7) + '-01'; const d0 = parseIso(s);
     const n = new Date(d0.getFullYear(), d0.getMonth() + 1, 0).getDate();
@@ -685,8 +690,11 @@ function viewGrid() {
     const n = people.filter((p) => (c === 'IZ' ? ['R', 'YI', 'UI', 'MI'].includes(p.days[d]) : p.days[d] === c)).length;
     return `<td class="cnt xlc-${c}">${n || '·'}</td>`; }).join('')}</tr>`).join('');
   const filt = [['all', 'Tümü'], ['1', '1. Vardiya'], ['2', '2. Vardiya'], ['3', '3. Vardiya']].map(([v, l]) => `<button class="chip" data-act="grid-group" data-g="${v}" aria-pressed="${ui.gridGroup === v}">${l}</button>`).join('');
-  const span = [['7', '1 hafta'], ['14', '2 hafta'], ['21', '3 hafta'], ['ay', 'Ay']].map(([v, l]) => `<button class="chip" data-act="grid-span" data-v="${v}" aria-pressed="${(ui.gridSpan || '14') === v}">${l}</button>`).join('');
-  const title = ui.gridSpan === 'ay' ? `${MONTHS[parseIso(days[0]).getMonth()]} ${parseIso(days[0]).getFullYear()}` : `${fmtShort(days[0])} – ${fmtShort(days[days.length - 1])}`;
+  const span = [['7', '1 hafta'], ['14', '2 hafta'], ['21', '3 hafta'], ['ay', 'Ay'], ['ozel', 'Tarih aralığı']].map(([v, l]) => `<button class="chip" data-act="grid-span" data-v="${v}" aria-pressed="${(ui.gridSpan || '14') === v}">${l}</button>`).join('');
+  const rangeBar = ui.gridSpan === 'ozel' ? `<div class="row rangebar"><label class="field">Başlangıç<input type="date" id="gr-from" value="${days[0]}"></label><label class="field">Bitiş<input type="date" id="gr-to" value="${days[days.length - 1]}"></label>
+      <div class="chips">${[['bu-ay', 'Bu ay'], ['gelecek-ay', 'Gelecek ay'], ['4h', 'Bugünden 4 hafta']].map(([v, l]) => `<button class="chip" data-act="grid-quick" data-v="${v}">${l}</button>`).join('')}</div>
+      <span class="small muted">${days.length} gün · en fazla ${MAX_RANGE} gün</span></div>` : '';
+  const title = ui.gridSpan === 'ozel' ? `${fmtShort(days[0])} – ${fmtShort(days[days.length - 1])}` : ui.gridSpan === 'ay' ? `${MONTHS[parseIso(days[0]).getMonth()]} ${parseIso(days[0]).getFullYear()}` : `${fmtShort(days[0])} – ${fmtShort(days[days.length - 1])}`;
   const tools = admin ? `<div class="xltools" role="toolbar" aria-label="Seçili hücrelere yaz">
       <span class="small muted">Seçili hücreler:</span>${['1', '2', '3', 'OFF', 'YI', 'UI', 'R', 'MI'].map((c) => `<button class="code xl xl-${c}" data-act="xl-set" data-code="${c}">${CODES[c].short}</button>`).join('')}<button class="btn small" data-act="xl-set" data-code="">Sil</button>
     </div>
@@ -700,6 +708,7 @@ function viewGrid() {
     </div>
     <div class="row"><div class="chips">${span}</div><div class="chips">${filt}</div><span style="flex:1"></span>
       <button class="btn" data-act="xl-export">${ICON_DOWNLOAD}Excel indir</button>${admin ? `<button class="btn" data-act="add-person">${ICON_PLUS}Kişi ekle</button>` : ''}</div>
+    ${rangeBar}
     ${tools}
     <div class="legend">${CODE_ORDER.filter((c) => c).map((c) => `<span><span class="code xl xl-${c} mini">${CODES[c].short}</span>${CODES[c].label}</span>`).join('')}</div>
   </div>${people0}
@@ -1098,7 +1107,17 @@ function bindView() {
     drop.addEventListener('dragleave', () => drop.classList.remove('over'));
     drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); const f = [...e.dataTransfer.files].filter((x) => x.type.startsWith('image/')); if (f.length) handleFiles(f); });
   }
-  if (ui.view === 'cizelge') bindGrid();
+  if (ui.view === 'cizelge') {
+    bindGrid();
+    const gf = document.getElementById('gr-from'), gt = document.getElementById('gr-to');
+    const setRange = () => {
+      let a = gf.value, b = gt.value; if (!a || !b) return;
+      if (b < a) { toast('Bitiş, başlangıçtan önce olamaz'); gt.value = ui.gridTo; return; }
+      if ((parseIso(b) - parseIso(a)) / 864e5 + 1 > MAX_RANGE) { b = addDays(a, MAX_RANGE - 1); toast(`En fazla ${MAX_RANGE} gün seçilebilir`); }
+      ui.gridFrom = a; ui.gridTo = b; ui.sel = null; render();
+    };
+    if (gf) { gf.addEventListener('change', setRange); gt.addEventListener('change', setRange); }
+  }
   if (ui.view === 'yukle') prewarmOcr();
   if (ui.view === 'yukle' && ui.review && !ui.busy) {
     for (const P of ui.review.parts) { const cv = document.getElementById('rv-cv-' + P.id); cv.width = P.preview.width; cv.height = P.preview.height; cv.getContext('2d').drawImage(P.preview, 0, 0); }
@@ -1125,12 +1144,21 @@ const actions = {
   'grid-group': (el) => { ui.gridGroup = el.dataset.g; render(); },
   'grid-move': (el) => {
     const n = +el.dataset.n; ui.sel = null;
-    if (ui.gridSpan === 'ay') { const d = parseIso((ui.gridMonth || ui.date).slice(0, 7) + '-01'); d.setMonth(d.getMonth() + n); ui.gridMonth = iso(d); }
+    if (ui.gridSpan === 'ozel') { const len = gridDays().length; ui.gridFrom = addDays(ui.gridFrom, n * len); ui.gridTo = addDays(ui.gridTo, n * len); }
+    else if (ui.gridSpan === 'ay') { const d = parseIso((ui.gridMonth || ui.date).slice(0, 7) + '-01'); d.setMonth(d.getMonth() + n); ui.gridMonth = iso(d); }
     else ui.gridStart = addDays(ui.gridStart, n * ({ '7': 7, '21': 21 }[ui.gridSpan] || 14)); // seçilen süre kadar ilerler
     render();
   },
-  'grid-span': (el) => { ui.gridSpan = ['7', '14', '21', 'ay'].includes(el.dataset.v) ? el.dataset.v : '14'; ui.sel = null; if (ui.gridSpan === 'ay' && !ui.gridMonth) ui.gridMonth = (ui.gridStart ? addDays(ui.gridStart, 7) : ui.date).slice(0, 7) + '-01'; render(); },
+  'grid-span': (el) => {
+    if (el.dataset.v === 'ozel' && ui.gridSpan !== 'ozel') { const d = gridDays(); ui.gridFrom = d[0]; ui.gridTo = d[d.length - 1]; }
+    ui.gridSpan = ['7', '14', '21', 'ay', 'ozel'].includes(el.dataset.v) ? el.dataset.v : '14'; ui.sel = null; if (ui.gridSpan === 'ay' && !ui.gridMonth) ui.gridMonth = (ui.gridStart ? addDays(ui.gridStart, 7) : ui.date).slice(0, 7) + '-01'; render(); },
   'xl-set': (el) => writeSel(el.dataset.code),
+  'grid-quick': (el) => {
+    const t = parseIso(todayIso()); ui.sel = null;
+    if (el.dataset.v === '4h') { ui.gridFrom = todayIso(); ui.gridTo = addDays(ui.gridFrom, 27); }
+    else { const m = el.dataset.v === 'gelecek-ay' ? 1 : 0; const a = new Date(t.getFullYear(), t.getMonth() + m, 1), b = new Date(t.getFullYear(), t.getMonth() + m + 1, 0); ui.gridFrom = iso(a); ui.gridTo = iso(b); }
+    render();
+  },
   'xl-export': () => exportExcel(),
   'grid-from-staff': async () => {
     try {
