@@ -9,7 +9,7 @@ RewriteCond %{HTTP:X-Forwarded-Proto} !=https
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
 # Ortak kod, ayar ve gizli dosyalar dışarıdan açılmaz
-<FilesMatch "^(lib\.php|ccn-config\.php|.*\.sql|\.git.*|.*\.md)$">
+<FilesMatch "^(lib\.php|yonetici\.php|ccn-config\.php|.*\.sql|\.git.*|.*\.md)$">
   Require all denied
 </FilesMatch>
 RedirectMatch 404 /\.git
