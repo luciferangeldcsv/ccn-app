@@ -363,6 +363,32 @@ table.miss input { min-height: 36px; width: 140px; box-sizing: border-box; }
 table.plist td.name { max-width: 220px; }
 .loglist { display: grid; gap: 6px; max-height: 420px; overflow: auto; font-size: 14px; }
 textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--fg); }
+:root { --x1: #c6efce; --x1t: #1e6b2f; --x2: #f8cbad; --x2t: #7a3b12; --x3: #ffe699; --x3t: #6b5300; --xoff: #e53935; --xyi: #bdd7ee; --xyit: #1f4e79; --xui: #8ea9db; --xuit: #172b4d; --xr: #e4c6f0; --xrt: #6a1b8a; --xmi: #d9d9d9; --xmit: #333333; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --x1: #1f4a2a; --x1t: #9be3ad; --x2: #5a3420; --x2t: #f7bf98; --x3: #4d4114; --x3t: #f3d877; --xoff: #d32f2f; --xyi: #1e3a57; --xyit: #a9d0f5; --xui: #33476e; --xuit: #d6e2ff; --xr: #3f2650; --xrt: #dcaaf2; --xmi: #3a3f45; --xmit: #dddddd; } }
+:root[data-theme="dark"] { --x1: #1f4a2a; --x1t: #9be3ad; --x2: #5a3420; --x2t: #f7bf98; --x3: #4d4114; --x3t: #f3d877; --xoff: #d32f2f; --xyi: #1e3a57; --xyit: #a9d0f5; --xui: #33476e; --xuit: #d6e2ff; --xr: #3f2650; --xrt: #dcaaf2; --xmi: #3a3f45; --xmit: #dddddd; }
+.code.xl { border-radius: 4px; min-width: 36px; height: 28px; border: 1px solid transparent; cursor: default; }
+.xl-1 { background: var(--x1); color: var(--x1t); } .xl-2 { background: var(--x2); color: var(--x2t); } .xl-3 { background: var(--x3); color: var(--x3t); }
+.xl-OFF { background: var(--xoff); color: #fff; } .xl-YI { background: var(--xyi); color: var(--xyit); } .xl-UI { background: var(--xui); color: var(--xuit); }
+.xl-R { background: var(--xr); color: var(--xrt); } .xl-MI { background: var(--xmi); color: var(--xmit); }
+.xl-none { background: transparent; border: 1px dashed var(--line) !important; color: var(--muted); }
+table.xlgrid.edit .code.xl { cursor: cell; }
+.code.xl.auto { opacity: .72; font-style: italic; }
+.code.xl.sel { box-shadow: inset 0 0 0 2px var(--accent); border-color: var(--accent); }
+.code.xl:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+table.xlgrid.edit { user-select: none; -webkit-user-select: none; }
+table.xlgrid th b { display: block; font-size: 13px; color: var(--fg); }
+table.xlgrid.month .code.xl { min-width: 30px; height: 26px; font-size: 12px; padding: 0 2px; }
+table.xlgrid.month th { padding-inline: 2px; }
+td.cnt.xlc-1 { color: var(--x1t); } td.cnt.xlc-2 { color: var(--x2t); } td.cnt.xlc-3 { color: var(--x3t); } td.cnt.xlc-OFF { color: var(--off); } td.cnt.xlc-IZ { color: var(--xrt); }
+.xltools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.xltools .code.xl { cursor: pointer; min-width: 40px; }
+.code.xl.mini { min-width: 28px; height: 20px; font-size: 11px; margin-right: 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.legend span { display: inline-flex; align-items: center; }
+.offtag { font-size: 11px; color: var(--muted); margin-left: 6px; white-space: nowrap; }
+.leave { display: flex; align-items: center; gap: 8px; }
+.leave > span:nth-child(2) { flex: 1; }
+.leaveadd { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 

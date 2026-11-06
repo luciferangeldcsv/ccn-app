@@ -16,7 +16,7 @@ $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
 $POST_ONLY = ['giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
-const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'MI'];
+const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
 
 function versions(): array {
   $l = (int)(db()->query('SELECT MAX(id) FROM rosters')->fetchColumn() ?: 0);
@@ -117,13 +117,28 @@ switch ($r) {
         }
       }
       $g = in_array($p['group'] ?? '', ['1', '2', '3'], true) ? $p['group'] : '';
-      $people[$key] = ['name' => $name, 'group' => $g, 'days' => $days] + (isset($p['area']) && is_string($p['area']) ? ['area' => mb_substr($p['area'], 0, 40)] : []);
+      $auto = [];
+      foreach ((array)($p['auto'] ?? []) as $dt => $k) if (isset($days[$dt]) && in_array($k, ['off', 'izin'], true)) $auto[$dt] = $k;
+      $people[$key] = ['name' => $name, 'group' => $g, 'days' => $days] + ($auto ? ['auto' => $auto] : []) + (isset($p['area']) && is_string($p['area']) ? ['area' => mb_substr($p['area'], 0, 40)] : []);
     }
     if (!$people) fail(400, 'Yayınlanacak kişi yok.');
     $s = is_array($in['settings'] ?? null) ? $in['settings'] : [];
     $hours = [];
     foreach (['1', '2', '3'] as $g) $hours[$g] = mb_substr((string)($s['hours'][$g] ?? ''), 0, 40);
-    $data = ['people' => $people, 'settings' => ['company' => mb_substr((string)($s['company'] ?? ''), 0, 80), 'hours' => $hours, 'offRule' => ($s['offRule'] ?? '') === 'team' ? 'team' : 'return']];
+    // planlama kuralları: haftalık OFF günleri ve izin / rapor dönemleri
+    $rin = is_array($in['rules'] ?? null) ? $in['rules'] : [];
+    $rules = ['off' => [], 'leaves' => []];
+    foreach ((array)($rin['off'] ?? []) as $k => $days) {
+      if (!isset($people[$k]) || !is_array($days)) continue;
+      $d = array_values(array_unique(array_filter(array_map('intval', $days), fn($x) => $x >= 0 && $x <= 6)));
+      if ($d) $rules['off'][$k] = $d;
+    }
+    foreach (array_slice((array)($rin['leaves'] ?? []), 0, 5000) as $l) {
+      if (!is_array($l) || !isset($people[$l['key'] ?? '']) || !in_array($l['code'] ?? '', ['YI', 'UI', 'R', 'MI'], true)) continue;
+      if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($l['from'] ?? '')) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($l['to'] ?? '')) || $l['to'] < $l['from']) continue;
+      $rules['leaves'][] = ['id' => mb_substr(preg_replace('/[^a-z0-9]/i', '', (string)($l['id'] ?? '')) ?: bin2hex(random_bytes(4)), 0, 16), 'key' => $l['key'], 'code' => $l['code'], 'from' => $l['from'], 'to' => $l['to']];
+    }
+    $data = ['people' => $people, 'rules' => $rules, 'settings' => ['company' => mb_substr((string)($s['company'] ?? ''), 0, 80), 'hours' => $hours, 'offRule' => ($s['offRule'] ?? '') === 'team' ? 'team' : 'return']];
     $json = json_encode($data, JSON_UNESCAPED_UNICODE);
     $note = mb_substr(str_in('not', 255), 0, 255);
     db()->prepare('INSERT INTO rosters (data, note, people, range_from, range_to, published_by, published_name, published_at) VALUES (?,?,?,?,?,?,?,?)')
