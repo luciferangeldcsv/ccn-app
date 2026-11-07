@@ -529,7 +529,25 @@ h4.ph { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color
 <div id="overlay"></div>
 
 <script src="vendor/tesseract.min.js" defer></script>
-<script src="app.js?v=4ee7a47fc2"></script>
+<script>
+/* Güvenlik ağı: uygulama kodu açılışta hata verirse ya da hiç yüklenmezse açılış animasyonu ekranda kalmasın; hata ekranda yazsın */
+(function () {
+  var shown = false;
+  function off() { var el = document.getElementById('intro'); if (el) el.remove(); document.body.classList.remove('intro-run', 'intro-done'); }
+  function show(msg) {
+    off(); if (shown) return; shown = true;
+    var d = document.createElement('div');
+    d.setAttribute('style', 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99;background:#7f1d1d;color:#fff;padding:12px 14px;border-radius:12px;font:14px/1.45 system-ui,sans-serif');
+    d.innerHTML = '<b>Sayfa açılırken bir hata oldu.</b> Sayfayı yenileyin; sürerse bu yazının ekran görüntüsünü gönderin.<br><small style="opacity:.85;word-break:break-word">' + String(msg).replace(/[<>&]/g, '') + '</small> <button style="margin-top:8px;display:block;border:0;border-radius:8px;padding:8px 12px;font-weight:600" onclick="try{localStorage.removeItem(\'ccn-sunucu-v1\')}catch(e){};location.reload()">Yenile</button>';
+    document.body.appendChild(d);
+  }
+  window.addEventListener('error', function (e) { if (!window.__ccnReady) show((e.message || 'hata') + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : '')); });
+  window.addEventListener('unhandledrejection', function (e) { if (!window.__ccnReady) show(e.reason && e.reason.message || e.reason || 'hata'); });
+  setTimeout(function () { if (!window.__ccnReady) show('Uygulama dosyası yüklenemedi ya da çok yavaş yüklendi.'); }, 12000);
+  setTimeout(off, 6000);
+})();
+</script>
+<script src="app.js?v=4fd9816c19"></script>
 
 </body>
 </html>

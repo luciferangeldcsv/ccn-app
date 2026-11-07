@@ -2922,4 +2922,5 @@ const ICON_DOWNLOAD = svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
 const ICON_TRASH = svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>');
 
 { const h = location.hash.replace('#', ''); ui.view = allowedView(h) ? h : 'gunluk'; render(); }
+window.__ccnReady = true; // açılış başarılı: güvenlik ağı devre dışı
 if (SERVER) bootServer(); else initRemote();
