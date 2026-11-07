@@ -25,10 +25,27 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 3;
-// unvan → yetki: yönetici ve müdür yönetim paneline girer; şef ve personel yalnızca görür
-const TITLES = ['yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
-function role_of(string $t): string { return in_array($t, ['yonetici', 'mudur'], true) ? 'admin' : 'staff'; }
+const SCHEMA_V = 4;
+// Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
+const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
+const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
+function level_of(?string $t): int { return LEVELS[$t ?? ''] ?? 1; }
+// liste hazırlama/yayınlama yetkisi müdür ve üstünde
+function role_of(string $t): string { return level_of($t) >= 3 ? 'admin' : 'staff'; }
+// kim hangi unvanı verebilir: DEV hepsini; yönetici müdür/şef/personel; müdür şef/personel; şef yalnızca personel
+function grantable(string $t): array {
+  return ['dev' => ['yonetici', 'mudur', 'sef', 'personel'], 'yonetici' => ['mudur', 'sef', 'personel'], 'mudur' => ['sef', 'personel'], 'sef' => ['personel']][$t] ?? [];
+}
+// kişiye dokunabilir mi (düzenle / sil): yalnızca kendinden alt seviyedekiler; DEV'e kimse dokunamaz
+function can_touch(array $u, array $target): bool {
+  if (($target['title'] ?? '') === 'dev') return false;
+  return level_of($u['title'] ?? '') === 5 || level_of($u['title'] ?? '') > level_of($target['title'] ?? 'personel');
+}
+function require_level(int $n, string $msg = 'Bu işlem için yetkiniz yok.'): array {
+  $u = current_user();
+  if (level_of($u['title'] ?? '') < $n) fail(403, $msg);
+  return $u;
+}
 function migrate(PDO $pdo): void {
   $pdo->exec('CREATE TABLE IF NOT EXISTS meta (k VARCHAR(40) PRIMARY KEY, v TEXT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
   $v = (int)($pdo->query("SELECT v FROM meta WHERE k='schema'")->fetchColumn() ?: 0);
@@ -41,6 +58,11 @@ function migrate(PDO $pdo): void {
     }
     // 2 → 3: kişisel tercihler (tema, paylaşım biçimi) hesapta saklanır, her cihazda aynı olur
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'prefs'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN prefs TEXT NULL AFTER title');
+    // 3 → 4: ilk yönetici (kurucu) gizli DEV hesabı olur
+    if (!$pdo->query("SELECT COUNT(*) FROM personnel WHERE title = 'dev'")->fetchColumn()) {
+      $first = $pdo->query("SELECT MIN(id) FROM personnel WHERE role = 'admin'")->fetchColumn();
+      if ($first) $pdo->prepare("UPDATE personnel SET title = 'dev', role = 'admin' WHERE id = ?")->execute([$first]);
+    }
     $pdo->prepare("REPLACE INTO meta (k, v) VALUES ('schema', ?)")->execute([(string)SCHEMA_V]);
     return;
   }
@@ -185,11 +207,9 @@ function current_user(bool $required = true): ?array {
   if (!$u && $required) fail(401, 'Oturum geçersiz. Yeniden giriş yapın.', ['cikis' => true]);
   return $u;
 }
-function require_admin(): array {
-  $u = current_user();
-  if ($u['role'] !== 'admin') fail(403, 'Bu işlem yalnızca yöneticiler içindir.');
-  return $u;
-}
+function require_admin(): array { return require_level(3, 'Bu işlem yalnızca yönetici ve müdürler içindir.'); }
+// DEV gizlidir: yayın ve duyurularda adı yerine "Yönetim" yazar
+function shown_name(array $u): string { return ($u['title'] ?? '') === 'dev' ? 'Yönetim' : (string)$u['name']; }
 function new_session(int $pid, bool $remember): string {
   $t = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
   $exp = gmdate('Y-m-d H:i:s', time() + ($remember ? 180 * 86400 : 12 * 3600));

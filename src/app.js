@@ -225,6 +225,7 @@ function save() {
   for (const p of Object.values(store.people)) for (const d of Object.keys(p.days)) if (d < cut) delete p.days[d];
   for (const d of Object.keys(store.dayAreas)) if (d < cut) delete store.dayAreas[d];
   try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* yoksay */ }
+  if (SERVER && auth && isAdmin() && typeof scheduleDraft === 'function') scheduleDraft();
   if (remote && !store.demo) { clearTimeout(remoteTimer); remoteTimer = setTimeout(pushRemote, 300); }
 }
 async function pushRemote() {
@@ -293,8 +294,10 @@ function saveAuth() {
 }
 const isAdmin = () => !SERVER || !!(auth && auth.ben && auth.ben.rol === 'admin');
 // unvanlar: yönetici ve müdür yönetim paneline girer (sol menü); şef ve personel yalnızca görür
-const TITLES = [['yonetici', 'Yönetici', 'liste hazırlar, yayınlar, personel yönetir'], ['mudur', 'Müdür', 'liste hazırlar, yayınlar, personel yönetir'], ['sef', 'Şef', 'yalnızca görür'], ['personel', 'Personel', 'yalnızca görür']];
-const titleOf = (u) => (TITLES.find(([k]) => k === (u.unvan || (u.rol === 'admin' ? 'yonetici' : 'personel'))) || TITLES[3])[1];
+const TITLES = [['dev', 'DEV', 'gizli kurucu, her şeye yetkili'], ['yonetici', 'Yönetici', 'her şeye yetkili: liste, personel, şifre/telefon/ID değişikliği'], ['mudur', 'Müdür', 'liste hazırlar ve yayınlar, şef ve personel verir'], ['sef', 'Şef', 'kişi ekler/çıkarır, taslağı önceden görür'], ['personel', 'Personel', 'listeleri görür']];
+const titleOf = (u) => (TITLES.find(([k]) => k === (u.unvan || (u.rol === 'admin' ? 'yonetici' : 'personel'))) || TITLES[4])[1];
+const myLevel = () => (!SERVER ? 5 : (auth && auth.ben && auth.ben.seviye) || (isAdmin() ? 4 : 1));
+const canPeople = () => SERVER && myLevel() >= 2;
 const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toLocaleUpperCase('tr');
 const srv = { v: null, duyurular: [], personel: null, kayitlar: null, conflict: false, loading: false };
 const serverPage = (f) => (API_URL.startsWith('http') ? API_URL.replace(/api\.php$/, f) : f);
@@ -346,7 +349,7 @@ async function syncData(force) {
   auth.ben = j.ben; saveAuth();
   srv.v = j.surum; srv.duyurular = j.duyurular || [];
   const L = j.liste;
-  srv.ayarlar = j.ayarlar || null;
+  srv.ayarlar = j.ayarlar || null; srv.taslak = j.taslak || null;
   // yöneticinin yayınlamadığı değişiklikler korunur; başka biri yeni liste yayınladıysa uyarılır
   if (!force && isDirty()) srv.conflict = !!(L && (!store.pub || L.id !== store.pub.id));
   else { srv.conflict = false; applyRoster(L); }
@@ -360,13 +363,22 @@ async function publish() {
   await syncData(true);
   toast(`Liste yayınlandı · ${j.kisi} kişi`);
 }
+// Yayınlanmamış değişiklikler taslak olarak sunucuya kaydedilir: şef ve üstü önceden görür
+let draftT = null, draftSig = null;
+function scheduleDraft() {
+  clearTimeout(draftT);
+  draftT = setTimeout(async () => {
+    if (!isDirty()) return; const sig = pubHash(); if (sig === draftSig) return;
+    try { await api('taslak-kaydet', { veri: { people: store.people, rules: store.rules, settings: { company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule } } }); draftSig = sig; } catch (e) { /* bağlantı yoksa sonra */ }
+  }, 2500);
+}
 let pollT = null;
 function startPoll() { clearInterval(pollT); if (SERVER && auth) pollT = setInterval(checkServer, 60000); }
 async function checkServer() {
   if (!SERVER || !auth || document.visibilityState !== 'visible' || !navigator.onLine || srv.loading) return;
   try {
     const old = srv.v; const j = await api('surum'); const v = j.surum;
-    if (old && v.liste === old.liste && v.duyuru === old.duyuru && v.duyuruSayi === old.duyuruSayi && v.ayar === old.ayar) return;
+    if (old && v.liste === old.liste && v.duyuru === old.duyuru && v.duyuruSayi === old.duyuruSayi && v.ayar === old.ayar && v.taslak === old.taslak) return;
     srv.loading = true;
     try { await syncData(); } finally { srv.loading = false; }
     if (old && v.liste !== old.liste && !isAdmin()) toast('Yeni vardiya listesi yayınlandı');
@@ -410,7 +422,8 @@ const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarl
 // sekmeler kullanıcının rolüne göre
 function tabList() {
   if (!SERVER) return ['gunluk', 'ara', 'cizelge', 'yukle', 'ayarlar'];
-  return isAdmin() ? ['gunluk', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarlar'] : ['gunluk', 'ara', 'cizelge', 'duyuru', 'ayarlar'];
+  if (isAdmin()) return ['gunluk', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarlar'];
+  return canPeople() ? ['gunluk', 'ara', 'cizelge', 'duyuru', 'personel', 'ayarlar'] : ['gunluk', 'ara', 'cizelge', 'duyuru', 'ayarlar'];
 }
 const allowedView = (v) => VIEWS.includes(v) && (v === 'ara' || tabList().includes(v));
 function go(view) {
@@ -664,14 +677,16 @@ function gridDays() {
   const n = { '7': 7, '21': 21 }[ui.gridSpan] || 14;
   return Array.from({ length: n }, (_, i) => addDays(ui.gridStart, i));
 }
+function gridSource() { return !isAdmin() && ui.showDraft && srv.taslak && srv.taslak.veri ? srv.taslak.veri.people || {} : store.people; }
 function gridPeople() {
-  let people = allPeople().sort((a, b) => (a.group || '9').localeCompare(b.group || '9') || cmpName(a, b));
+  let people = Object.entries(gridSource()).map(([key, p]) => ({ key, ...p })).sort((a, b) => (a.group || '9').localeCompare(b.group || '9') || cmpName(a, b));
   if (ui.gridGroup !== 'all') people = people.filter((p) => p.group === ui.gridGroup);
   return people;
 }
 function viewGrid() {
   const range = dataRange(); const admin = isAdmin();
-  if (!range.min && !admin) return `<div class="card stack"><h2>Çizelge boş</h2><p class="muted">Liste yayınlanınca burada görünür.</p></div>`;
+  const draftBar = !admin && SERVER && srv.taslak ? `<div class="banner draftbar"><p><b>Yayınlanmamış taslak var</b> (${esc(srv.taslak.kim || '')}, ${fmtWhen(srv.taslak.tarih)}). Şef olarak yayından önce görebilirsiniz.</p><button class="btn ${ui.showDraft ? 'primary' : ''}" data-act="toggle-draft">${ui.showDraft ? 'Yayındakini göster' : 'Taslağı göster'}</button></div>` : '';
+  if (!range.min && !admin && !(ui.showDraft && srv.taslak)) return draftBar + `<div class="card stack"><h2>Çizelge boş</h2><p class="muted">Liste yayınlanınca burada görünür.</p></div>`;
   if (!ui.gridStart) {
     if (range.min) { let s = range.min; while (addDays(s, 14) <= ui.date && addDays(s, 14) <= range.max) s = addDays(s, 14); ui.gridStart = s; }
     else { const d = parseIso(todayIso()); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); ui.gridStart = iso(d); }
@@ -700,7 +715,7 @@ function viewGrid() {
     </div>
     <p class="small muted" style="margin:0">Hücreye tıklayıp yazın: <b>1 2 3</b> vardiya, <b>O</b> OFF, <b>Y</b> yıllık izin, <b>Ü</b> ücretsiz izin, <b>R</b> rapor, <b>İ</b> diğer izin, <b>Del</b> sil. Ok tuşlarıyla gezin, sürükleyerek ya da Shift ile çok hücre seçin. Excel'den kopyaladığınız hücreleri Ctrl+V ile yapıştırabilirsiniz. Haftalık OFF günü ve izinler için isme tıklayın; soluk hücreler bu kurallarla otomatik dolar.</p>` : '';
   const people0 = !people.length && admin ? `<div class="card stack"><p class="muted" style="margin:0">Çizelgede kimse yok. “Kişi ekle” ile tek tek ekleyin${SERVER ? ' ya da personel hesaplarındaki herkesi tek seferde ekleyin' : ''}.</p>${SERVER ? '<div><button class="btn primary" data-act="grid-from-staff">Personel listesindeki herkesi ekle</button></div>' : ''}</div>` : '';
-  return `<div class="card stack">
+  return `${draftBar}<div class="card stack">
     <div class="datebar">
       <button class="iconbtn" aria-label="Geri" data-act="grid-move" data-n="-1">${ICON_LEFT}</button>
       <div class="dtitle"><h2>${title}</h2><span>${people.length} kişi${admin ? ' · Excel gibi düzenleyin' : ''}</span></div>
@@ -1153,6 +1168,7 @@ const actions = {
     if (el.dataset.v === 'ozel' && ui.gridSpan !== 'ozel') { const d = gridDays(); ui.gridFrom = d[0]; ui.gridTo = d[d.length - 1]; }
     ui.gridSpan = ['7', '14', '21', 'ay', 'ozel'].includes(el.dataset.v) ? el.dataset.v : '14'; ui.sel = null; if (ui.gridSpan === 'ay' && !ui.gridMonth) ui.gridMonth = (ui.gridStart ? addDays(ui.gridStart, 7) : ui.date).slice(0, 7) + '-01'; render(); },
   'xl-set': (el) => writeSel(el.dataset.code),
+  'toggle-draft': () => { ui.showDraft = !ui.showDraft; render(); },
   'grid-quick': (el) => {
     const t = parseIso(todayIso()); ui.sel = null; ui.gridSpan = 'ozel';
     if (el.dataset.v === '4h') { ui.gridFrom = todayIso(); ui.gridTo = addDays(ui.gridFrom, 27); }
@@ -1219,6 +1235,8 @@ const actions = {
     el.disabled = false;
   },
   'per-edit': (el) => personnelSheet(+el.dataset.id),
+  'per-role': (el) => { ui.pRole = el.dataset.v; render(); },
+  'per-del': (el) => { const p = srv.personel.find((x) => x.id === +el.dataset.id); if (!p) return; confirmSheet(`${p.ad} sistemden çıkarılsın mı?`, 'Kişinin hesabı silinir ve uygulamadan hemen çıkarılır.', 'Çıkar', async () => { try { await api('personel-sil', { id: p.id }); toast(`${p.ad} çıkarıldı`); srv.personel = null; render(); } catch (e) { toast(e.message); } }); },
   'per-bulk': () => bulkSheet(),
   'per-log': async () => { try { srv.kayitlar = (await api('kayitlar')).kayitlar; render(); } catch (e) { toast(e.message); } },
   'logout': () => confirmSheet('Çıkış yapılsın mı?', 'Bu cihazdaki oturum kapanır. Yeniden girmek için Personel ID / TC, telefon ve şifreniz gerekir.', 'Çıkış yap', async () => { try { await api('cikis', {}); } catch (e) { /* yoksay */ } signOut(''); }),
@@ -1333,12 +1351,16 @@ function viewAnnouncements() {
 function viewPersonnel() {
   if (!srv.personel) { loadPersonnel(); return `<div class="card"><p class="muted" style="margin:0">Personel listesi yükleniyor…</p></div>`; }
   const q = nameKey(ui.pq || '');
-  const rows = srv.personel.filter((p) => !q || nameKey(p.ad).includes(q) || String(p.sicil || '').includes(ui.pq || ''));
-  const admins = srv.personel.filter((p) => p.rol === 'admin').length;
+  // unvana göre listeler: Yönetici / Müdür / Şef / Personel (DEV yalnızca kendisine görünür)
+  const pr = ui.pRole || 'all';
+  const rows = srv.personel.filter((p) => (pr === 'all' || p.unvan === pr) && (!q || nameKey(p.ad).includes(q) || String(p.sicil || '').includes(ui.pq || '')));
+  const roleChips = [['all', 'Tümü'], ...TITLES.filter(([k]) => k !== 'dev' || srv.personel.some((p) => p.unvan === 'dev')).map(([k, l]) => [k, k === 'personel' ? 'Personel' : l + (k === 'dev' ? '' : 'ler')])]
+    .map(([k, l]) => { const n = k === 'all' ? srv.personel.length : srv.personel.filter((p) => p.unvan === k).length; return `<button class="chip" data-act="per-role" data-v="${k}" aria-pressed="${pr === k}">${l} <small>${n}</small></button>`; }).join('');
+  const lv = myLevel();
   // yayınlanan / yüklenen vardiya listesindeki isimler ile personel hesapları eşleştirilir
   const listed = allPeople().sort(cmpName);
   const listOf = (ad) => listed.find((x) => nameKey(x.name) === nameKey(ad)) || listed.find((x) => sameStrict(x.name, ad));
-  const hasAcc = (name) => srv.personel.some((p) => nameKey(p.ad) === nameKey(name) || sameStrict(p.ad, name));
+  const hasAcc = (name) => (srv.hesapli || []).includes(nameKey(name)) || srv.personel.some((p) => nameKey(p.ad) === nameKey(name) || sameStrict(p.ad, name));
   const missing = listed.filter((x) => !hasAcc(x.name));
   const D = ui.missDraft || (ui.missDraft = {});
   const dv = (n, f) => esc((D[n] && D[n][f]) || '');
@@ -1357,42 +1379,50 @@ function viewPersonnel() {
   return listCard + `<div class="card stack">
     <div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Yönetim</div><h2 style="font-size:24px">Personel · ${srv.personel.length} kişi</h2></div>
       <button class="btn primary" data-act="per-add">${ICON_PLUS}Kişi ekle</button><button class="btn" data-act="per-bulk">Toplu ekle</button></div>
-    <p class="small muted" style="margin:0">Kişiler Personel ID ya da TC ve telefon numarasıyla girer; ilk girişte kendi 6 haneli şifresini belirler. Sildiğiniz kişi uygulamadan hemen çıkarılır. TC ve telefon numaraları geri çözülemeyecek biçimde saklanır; burada yalnızca son haneleri görünür.</p>
+    <div class="chips">${roleChips}</div>
+    <p class="small muted" style="margin:0">${lv >= 4 ? 'Yönetici olarak herkesi yönetebilir; Müdür, Şef ve Personel unvanı verebilirsiniz.' : lv === 3 ? 'Müdür olarak Şef ve Personel unvanı verebilir, sizden alt unvandakileri ekleyip çıkarabilirsiniz. Telefon, Personel ID ve şifre değişikliğini yöneticiler yapar.' : 'Şef olarak yeni kişi ekleyip çıkarabilirsiniz; eklenen herkes Personel olur.'} Kişiler Personel ID ya da TC ve telefon numarasıyla girer; ilk girişte kendi 6 haneli şifresini belirler. Sildiğiniz kişi uygulamadan hemen çıkarılır. TC ve telefon numaraları geri çözülemeyecek biçimde saklanır; burada yalnızca son haneleri görünür.</p>
     <input type="search" id="pq" placeholder="İsim ya da Personel ID ara" value="${esc(ui.pq || '')}" aria-label="Personel ara">
   </div>
   <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Listede</th><th>Personel ID</th><th>TC</th><th>Telefon</th><th>Unvan</th><th>Durum</th><th></th></tr></thead><tbody>
     ${rows.map((p) => { const l = listOf(p.ad); return `<tr><td class="name">${esc(p.ad)}</td><td>${l ? (l.group ? `<span class="gtag k-${l.group}">${l.group}</span>` : '✓') : '<span class="small muted">yok</span>'}</td><td>${esc(p.sicil || '–')}</td><td>${esc(p.tc || '–')}</td><td class="nowrap">${esc(p.telefon)}</td>
-      <td>${p.rol === 'admin' ? `<span class="pill ok">${titleOf(p)}</span>` : titleOf(p)}</td>
+      <td>${p.unvan === 'personel' ? 'Personel' : `<span class="pill t-${p.unvan}">${titleOf(p)}</span>`}</td>
       <td class="small">${p.kilitli ? '<span class="pill bad">Kilitli</span>' : p.sifreVar ? (p.sonGiris ? 'Son giriş ' + fmtWhen(p.sonGiris) : 'Şifre var') : '<span class="muted">Henüz girmedi</span>'}</td>
-      <td class="nowrap"><button class="btn small" data-act="per-edit" data-id="${p.id}">Düzenle</button></td></tr>`; }).join('') || '<tr><td class="name" colspan="8">Kimse yok</td></tr>'}
+      <td class="nowrap">${p.ben ? '<span class="small muted">siz</span>' : p.duzenle ? `<button class="btn small" data-act="per-edit" data-id="${p.id}">Düzenle</button>` : p.sil ? `<button class="btn small danger" data-act="per-del" data-id="${p.id}">Çıkar</button>` : ''}</td></tr>`; }).join('') || '<tr><td class="name" colspan="8">Kimse yok</td></tr>'}
   </tbody></table></div>
   <div class="card stack">
     <div class="row"><h2 style="font-size:20px;flex:1">İşlem kayıtları</h2><button class="btn" data-act="per-log">${srv.kayitlar ? 'Yenile' : 'Göster'}</button></div>
     ${srv.kayitlar ? `<div class="loglist">${srv.kayitlar.map((k) => `<div><span class="small muted nowrap">${fmtWhen(k.tarih)}</span> <b>${esc(k.kim || '–')}</b> · ${esc(LOG_NAMES[k.islem] || k.islem)}${k.detay ? ' · ' + esc(k.detay) : ''}</div>`).join('') || '<p class="empty">Kayıt yok</p>'}</div>` : '<p class="small muted" style="margin:0">Kim ne zaman giriş yaptı, liste yayınladı, personel ekledi/sildi.</p>'}
   </div>
-  <p class="small muted">${admins} kişi yönetim paneline girebiliyor (yönetici / müdür). Unvanı değiştirmek için “Düzenle”. Şef ve personel siteye girer ama yalnızca listeleri görür.</p>`;
+  <p class="small muted">Yönetici: her şey. Müdür: liste hazırlar, yayınlar, şef/personel verir. Şef: kişi ekler/çıkarır, taslağı görür. Personel: listeleri görür. Etkinliklerde herkes yalnızca kendisinin ve alt unvandakilerin işlemlerini görür.</p>`;
 }
 const LOG_NAMES = { giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', kurulum: 'kurulum' };
 async function loadPersonnel() {
-  try { const j = await api('personel'); srv.personel = j.personel; } catch (e) { srv.personel = []; toast(e.message); }
+  try { const j = await api('personel'); srv.personel = j.personel; srv.hesapli = j.hesapliIsimler || []; } catch (e) { srv.personel = []; toast(e.message); }
   if (ui.view === 'personel') render();
 }
 function personnelSheet(id) {
-  const p = id ? srv.personel.find((x) => x.id === id) : { ad: '', sicil: '', rol: 'staff' };
-  sheet(`<h3>${id ? 'Personeli düzenle' : 'Personel ekle'}</h3>
+  const p = id ? srv.personel.find((x) => x.id === id) : { ad: '', sicil: '', unvan: 'personel', sistem: true, sil: false };
+  const give = (auth.ben.verebilir || []);
+  const cur = p.unvan || 'personel';
+  const opts = TITLES.filter(([k]) => give.includes(k) || k === cur);
+  const sys = !id || p.sistem; // telefon / Personel ID / TC: yeni kişide herkes girer, var olanda yalnızca yönetici değiştirir
+  sheet(`<h3>${id ? 'Kişiyi düzenle' : 'Kişi ekle'}</h3>
     <label class="field">Ad soyad<input id="pe-ad" value="${esc(p.ad)}" maxlength="120" list="pe-names" autocomplete="off"></label>
     <datalist id="pe-names">${allPeople().sort(cmpName).map((x) => `<option value="${esc(x.name)}">`).join('')}</datalist>
-    <label class="field">Personel ID<input id="pe-sicil" value="${esc(p.sicil || '')}" maxlength="32"></label>
+    ${sys ? `<label class="field">Personel ID<input id="pe-sicil" value="${esc(p.sicil || '')}" maxlength="32"></label>
     <label class="field">TC kimlik no${id && p.tc ? ` <span class="small muted">(kayıtlı: ${esc(p.tc)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tc" inputmode="numeric" maxlength="11" autocomplete="off"></label>
-    <label class="field">Telefon${id ? ` <span class="small muted">(kayıtlı: ${esc(p.telefon)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tel" type="tel" inputmode="tel" placeholder="05xx xxx xx xx" autocomplete="off"></label>
-    <label class="field">Unvan / yetki<select id="pe-unvan">${TITLES.map(([k, l, d]) => `<option value="${k}" ${(p.unvan || (p.rol === 'admin' ? 'yonetici' : 'personel')) === k ? 'selected' : ''}>${l} (${d})</option>`).join('')}</select></label>
+    <label class="field">Telefon${id ? ` <span class="small muted">(kayıtlı: ${esc(p.telefon)} · değiştirmek için yazın)</span>` : ''}<input id="pe-tel" type="tel" inputmode="tel" placeholder="05xx xxx xx xx" autocomplete="off"></label>`
+    : `<p class="small muted" style="margin:0">Personel ID ${esc(p.sicil || '–')} · telefon ${esc(p.telefon)}. Telefon, Personel ID ve TC değişikliğini yöneticiler yapar.</p>`}
+    ${opts.length > 1 ? `<label class="field">Unvan / yetki<select id="pe-unvan">${opts.map(([k, l, d]) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${l} (${d})</option>`).join('')}</select></label>` : `<p class="small muted" style="margin:0">Unvan: <b>${esc(titleOf({ unvan: cur }))}</b>${!id ? ' (yeni eklenen herkes Personel olur)' : ''}</p>`}
     <div class="row"><button class="btn primary" id="pe-save">Kaydet</button><button class="btn" data-x="1">Vazgeç</button></div>
-    ${id ? `<div class="row" style="border-top:1px solid var(--line);padding-top:12px"><button class="btn" id="pe-reset">Şifreyi sıfırla</button><span style="flex:1"></span>${auth.ben.id === id ? '' : '<button class="btn danger" id="pe-del">Sistemden çıkar</button>'}</div>
-      <p class="small muted" style="margin:0">Şifre sıfırlanınca kişi uygulamadan çıkar; bir sonraki girişte yeni şifresini kendisi belirler.</p>` : ''}`, (bg) => {
-    const v = (s) => bg.querySelector(s).value.trim();
+    ${id ? `<div class="row" style="border-top:1px solid var(--line);padding-top:12px">${p.sistem ? '<button class="btn" id="pe-reset">Şifreyi sıfırla</button>' : ''}<span style="flex:1"></span>${p.sil ? '<button class="btn danger" id="pe-del">Sistemden çıkar</button>' : ''}</div>
+      ${p.sistem ? '<p class="small muted" style="margin:0">Şifre sıfırlanınca kişi uygulamadan çıkar; bir sonraki girişte yeni şifresini kendisi belirler.</p>' : ''}` : ''}`, (bg) => {
+    const v = (s2) => { const el = bg.querySelector(s2); return el ? el.value.trim() : ''; };
     bg.querySelector('#pe-save').addEventListener('click', async (e) => {
       const b = e.currentTarget; b.disabled = true;
-      try { await api('personel-kaydet', { id: id || 0, ad: v('#pe-ad'), sicil: v('#pe-sicil'), tc: v('#pe-tc'), telefon: v('#pe-tel'), unvan: v('#pe-unvan') }); closeSheet(); toast('Kaydedildi'); srv.personel = null; render(); }
+      const body = { id: id || 0, ad: v('#pe-ad'), unvan: bg.querySelector('#pe-unvan') ? v('#pe-unvan') : cur };
+      if (sys) Object.assign(body, { sicil: v('#pe-sicil'), tc: v('#pe-tc'), telefon: v('#pe-tel') });
+      try { await api('personel-kaydet', body); closeSheet(); toast('Kaydedildi'); srv.personel = null; render(); }
       catch (err) { b.disabled = false; toast(err.message); }
     });
     const rs = bg.querySelector('#pe-reset');

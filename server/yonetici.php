@@ -27,20 +27,23 @@ if ($name === '' || $sicil === '' || $tel === '') { fwrite(STDERR, "Ad soyad, Pe
 if ($tc !== '' && !valid_tc($tc)) { fwrite(STDERR, "TC kimlik numarası geçersiz.\n"); exit(1); }
 $tcHash = $tc !== '' ? hmac('tc:' . $tc) : null;
 
-$st = db()->prepare('SELECT id FROM personnel WHERE sicil = ? OR (tc_hash IS NOT NULL AND tc_hash = ?)');
+$st = db()->prepare('SELECT id, title FROM personnel WHERE sicil = ? OR (tc_hash IS NOT NULL AND tc_hash = ?)');
 $st->execute([$sicil, $tcHash ?? '']);
-$id = (int)($st->fetchColumn() ?: 0);
+$row = $st->fetch() ?: null; $id = (int)($row['id'] ?? 0);
+// sistemde DEV yoksa ilk açılan hesap DEV (gizli kurucu) olur; DEV hiçbir zaman düşürülmez
+$hasDev = (int)db()->query("SELECT COUNT(*) FROM personnel WHERE title = 'dev'")->fetchColumn() > 0;
+$newTitle = ($row && $row['title'] === 'dev') || !$hasDev ? 'dev' : 'yonetici';
 if ($id) {
-  db()->prepare("UPDATE personnel SET name = ?, role = 'admin', title = 'yonetici', phone_hash = ?, phone_last4 = ?, pin_hash = NULL, failed = 0, locked_until = NULL WHERE id = ?")
+  db()->prepare("UPDATE personnel SET name = ?, role = 'admin', title = '$newTitle', phone_hash = ?, phone_last4 = ?, pin_hash = NULL, failed = 0, locked_until = NULL WHERE id = ?")
     ->execute([$name, hmac('tel:' . $tel), substr($tel, -4), $id]);
   if ($tcHash) db()->prepare('UPDATE personnel SET tc_hash = ?, tc_last2 = ? WHERE id = ?')->execute([$tcHash, substr($tc, -2), $id]);
   db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$id]);
   audit(null, 'yonetici-cli', "$name yönetici yapıldı");
-  echo "Var olan hesap yönetici yapıldı: $name (Personel ID $sicil, telefon ••••" . substr($tel, -4) . ")\n";
+  echo "Var olan hesap ($newTitle) yapıldı: $name (Personel ID $sicil, telefon ••••" . substr($tel, -4) . ")\n";
 } else {
-  db()->prepare("INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, created_at) VALUES (?,?,?,?,?,?,'admin','yonetici',?)")
+  db()->prepare("INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, created_at) VALUES (?,?,?,?,?,?,'admin','$newTitle',?)")
     ->execute([$name, $sicil, $tcHash, $tcHash ? substr($tc, -2) : null, hmac('tel:' . $tel), substr($tel, -4), now()]);
   audit(null, 'yonetici-cli', "$name yönetici olarak eklendi");
-  echo "Yönetici hesabı açıldı: $name (Personel ID $sicil, telefon ••••" . substr($tel, -4) . ")\n";
+  echo "Hesap ($newTitle) açıldı: $name (Personel ID $sicil, telefon ••••" . substr($tel, -4) . ")\n";
 }
 echo "Giriş: Personel ID + telefon, şifre boş → ilk girişte 6 haneli şifre belirlenir.\n";
