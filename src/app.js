@@ -321,7 +321,8 @@ async function api(r, body) {
     if (base !== API_URL) { API_URL = base; try { localStorage.setItem('ccn-api', base); } catch (e) { /* yoksay */ } }
     break;
   }
-  if (!res) throw new Error('Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.');
+  if (!res) { if (!srv.offline) { srv.offline = true; if (auth) render(); } throw new Error('Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.'); }
+  if (srv.offline) { srv.offline = false; setTimeout(() => auth && render(), 0); }
   let j = null; try { j = await res.json(); } catch (e) { /* JSON değil */ }
   if (res.status === 401 && j && j.cikis && r !== 'giris') { signOut('Oturumunuz kapandı. Hesabınız kaldırılmış ya da oturum süresi dolmuş olabilir.'); throw new Error(j.hata); }
   if (!res.ok || !j || j.hata) throw new Error((j && j.hata) || `Sunucu hatası (${res.status})`);
@@ -363,6 +364,7 @@ async function syncData(force) {
   else { srv.conflict = false; applyRoster(L); }
   // ortak (yönetici) ayarlar ve kişinin kendi tercihleri listedekilerin önüne geçer
   applyServerSettings(j.ayarlar, j.ben.tercih);
+  try { localStorage.setItem('ccn-son-veri', new Date().toISOString()); } catch (e) { /* yoksay */ }
 }
 async function publish() {
   if (!Object.keys(store.people).length) { toast('Yayınlanacak liste yok'); return; }
@@ -446,7 +448,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 async function bootServer() {
   if (!SERVER || !auth) return;
   srv.loading = true;
-  try { await syncData(); } catch (e) { if (auth) toast(e.message); } finally { srv.loading = false; }
+  try { await syncData(); } catch (e) { if (auth && !srv.offline) toast(e.message); } finally { srv.loading = false; }
   if (auth) { startPoll(); render(); }
 }
 
@@ -537,7 +539,9 @@ function render() {
   if (SERVER && ui.view === 'duyuru' && srv.duyurular.length) { const top = Math.max(...srv.duyurular.map((a) => a.id)); if (top > (prefs.seenAnn || 0)) { prefs.seenAnn = top; savePrefs(); } }
   renderTabs();
   sub.textContent = store.settings.company ? store.settings.company : SERVER && auth ? (canEdit() ? 'Yönetim paneli' : 'Vardiya listesi') : '1 · 2 · 3 vardiya, OFF ve izin takibi';
-  let banner = store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '';
+  let lastSync = null; try { lastSync = localStorage.getItem('ccn-son-veri'); } catch (e) { /* yoksay */ }
+  const offline = SERVER && auth && srv.offline ? `<div class="banner offline"><p><b>Çevrimdışı</b> · son güncelleme ${lastSync ? fmtWhen(lastSync) : 'bilinmiyor'}. İnternet gelince liste kendiliğinden yenilenir.</p></div>` : '';
+  let banner = offline + (store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '');
   if (isDirty() && ui.view !== 'yukle') banner += canPublish()
     ? `<div class="banner pub"><p><b>Yayınlanmamış değişiklikler var.</b> Personel bu değişiklikleri siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`
     : `<div class="banner pub"><p><b>Hazırladığınız liste henüz yayında değil.</b> “Onaya gönder” deyince müdür ya da yönetici kontrol edip yayınlar.${srv.taslak && auth && srv.taslak.kimId === auth.ben.id && srv.taslak.onay ? ' <b>Onaya gönderildi</b> (' + fmtWhen(srv.taslak.tarih) + ').' : ''}</p><button class="btn primary" data-act="send-approval">${ICON_UPLOAD}Onaya gönder</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`;
@@ -3063,4 +3067,9 @@ const ICON_TRASH = svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>');
 
 { const h = location.hash.replace('#', ''); ui.view = allowedView(h) ? h : 'gunluk'; render(); }
 window.__ccnReady = true; // açılış başarılı: güvenlik ağı devre dışı
+// web: ana ekrana eklenebilir uygulama (PWA) — çevrimdışı açılış için kabuk önbelleği; telefon uygulamasında gerekmez
+if (SERVER && !NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { /* desteklenmiyor */ }));
+}
+window.addEventListener('online', () => { if (SERVER && auth) syncData().then(render).catch(() => {}); });
 if (SERVER) bootServer(); else initRemote();
