@@ -28,7 +28,7 @@ if (!$hasAdmin && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
   elseif ($tc !== '' && !valid_tc($tc)) $msg = 'TC kimlik numarası geçersiz.';
   elseif (!preg_match('/^\d{6}$/', $pin)) $msg = 'Şifre 6 haneli bir sayı olmalı.';
   else {
-    db()->prepare("INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, pin_hash, created_at) VALUES (?,?,?,?,?,?,'admin','yonetici',?,?)")
+    db()->prepare("INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, pin_hash, created_at) VALUES (?,?,?,?,?,?,'admin','dev',?,?)")
       ->execute([$name, $sicil !== '' ? $sicil : null, $tc !== '' ? hmac('tc:' . $tc) : null, $tc !== '' ? substr($tc, -2) : null, hmac('tel:' . $tel), substr($tel, -4), password_hash($pin, PASSWORD_DEFAULT), now()]);
     audit(['id' => (int)db()->lastInsertId(), 'name' => $name], 'kurulum', 'ilk yönetici');
     $done = true;
