@@ -6,6 +6,9 @@ require __DIR__ . '/lib.php';
 
 security_headers();
 cors();
+// engellenen IP'ler ve aşırı istek koruması
+if (ip_banned(client_ip())) fail(403, 'Bu ağdan erişim engellendi.');
+rate_limit();
 set_exception_handler(function (Throwable $e) {
   error_log('ccn api: ' . $e->getMessage());
   fail(500, 'Sunucu hatası. Biraz sonra tekrar deneyin.');
@@ -13,7 +16,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat'];
+$POST_ONLY = ['dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -51,7 +54,7 @@ switch ($r) {
     if ($kimlik === '' || $tel === '') fail(400, 'Personel ID / TC ve telefon numarasını girin.');
     $p = find_person($kimlik);
     $generic = 'Bilgiler eşleşmedi. Personel ID / TC, telefon ve şifrenizi kontrol edin.';
-    if (!$p) fail(401, $generic);
+    if (!$p) { stat_inc('giris_hatali'); audit(null, 'giris-bilinmeyen', 'girilen: ' . mb_substr($kimlik, 0, 2) . str_repeat('•', max(0, min(9, mb_strlen($kimlik) - 2)))); fail(401, $generic); }
     if ($p['locked_until'] && $p['locked_until'] > now()) {
       $min = max(1, (int)ceil((strtotime($p['locked_until'] . ' UTC') - time()) / 60));
       fail(423, "Çok fazla hatalı deneme. $min dakika sonra tekrar deneyin ya da yöneticinize başvurun.");
@@ -60,6 +63,7 @@ switch ($r) {
       $f = (int)$p['failed'] + 1;
       $lock = $f >= 5 ? gmdate('Y-m-d H:i:s', time() + 15 * 60) : null;
       db()->prepare('UPDATE personnel SET failed = ?, locked_until = ? WHERE id = ?')->execute([$lock ? 0 : $f, $lock, $p['id']]);
+      stat_inc('giris_hatali');
       audit(['id' => $p['id'], 'name' => $p['name']], 'giris-hatali', $lock ? 'hesap 15 dk kilitlendi' : "hatalı deneme $f");
       fail(401, $lock ? 'Çok fazla hatalı deneme. Hesap 15 dakika kilitlendi.' : $generic);
     };
@@ -78,14 +82,14 @@ switch ($r) {
       $bad();
     }
     db()->prepare('UPDATE personnel SET failed = 0, locked_until = NULL, last_login = ? WHERE id = ?')->execute([now(), $p['id']]);
-    $tok = new_session((int)$p['id'], $hatirla);
+    $tok = new_session((int)$p['id'], $hatirla); stat_inc('giris');
     audit(['id' => $p['id'], 'name' => $p['name']], 'giris');
     ok(['token' => $tok, 'ben' => me_out(['id' => (int)$p['id'], 'name' => $p['name'], 'role' => $p['role'], 'title' => $p['title'] ?? null, 'prefs' => $p['prefs'] ?? null, 'sicil' => $p['sicil']]), 'hatirla' => $hatirla]);
   }
 
   case 'cikis': {
     $u = current_user(false);
-    if ($u) db()->prepare('DELETE FROM sessions WHERE id = ?')->execute([$u['sid']]);
+    if ($u) { db()->prepare('DELETE FROM sessions WHERE id = ?')->execute([$u['sid']]); audit($u, 'cikis'); }
     ok();
   }
 
@@ -105,6 +109,7 @@ switch ($r) {
     $l = db()->query('SELECT id, data, published_at, published_name FROM rosters ORDER BY id DESC LIMIT 1')->fetch();
     $d = db()->query('SELECT id, title, body, pinned, created_name, created_at FROM announcements ORDER BY pinned DESC, id DESC LIMIT 100')->fetchAll();
     $taslak = level_of($u['title'] ?? '') >= 2 ? (json_decode((string)(meta_get('taslak') ?? ''), true) ?: null) : null;
+    stat_inc('goruntuleme');
     // kişi son yayınlanan listeyi gördü (yöneticiler "kim görmedi" diye bakar)
     if ($l) db()->prepare('UPDATE personnel SET seen_roster = ?, seen_at = ? WHERE id = ? AND (seen_roster IS NULL OR seen_roster <> ?)')->execute([(int)$l['id'], now(), $u['id'], (int)$l['id']]);
     ok(['ben' => me_out($u), 'surum' => versions(), 'ayarlar' => json_decode((string)(meta_get('ayarlar') ?? ''), true) ?: null, 'taslak' => $taslak,
@@ -302,6 +307,123 @@ switch ($r) {
     ok(['liste' => $last, 'gordu' => $seen, 'gormedi' => $not]);
   }
 
+  // ===================== DEV paneli (/livadmin) — yalnızca DEV, yalnızca web =====================
+  case 'dev-ozet': {
+    dev_only();
+    $q = fn(string $sql, array $a = []) => (function () use ($sql, $a) { $st = db()->prepare($sql); $st->execute($a); return $st; })();
+    $day0 = tr_day_start(0); $d7 = tr_day_start(6); $h24 = gmdate('Y-m-d H:i:s', time() - 86400); $m15 = gmdate('Y-m-d H:i:s', time() - 900);
+    $titles = []; foreach (db()->query('SELECT title, COUNT(*) n FROM personnel GROUP BY title') as $r) $titles[$r['title']] = (int)$r['n'];
+    $days = [];
+    for ($i = 13; $i >= 0; $i--) { $a = tr_day_start($i); $b = tr_day_start($i - 1);
+      $days[] = ['gun' => gmdate('d.m', strtotime($a . ' UTC') + 10800),
+        'giris' => (int)$q("SELECT COUNT(*) FROM audit WHERE action = 'giris' AND at >= ? AND at < ?", [$a, $b])->fetchColumn(),
+        'hatali' => (int)$q("SELECT COUNT(*) FROM audit WHERE action IN ('giris-hatali','giris-bilinmeyen') AND at >= ? AND at < ?", [$a, $b])->fetchColumn(),
+        'goruntuleme' => (int)$q("SELECT COALESCE(SUM(n),0) FROM daily_stats WHERE k = 'goruntuleme' AND day = ?", [gmdate('Y-m-d', strtotime($a . ' UTC') + 10800)])->fetchColumn()]; }
+    $dev = ['tur' => [], 'os' => [], 'tarayici' => []];
+    foreach (db()->query("SELECT agent FROM sessions WHERE expires_at > '" . now() . "'") as $r) { $u2 = ua_info((string)$r['agent']); foreach ($dev as $k => $_) $dev[$k][$u2[$k]] = ($dev[$k][$u2[$k]] ?? 0) + 1; }
+    $top = $q("SELECT a.personnel_id pid, COALESCE(p.name, a.who) name, p.title, COUNT(*) n FROM audit a LEFT JOIN personnel p ON p.id = a.personnel_id WHERE a.at >= ? AND a.personnel_id IS NOT NULL GROUP BY a.personnel_id, name, p.title ORDER BY n DESC LIMIT 8", [$d7])->fetchAll();
+    $last = db()->query('SELECT published_name, published_at, people FROM rosters ORDER BY id DESC LIMIT 1')->fetch();
+    ok(['unvanlar' => $titles, 'kisi' => array_sum($titles),
+      'aktifOturum' => (int)$q('SELECT COUNT(*) FROM sessions WHERE expires_at > ?', [now()])->fetchColumn(),
+      'cevrimici' => (int)$q('SELECT COUNT(DISTINCT personnel_id) FROM sessions WHERE last_seen > ?', [$m15])->fetchColumn(),
+      'girisBugun' => (int)$q("SELECT COUNT(*) FROM audit WHERE action = 'giris' AND at >= ?", [$day0])->fetchColumn(),
+      'giris7' => (int)$q("SELECT COUNT(*) FROM audit WHERE action = 'giris' AND at >= ?", [$d7])->fetchColumn(),
+      'hatali24' => (int)$q("SELECT COUNT(*) FROM audit WHERE action IN ('giris-hatali','giris-bilinmeyen') AND at >= ?", [$h24])->fetchColumn(),
+      'ip24' => (int)$q('SELECT COUNT(DISTINCT ip) FROM audit WHERE at >= ?', [$h24])->fetchColumn(),
+      'rl24' => (int)$q('SELECT COUNT(*) FROM rl_hits WHERE at >= ?', [$h24])->fetchColumn(),
+      'ban' => (int)$q('SELECT COUNT(*) FROM ip_bans WHERE until IS NULL OR until > ?', [now()])->fetchColumn(),
+      'yayinSayisi' => (int)db()->query('SELECT COUNT(*) FROM rosters')->fetchColumn(), 'duyuruSayisi' => (int)db()->query('SELECT COUNT(*) FROM announcements')->fetchColumn(),
+      'sonYayin' => $last ? ['kim' => $last['published_name'], 'tarih' => utc($last['published_at']), 'kisi' => (int)$last['people']] : null,
+      'taslak' => meta_get('taslak') !== null, 'gunluk' => $days, 'cihaz' => $dev,
+      'enAktif' => array_map(fn($r) => ['ad' => $r['name'], 'unvan' => $r['title'], 'n' => (int)$r['n']], $top)]);
+  }
+
+  case 'dev-loglar': {
+    dev_only();
+    $son = (int)($_GET['son'] ?? 0); $ara = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 60); $islem = preg_replace('/[^a-z-]/', '', (string)($_GET['islem'] ?? ''));
+    $w = ['a.id > ?']; $a = [$son];
+    if ($ara !== '') { $w[] = '(a.who LIKE ? OR a.detail LIKE ? OR a.ip LIKE ?)'; array_push($a, "%$ara%", "%$ara%", "%$ara%"); }
+    if ($islem !== '') { $w[] = 'a.action = ?'; $a[] = $islem; }
+    $st = db()->prepare('SELECT a.id, a.personnel_id pid, a.who, a.action, a.detail, a.ip, a.ua, a.at, p.title FROM audit a LEFT JOIN personnel p ON p.id = a.personnel_id WHERE ' . implode(' AND ', $w) . ' ORDER BY a.id DESC LIMIT 300');
+    $st->execute($a);
+    ok(['loglar' => array_map(fn($r) => ['id' => (int)$r['id'], 'kim' => $r['who'], 'unvan' => $r['title'], 'islem' => $r['action'], 'detay' => $r['detail'], 'ip' => $r['ip'], 'cihaz' => ua_text((string)$r['ua']), 'tarih' => utc($r['at'])], $st->fetchAll())]);
+  }
+
+  case 'dev-kullanicilar': {
+    dev_only();
+    $rows = db()->query('SELECT p.id, p.name, p.sicil, p.title, p.phone_last4, p.pin_hash IS NOT NULL has_pin, p.failed, p.locked_until, p.last_login, p.created_at, p.seen_at,
+      (SELECT COUNT(*) FROM sessions s WHERE s.personnel_id = p.id AND s.expires_at > UTC_TIMESTAMP()) oturum,
+      (SELECT COUNT(*) FROM audit a WHERE a.personnel_id = p.id) islem,
+      (SELECT a.ip FROM audit a WHERE a.personnel_id = p.id AND a.action = \'giris\' ORDER BY a.id DESC LIMIT 1) son_ip,
+      (SELECT a.ua FROM audit a WHERE a.personnel_id = p.id AND a.action = \'giris\' ORDER BY a.id DESC LIMIT 1) son_ua
+      FROM personnel p ORDER BY FIELD(p.title, \'dev\', \'yonetici\', \'mudur\', \'sef\', \'personel\'), p.name')->fetchAll();
+    ok(['kullanicilar' => array_map(fn($p) => ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'unvan' => $p['title'], 'telefon' => '••' . $p['phone_last4'], 'sifreVar' => (bool)$p['has_pin'],
+      'kilitli' => $p['locked_until'] && $p['locked_until'] > now(), 'hatali' => (int)$p['failed'], 'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'eklenme' => utc($p['created_at']),
+      'listeGordu' => $p['seen_at'] ? utc($p['seen_at']) : null, 'oturum' => (int)$p['oturum'], 'islem' => (int)$p['islem'], 'sonIp' => $p['son_ip'], 'sonCihaz' => $p['son_ua'] ? ua_text((string)$p['son_ua']) : null], $rows)]);
+  }
+
+  case 'dev-oturumlar': {
+    dev_only();
+    $rows = db()->query("SELECT s.id, s.personnel_id pid, p.name, p.title, s.created_at, s.last_seen, s.expires_at, s.remember, s.agent, s.ip FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.expires_at > UTC_TIMESTAMP() ORDER BY s.last_seen DESC")->fetchAll();
+    ok(['oturumlar' => array_map(fn($r) => ['id' => (int)$r['id'], 'pid' => (int)$r['pid'], 'ad' => $r['name'], 'unvan' => $r['title'], 'acilis' => utc($r['created_at']), 'sonGorulme' => utc($r['last_seen']), 'bitis' => utc($r['expires_at']), 'hatirla' => (bool)$r['remember'], 'cihaz' => ua_text((string)$r['agent']), 'ip' => $r['ip']], $rows)]);
+  }
+
+  case 'dev-oturum-kapat': {
+    $u = dev_only();
+    $id = (int)(body()['id'] ?? 0); $pid = (int)(body()['pid'] ?? 0);
+    if ($id) db()->prepare('DELETE FROM sessions WHERE id = ? AND id <> ?')->execute([$id, $u['sid']]);
+    elseif ($pid) db()->prepare('DELETE FROM sessions WHERE personnel_id = ? AND id <> ?')->execute([$pid, $u['sid']]);
+    ok();
+  }
+
+  case 'dev-yayinlar': {
+    dev_only();
+    if (!empty($_GET['id'])) { $st = db()->prepare('SELECT id, data, published_name, published_at FROM rosters WHERE id = ?'); $st->execute([(int)$_GET['id']]); $r = $st->fetch();
+      if (!$r) fail(404, 'Yayın bulunamadı.'); ok(['yayin' => ['id' => (int)$r['id'], 'veri' => json_decode($r['data'], true), 'kim' => $r['published_name'], 'tarih' => utc($r['published_at'])]]); }
+    $rows = db()->query('SELECT r.id, r.published_name, r.published_by, r.published_at, r.people, r.range_from, r.range_to, r.note, p.name real_name FROM rosters r LEFT JOIN personnel p ON p.id = r.published_by ORDER BY r.id DESC')->fetchAll();
+    ok(['yayinlar' => array_map(fn($r) => ['id' => (int)$r['id'], 'kim' => $r['real_name'] ?: $r['published_name'], 'tarih' => utc($r['published_at']), 'kisi' => (int)$r['people'], 'aralik' => [$r['range_from'], $r['range_to']], 'not' => $r['note']], $rows)]);
+  }
+
+  case 'dev-duyurular': {
+    dev_only();
+    $rows = db()->query('SELECT a.id, a.title, a.body, a.pinned, a.created_at, a.created_name, p.name real_name FROM announcements a LEFT JOIN personnel p ON p.id = a.created_by ORDER BY a.id DESC')->fetchAll();
+    ok(['duyurular' => array_map(fn($r) => ['id' => (int)$r['id'], 'baslik' => $r['title'], 'metin' => $r['body'], 'sabit' => (bool)$r['pinned'], 'kim' => $r['real_name'] ?: $r['created_name'], 'tarih' => utc($r['created_at'])], $rows)]);
+  }
+
+  case 'dev-guvenlik': {
+    dev_only();
+    $h24 = gmdate('Y-m-d H:i:s', time() - 86400); $h1 = gmdate('Y-m-d H:i:s', time() - 3600);
+    $st = db()->prepare("SELECT ip, COUNT(*) n, MAX(at) son FROM audit WHERE action IN ('giris-hatali','giris-bilinmeyen') AND at >= ? GROUP BY ip ORDER BY n DESC LIMIT 30"); $st->execute([$h24]); $fails = $st->fetchAll();
+    $st = db()->prepare('SELECT ip, COUNT(*) n FROM login_attempts WHERE at >= ? GROUP BY ip ORDER BY n DESC LIMIT 30'); $st->execute([$h1]); $att = $st->fetchAll();
+    $st = db()->prepare('SELECT ip, COUNT(*) n, MAX(at) son FROM rl_hits WHERE at >= ? GROUP BY ip ORDER BY n DESC LIMIT 30'); $st->execute([$h24]); $rl = $st->fetchAll();
+    $locked = db()->query("SELECT name, title, failed, locked_until FROM personnel WHERE (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) OR failed > 0 ORDER BY failed DESC")->fetchAll();
+    $bans = db()->query('SELECT ip, reason, created_by, created_at, until FROM ip_bans ORDER BY created_at DESC')->fetchAll();
+    ok(['hataliIp' => array_map(fn($r) => ['ip' => $r['ip'], 'n' => (int)$r['n'], 'son' => utc($r['son'])], $fails),
+      'denemeIp1s' => array_map(fn($r) => ['ip' => $r['ip'], 'n' => (int)$r['n']], $att),
+      'asiriIstek' => array_map(fn($r) => ['ip' => $r['ip'], 'n' => (int)$r['n'], 'son' => utc($r['son'])], $rl),
+      'kilitli' => array_map(fn($r) => ['ad' => $r['name'], 'unvan' => $r['title'], 'hatali' => (int)$r['failed'], 'kilit' => $r['locked_until'] ? utc($r['locked_until']) : null], $locked),
+      'banlar' => array_map(fn($r) => ['ip' => $r['ip'], 'sebep' => $r['reason'], 'kim' => $r['created_by'], 'tarih' => utc($r['created_at']), 'bitis' => $r['until'] ? utc($r['until']) : null, 'aktif' => !$r['until'] || $r['until'] > now()], $bans),
+      'kurallar' => ['Giriş: aynı IP 15 dakikada en fazla 30 deneme', 'Hesap: 5 hatalı şifrede 15 dakika kilit', 'Genel: aynı IP dakikada en fazla 300 istek', 'Ağ katmanı: Hostinger DDoS koruması + Caddy (HTTPS)', 'Şifreler ve TC/telefon geri çözülemez biçimde saklanır']]);
+  }
+
+  case 'dev-ban': {
+    $u = dev_only();
+    $ip = trim(str_in('ip', 45)); $why = str_in('sebep', 200); $hours = (int)(body()['saat'] ?? 0);
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) fail(400, 'Geçerli bir IP adresi yazın.');
+    if ($ip === client_ip()) fail(400, 'Kendi IP adresinizi engelleyemezsiniz.');
+    db()->prepare('REPLACE INTO ip_bans (ip, reason, created_by, created_at, until) VALUES (?,?,?,?,?)')->execute([$ip, $why ?: null, 'DEV', now(), $hours > 0 ? gmdate('Y-m-d H:i:s', time() + $hours * 3600) : null]);
+    audit($u, 'ip-engellendi', $ip . ($hours > 0 ? " ($hours saat)" : ' (kalıcı)'));
+    ok();
+  }
+
+  case 'dev-ban-sil': {
+    $u = dev_only();
+    $ip = trim(str_in('ip', 45));
+    db()->prepare('DELETE FROM ip_bans WHERE ip = ?')->execute([$ip]);
+    audit($u, 'ip-engeli-kalkti', $ip);
+    ok();
+  }
+
   default:
     fail(404, 'Bilinmeyen işlem.');
 }
@@ -431,3 +553,24 @@ function visible_logs(array $u, ?int $pid, int $max): array {
 }
 
 function tr_date(?string $d): string { return $d && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $d, $m) ? "$m[3].$m[2].$m[1]" : (string)$d; }
+
+// DEV paneli yalnızca DEV hesabıyla ve web'den (uygulamadan değil) açılır
+function dev_only(): array {
+  $origin = (string)($_SERVER['HTTP_ORIGIN'] ?? '');
+  if (in_array($origin, ['https://localhost', 'capacitor://localhost', 'http://localhost'], true)) fail(403, 'Bu panel yalnızca web üzerinden açılır.');
+  $u = current_user();
+  if (($u['title'] ?? '') !== 'dev') fail(404, 'Bilinmeyen işlem.');
+  return $u;
+}
+// Türkiye günü (UTC+3) başlangıcı, UTC olarak: 0 = bugün, 1 = dün…
+function tr_day_start(int $daysAgo): string { $t = time() + 10800; $mid = $t - ($t % 86400) - $daysAgo * 86400; return gmdate('Y-m-d H:i:s', $mid - 10800); }
+// Tarayıcı / cihaz bilgisi
+function ua_info(string $ua): array {
+  $app = str_contains($ua, '; wv)') || (preg_match('/iPhone|iPad/', $ua) && !str_contains($ua, 'Safari'));
+  $os = preg_match('/Android/i', $ua) ? 'Android' : (preg_match('/iPhone|iPad|iPod/i', $ua) ? 'iOS' : (preg_match('/Windows/i', $ua) ? 'Windows' : (preg_match('/Mac OS X|Macintosh/i', $ua) ? 'macOS' : (preg_match('/Linux/i', $ua) ? 'Linux' : 'Diğer'))));
+  $mobile = preg_match('/Mobile|Android|iPhone|iPad/i', $ua);
+  $tur = $app ? 'Uygulama' : ($mobile ? 'Mobil web' : ($ua === '' ? 'Bilinmiyor' : 'Masaüstü'));
+  $br = $app ? 'Uygulama' : (preg_match('/Edg\//', $ua) ? 'Edge' : (preg_match('/SamsungBrowser/', $ua) ? 'Samsung' : (preg_match('/OPR\//', $ua) ? 'Opera' : (preg_match('/Firefox\//', $ua) ? 'Firefox' : (preg_match('/Chrome\//', $ua) ? 'Chrome' : (preg_match('/Safari\//', $ua) ? 'Safari' : ($ua === '' ? '-' : 'Diğer')))))));
+  return ['tur' => $tur, 'os' => $os, 'tarayici' => $br];
+}
+function ua_text(string $ua): string { if ($ua === '') return ''; $i = ua_info($ua); return $i['tur'] . ' · ' . $i['os'] . ($i['tarayici'] !== 'Uygulama' ? ' · ' . $i['tarayici'] : ''); }

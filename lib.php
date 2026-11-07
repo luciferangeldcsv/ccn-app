@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 5;
+const SCHEMA_V = 6;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -51,20 +51,7 @@ function migrate(PDO $pdo): void {
   $v = (int)($pdo->query("SELECT v FROM meta WHERE k='schema'")->fetchColumn() ?: 0);
   if ($v >= SCHEMA_V) return;
   if ($v >= 1) {
-    // 1 → 2: unvan sütunu (yönetici / müdür / şef / personel)
-    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'title'")->fetch()) {
-      $pdo->exec("ALTER TABLE personnel ADD COLUMN title VARCHAR(20) NOT NULL DEFAULT 'personel' AFTER role");
-      $pdo->exec("UPDATE personnel SET title = 'yonetici' WHERE role = 'admin'");
-    }
-    // 2 → 3: kişisel tercihler (tema, paylaşım biçimi) hesapta saklanır, her cihazda aynı olur
-    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'prefs'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN prefs TEXT NULL AFTER title');
-    // 4 → 5: kişinin son yayınlanan listeyi açıp açmadığı (yöneticiler "kim görmedi" diye bakabilsin)
-    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'seen_roster'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN seen_roster INT NULL, ADD COLUMN seen_at DATETIME NULL');
-    // 3 → 4: ilk yönetici (kurucu) gizli DEV hesabı olur
-    if (!$pdo->query("SELECT COUNT(*) FROM personnel WHERE title = 'dev'")->fetchColumn()) {
-      $first = $pdo->query("SELECT MIN(id) FROM personnel WHERE role = 'admin'")->fetchColumn();
-      if ($first) $pdo->prepare("UPDATE personnel SET title = 'dev', role = 'admin' WHERE id = ?")->execute([$first]);
-    }
+    upgrades($pdo);
     $pdo->prepare("REPLACE INTO meta (k, v) VALUES ('schema', ?)")->execute([(string)SCHEMA_V]);
     return;
   }
@@ -136,7 +123,33 @@ function migrate(PDO $pdo): void {
     at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX (ip, at)
   ) $T");
+  upgrades($pdo);
   $pdo->prepare("REPLACE INTO meta (k, v) VALUES ('schema', ?)")->execute([(string)SCHEMA_V]);
+}
+
+// Sürüm yükseltmeleri (her biri tekrar çalıştırılabilir)
+function upgrades(PDO $pdo): void {
+    // 1 → 2: unvan sütunu (yönetici / müdür / şef / personel)
+    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'title'")->fetch()) {
+      $pdo->exec("ALTER TABLE personnel ADD COLUMN title VARCHAR(20) NOT NULL DEFAULT 'personel' AFTER role");
+      $pdo->exec("UPDATE personnel SET title = 'yonetici' WHERE role = 'admin'");
+    }
+    // 2 → 3: kişisel tercihler (tema, paylaşım biçimi) hesapta saklanır, her cihazda aynı olur
+    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'prefs'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN prefs TEXT NULL AFTER title');
+    // 4 → 5: kişinin son yayınlanan listeyi açıp açmadığı (yöneticiler "kim görmedi" diye bakabilsin)
+    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'seen_roster'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN seen_roster INT NULL, ADD COLUMN seen_at DATETIME NULL');
+    // 3 → 4: ilk yönetici (kurucu) gizli DEV hesabı olur
+    if (!$pdo->query("SELECT COUNT(*) FROM personnel WHERE title = 'dev'")->fetchColumn()) {
+      $first = $pdo->query("SELECT MIN(id) FROM personnel WHERE role = 'admin'")->fetchColumn();
+      if ($first) $pdo->prepare("UPDATE personnel SET title = 'dev', role = 'admin' WHERE id = ?")->execute([$first]);
+    }
+    // 5 → 6: DEV paneli — işlem kayıtlarında cihaz, oturumlarda IP, IP engelleri, günlük sayaçlar, aşırı istek kayıtları
+    if (!$pdo->query("SHOW COLUMNS FROM audit LIKE 'ua'")->fetch()) $pdo->exec('ALTER TABLE audit ADD COLUMN ua VARCHAR(200) NULL');
+    if (!$pdo->query("SHOW COLUMNS FROM sessions LIKE 'ip'")->fetch()) $pdo->exec('ALTER TABLE sessions ADD COLUMN ip VARCHAR(45) NULL');
+    $T = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci';
+    $pdo->exec("CREATE TABLE IF NOT EXISTS ip_bans (ip VARCHAR(45) PRIMARY KEY, reason VARCHAR(200) NULL, created_by VARCHAR(120) NULL, created_at DATETIME NOT NULL, until DATETIME NULL) $T");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS daily_stats (day DATE NOT NULL, k VARCHAR(30) NOT NULL, n INT NOT NULL DEFAULT 0, PRIMARY KEY (day, k)) $T");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
 }
 
 // ---------- Yardımcılar ----------
@@ -170,8 +183,30 @@ function clean_sicil(string $s): string { return mb_substr(preg_replace('/[^\p{L
 function meta_get(string $k): ?string { $st = db()->prepare('SELECT v FROM meta WHERE k = ?'); $st->execute([$k]); $v = $st->fetchColumn(); return $v === false ? null : (string)$v; }
 function meta_set(string $k, string $v): void { db()->prepare('REPLACE INTO meta (k, v) VALUES (?, ?)')->execute([$k, $v]); }
 function audit(?array $who, string $action, string $detail = ''): void {
-  db()->prepare('INSERT INTO audit (personnel_id, who, action, detail, ip, at) VALUES (?,?,?,?,?,?)')
-    ->execute([$who['id'] ?? null, $who['name'] ?? null, $action, mb_substr($detail, 0, 500), client_ip(), now()]);
+  db()->prepare('INSERT INTO audit (personnel_id, who, action, detail, ip, ua, at) VALUES (?,?,?,?,?,?,?)')
+    ->execute([$who['id'] ?? null, $who['name'] ?? null, $action, mb_substr($detail, 0, 500), client_ip(), mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 200), now()]);
+}
+// günlük sayaç (giriş, liste görüntüleme, istek…): DEV panelindeki istatistikler
+function stat_inc(string $k): void {
+  try { db()->prepare('INSERT INTO daily_stats (day, k, n) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE n = n + 1')->execute([gmdate('Y-m-d'), $k]); } catch (Throwable $e) { /* sayaç hatası işi durdurmaz */ }
+}
+// IP engeli (DEV panelinden)
+function ip_banned(string $ip): bool {
+  if ($ip === '') return false;
+  $st = db()->prepare('SELECT 1 FROM ip_bans WHERE ip = ? AND (until IS NULL OR until > ?)'); $st->execute([$ip, now()]);
+  return (bool)$st->fetchColumn();
+}
+// Aşırı istek koruması: aynı IP dakikada 300'den fazla istek atarsa geçici olarak durdurulur (giriş için ayrıca daha sıkı sınır var)
+function rate_limit(int $perMin = 300): void {
+  $ip = client_ip(); if ($ip === '') return;
+  $f = sys_get_temp_dir() . '/ccn_rl_' . md5($ip) . '_' . intdiv(time(), 60);
+  $h = @fopen($f, 'c+'); if (!$h) return;
+  flock($h, LOCK_EX); $n = (int)stream_get_contents($h) + 1; ftruncate($h, 0); rewind($h); fwrite($h, (string)$n); flock($h, LOCK_UN); fclose($h);
+  if (random_int(1, 200) === 1) foreach (glob(sys_get_temp_dir() . '/ccn_rl_*') ?: [] as $old) if (@filemtime($old) < time() - 180) @unlink($old);
+  if ($n > $perMin) {
+    if ($n === $perMin + 1) { try { db()->prepare('INSERT INTO rl_hits (ip, at) VALUES (?, ?)')->execute([$ip, now()]); } catch (Throwable $e) { /* yoksay */ } }
+    fail(429, 'Çok fazla istek. Biraz sonra tekrar deneyin.');
+  }
 }
 
 function body(): array {
@@ -217,8 +252,8 @@ function shown_name(array $u): string { return ($u['title'] ?? '') === 'dev' ? '
 function new_session(int $pid, bool $remember): string {
   $t = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
   $exp = gmdate('Y-m-d H:i:s', time() + ($remember ? 180 * 86400 : 12 * 3600));
-  db()->prepare('INSERT INTO sessions (personnel_id, token_hash, remember, created_at, last_seen, expires_at, agent) VALUES (?,?,?,?,?,?,?)')
-    ->execute([$pid, hash('sha256', $t), $remember ? 1 : 0, now(), now(), $exp, mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 200)]);
+  db()->prepare('INSERT INTO sessions (personnel_id, token_hash, remember, created_at, last_seen, expires_at, agent, ip) VALUES (?,?,?,?,?,?,?,?)')
+    ->execute([$pid, hash('sha256', $t), $remember ? 1 : 0, now(), now(), $exp, mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 200), client_ip()]);
   db()->prepare('DELETE FROM sessions WHERE expires_at < ?')->execute([now()]);
   return $t;
 }
