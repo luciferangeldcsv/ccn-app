@@ -819,7 +819,7 @@ function viewGrid() {
       <button class="iconbtn" aria-label="İleri" data-act="grid-move" data-n="1">${ICON_RIGHT}</button>
     </div>
     <div class="row"><div class="chips">${span}</div><div class="chips">${filt}</div><span style="flex:1"></span>
-      <button class="btn" data-act="xl-export">${ICON_DOWNLOAD}Excel indir</button>${admin ? `<button class="btn" data-act="add-person">${ICON_PLUS}Kişi ekle</button>` : ''}</div>
+      <button class="btn" data-act="xl-export">${ICON_DOWNLOAD}Excel indir</button>${admin ? `<button class="btn" data-act="add-person">${ICON_PLUS}Kişi ekle</button>` : ''}${admin && SERVER && !NATIVE ? `<button class="btn" data-act="xl-import">${ICON_UPLOAD}Excel’den yapıştır</button>` : ''}</div>
     ${rangeBar}
     ${tools}
     <div class="legend">${CODE_ORDER.filter((c) => c).map((c) => `<span><span class="code xl xl-${c} mini">${CODES[c].short}</span>${CODES[c].label}</span>`).join('')}</div>
@@ -1319,6 +1319,7 @@ const actions = {
   'day-shift': (el) => { ui.dayShift = el.dataset.g; render(); },
   'toggle-unk': (el) => { ui.collapsed['unk-' + el.dataset.g] = !ui.collapsed['unk-' + el.dataset.g]; render(); },
   'add-person': () => personSheet(null),
+  'xl-import': () => importSheet(),
   'publish': () => {
     const r = dataRange(); const span = r.min ? `${fmtShort(r.min)} – ${fmtShort(r.max)}` : '';
     const warns = rosterWarnings();
@@ -1791,6 +1792,72 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $overlay
 function pickCode(current, title, cb) {
   sheet(`<h3>${esc(title)}</h3><div class="codegrid">${CODE_ORDER.map((c) => `<button class="k-${c}" data-code="${c}" aria-pressed="${c === current}">${CODES[c].short}<small>${CODES[c].label.replace(' (Hafta tatili)', '')}</small></button>`).join('')}</div><button class="btn" data-x="1">Kapat</button>`,
     (bg) => bg.querySelectorAll('[data-code]').forEach((b) => b.addEventListener('click', () => { closeSheet(); cb(b.dataset.code); })));
+}
+
+// ---------- Excel'den yapıştır (web): başlık satırındaki tarihleri ve "Adı Soyadı" sütununu bulup listeye EKLER ----------
+// Eski kişiler ve günler silinmez; yeni kişiler eklenir, yapıştırılan günler güncellenir, boş hücreler mevcut kaydı değiştirmez.
+function parseRosterPaste(txt) {
+  const lines = String(txt).replace(/\r/g, '').split('\n').filter((l) => l.trim());
+  const tab = lines.some((l) => l.includes('\t'));
+  const rows = lines.map((l) => (tab ? l.split('\t') : l.split(/\s*[;|]\s*/)).map((c) => c.trim()));
+  const toIso = (v) => {
+    let m = String(v).match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+    if (m) { const y = m[3].length === 2 ? 2000 + +m[3] : +m[3]; const d = new Date(y, +m[2] - 1, +m[1]); return d.getMonth() === +m[2] - 1 ? iso(d) : null; }
+    m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+  };
+  let hi = -1, dates = {};
+  rows.forEach((r, i) => { if (hi >= 0) return; const d = {}; r.forEach((c, j) => { const x = toIso(c); if (x) d[j] = x; }); if (Object.keys(d).length >= 2) { hi = i; dates = d; } });
+  if (hi < 0) return { hata: 'Tarih başlıkları bulunamadı. Kopyalarken tarihlerin olduğu başlık satırını da seçin.' };
+  const firstDate = Math.min(...Object.keys(dates).map(Number));
+  const isName = (c) => /^[A-Za-zÇĞİÖŞÜçğıöşüÂâÎîÛû .'-]{5,}$/.test(c) && /\s/.test(c.trim()) && !/servis|acil|alan|vardiya|başı/i.test(c);
+  let nc = rows[hi].findIndex((c) => /ad[ıi]?\s*soyad/i.test(c));
+  if (nc < 0) { let best = -1, bn = 0; for (let j = 0; j < firstDate; j++) { const n = rows.slice(hi + 1).filter((r) => isName(r[j] || '')).length; if (n > bn) { bn = n; best = j; } } nc = best; }
+  if (nc < 0) return { hata: 'İsim sütunu bulunamadı. “Adı Soyadı” sütununu da seçerek kopyalayın.' };
+  const people = [];
+  for (const r of rows.slice(hi + 1)) {
+    const name = clean(r[nc] || ''); if (!name || !isName(name)) continue;
+    const days = {};
+    for (const [j, d] of Object.entries(dates)) { const v = (r[j] || '').trim(); if (!v) continue; const c = parseCode(v); if (c) days[d] = c; }
+    people.push({ name, days });
+  }
+  if (!people.length) return { hata: 'Kişi satırı bulunamadı.' };
+  return { people, dates: Object.values(dates).sort() };
+}
+function clean(n) { return String(n).replace(/\s+/g, ' ').trim(); }
+function importSheet() {
+  sheet(`<h3>Excel’den yapıştır</h3>
+    <p class="small muted" style="margin:0">Excel’de <b>başlık satırı (tarihler) dahil</b> “Adı Soyadı” ve tarih sütunlarını seçip kopyalayın (Ctrl+C), buraya yapıştırın. Eski kişiler ve günler silinmez: yeni kişiler eklenir, yapıştırılan günler güncellenir.</p>
+    <textarea id="xi-text" rows="8" placeholder="Buraya yapıştırın" style="width:100%;font:13px/1.4 ui-monospace,monospace"></textarea>
+    <div id="xi-prev" class="small"></div>
+    <div class="row"><button class="btn primary" id="xi-ok" disabled>${ICON_PLUS}Çizelgeye ekle</button><button class="btn" data-x="1">Vazgeç</button></div>`, (bg) => {
+    const ta = bg.querySelector('#xi-text'), pv = bg.querySelector('#xi-prev'), ok = bg.querySelector('#xi-ok'); let R = null;
+    const check = () => {
+      R = ta.value.trim() ? parseRosterPaste(ta.value) : null; ok.disabled = !R || !!R.hata;
+      if (!R) { pv.innerHTML = ''; return; }
+      if (R.hata) { pv.innerHTML = `<p class="warnbox" style="margin:0">${esc(R.hata)}</p>`; return; }
+      const yeni = R.people.filter((p) => !findPerson(p.name)).length; const cells = R.people.reduce((n, p) => n + Object.keys(p.days).length, 0);
+      pv.innerHTML = `<p style="margin:0"><b>${R.people.length} kişi</b> (${yeni} yeni) · ${cells} gün · ${fmtShort(R.dates[0])} – ${fmtShort(R.dates[R.dates.length - 1])}</p>
+        <ul style="margin:6px 0 0;padding-left:18px;max-height:160px;overflow:auto">${R.people.map((p) => `<li>${esc(p.name)}${findPerson(p.name) ? '' : ' <b>(yeni)</b>'} — ${Object.keys(p.days).length} gün</li>`).join('')}</ul>`;
+    };
+    ta.addEventListener('input', check); setTimeout(() => ta.focus(), 50);
+    ok.addEventListener('click', () => {
+      if (!R || R.hata) return; let added = 0, n = 0;
+      for (const x of R.people) {
+        let k = findPerson(x.name);
+        if (!k) { k = nameKey(x.name); let i = 2; while (store.people[k]) k = nameKey(x.name) + i++; store.people[k] = { name: x.name, group: '', days: {} }; added++; }
+        const p = store.people[k];
+        for (const [d, c] of Object.entries(x.days)) { p.days[d] = c; if (p.auto) delete p.auto[d]; n++; }
+        if (!p.group) { const cnt = {}; for (const c of Object.values(p.days)) if (['1', '2', '3'].includes(c)) cnt[c] = (cnt[c] || 0) + 1; p.group = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || ''; }
+      }
+      store.demo = false; save(); scheduleDraft(); closeSheet();
+      ui.gridStart = null; ui.date = R.dates[0] > todayIso() ? R.dates[0] : todayIso(); render();
+      toast(`${R.people.length} kişi işlendi (${added} yeni), ${n} gün yazıldı · yayınlamayı unutmayın`);
+    });
+  });
+}
+function findPerson(name) {
+  const k = nameKey(name); if (store.people[k]) return k;
+  const hit = Object.entries(store.people).find(([, p]) => sameStrict(p.name, name)); return hit ? hit[0] : null;
 }
 
 function personSheet(key) {
