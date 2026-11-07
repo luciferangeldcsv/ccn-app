@@ -225,7 +225,7 @@ function save() {
   for (const p of Object.values(store.people)) for (const d of Object.keys(p.days)) if (d < cut) delete p.days[d];
   for (const d of Object.keys(store.dayAreas)) if (d < cut) delete store.dayAreas[d];
   try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* yoksay */ }
-  if (SERVER && auth && isAdmin() && typeof scheduleDraft === 'function') scheduleDraft();
+  if (SERVER && auth && canEdit() && typeof scheduleDraft === 'function') scheduleDraft();
   if (remote && !store.demo) { clearTimeout(remoteTimer); remoteTimer = setTimeout(pushRemote, 300); }
 }
 async function pushRemote() {
@@ -298,6 +298,10 @@ const TITLES = [['dev', 'DEV', 'gizli kurucu, her şeye yetkili'], ['yonetici', 
 const titleOf = (u) => (TITLES.find(([k]) => k === (u.unvan || (u.rol === 'admin' ? 'yonetici' : 'personel'))) || TITLES[4])[1];
 const myLevel = () => (!SERVER ? 5 : (auth && auth.ben && auth.ben.seviye) || (isAdmin() ? 4 : 1));
 const canPeople = () => SERVER && myLevel() >= 2;
+// liste hazırlama (çizelge düzenleme, görsel yükleme) şef ve üstü; yayınlama müdür ve üstü
+const canEdit = () => !SERVER || myLevel() >= 2;
+const canPublish = () => !SERVER || myLevel() >= 3;
+const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toLocaleUpperCase('tr');
 const srv = { v: null, duyurular: [], personel: null, kayitlar: null, conflict: false, loading: false };
 const serverPage = (f) => (API_URL.startsWith('http') ? API_URL.replace(/api\.php$/, f) : f);
@@ -332,7 +336,7 @@ function pubHash() {
   let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-const isDirty = () => SERVER && isAdmin() && Object.keys(store.people).length > 0 && (!store.pub || store.pub.sig !== pubHash());
+const isDirty = () => SERVER && canEdit() && Object.keys(store.people).length > 0 && (!store.pub || store.pub.sig !== pubHash());
 function applyRoster(L) {
   const v = (L && L.veri) || { people: {}, settings: {} }; const s = v.settings || {};
   store.people = v.people || {}; store.demo = false;
@@ -422,8 +426,8 @@ const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarl
 // sekmeler kullanıcının rolüne göre
 function tabList() {
   if (!SERVER) return ['gunluk', 'ara', 'cizelge', 'yukle', 'ayarlar'];
-  if (isAdmin()) return ['gunluk', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarlar'];
-  return canPeople() ? ['gunluk', 'ara', 'cizelge', 'duyuru', 'personel', 'ayarlar'] : ['gunluk', 'ara', 'cizelge', 'duyuru', 'ayarlar'];
+  if (canEdit()) return ['gunluk', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarlar'];
+  return ['gunluk', 'ara', 'cizelge', 'duyuru', 'ayarlar'];
 }
 const allowedView = (v) => VIEWS.includes(v) && (v === 'ara' || tabList().includes(v));
 function go(view) {
@@ -440,13 +444,22 @@ const TAB_LABEL = { gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', y
 $tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) go(b.dataset.view); });
 function unreadCount() { const seen = prefs.seenAnn || 0; return srv.duyurular.filter((a) => a.id > seen).length; }
 const $side = document.createElement('aside'); $side.id = 'side'; $side.setAttribute('aria-label', 'Yönetim menüsü'); document.body.prepend($side);
-$side.addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) go(b.dataset.view); else if (e.target.closest('[data-side-logout]')) actions.logout(); });
+$side.addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) { document.body.classList.remove('side-open'); go(b.dataset.view); } else if (e.target.closest('[data-side-logout]')) { document.body.classList.remove('side-open'); actions.logout(); } });
+// telefonda (web) sol menü ☰ ile açılır, dışına dokununca kapanır
+const $menuBtn = document.createElement('button'); $menuBtn.id = 'menuBtn'; $menuBtn.type = 'button'; $menuBtn.setAttribute('aria-label', 'Menüyü aç');
+$menuBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+document.querySelector('.topbar-in').prepend($menuBtn);
+const $sideBack = document.createElement('div'); $sideBack.id = 'sideBack'; document.body.appendChild($sideBack);
+$menuBtn.addEventListener('click', () => document.body.classList.toggle('side-open'));
+$sideBack.addEventListener('click', () => document.body.classList.remove('side-open'));
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.body.classList.remove('side-open'); });
 const $prof = document.createElement('button'); $prof.id = 'prof'; $prof.type = 'button'; $prof.hidden = true; $tabs.after($prof);
 $prof.addEventListener('click', () => go('ayarlar'));
 function renderTabs() {
   const show = !SERVER || !!auth; $tabs.hidden = !show; document.body.classList.toggle('no-tabs', !show);
   // yönetim paneli: yönetici / müdür girişinde solda menü (geniş ekranda), üstte profil
-  const side = SERVER && !!auth && isAdmin();
+  // sol menü yalnızca web sitesinde (telefon uygulamasında alttaki sekmeler kalır)
+  const side = SERVER && !!auth && canEdit() && !NATIVE;
   document.body.classList.toggle('has-side', side);
   $prof.hidden = !(SERVER && auth);
   if (SERVER && auth) $prof.innerHTML = `<span class="av">${esc(initials(auth.ben.ad))}</span><span class="pn"><b>${esc(auth.ben.ad)}</b><small>${esc(titleOf(auth.ben))}</small></span>`;
@@ -468,9 +481,11 @@ function render() {
   if (!allowedView(ui.view)) ui.view = 'gunluk';
   if (SERVER && ui.view === 'duyuru' && srv.duyurular.length) { const top = Math.max(...srv.duyurular.map((a) => a.id)); if (top > (prefs.seenAnn || 0)) { prefs.seenAnn = top; savePrefs(); } }
   renderTabs();
-  sub.textContent = store.settings.company ? store.settings.company : SERVER && auth ? (isAdmin() ? 'Yönetim paneli' : 'Vardiya listesi') : '1 · 2 · 3 vardiya, OFF ve izin takibi';
+  sub.textContent = store.settings.company ? store.settings.company : SERVER && auth ? (canEdit() ? 'Yönetim paneli' : 'Vardiya listesi') : '1 · 2 · 3 vardiya, OFF ve izin takibi';
   let banner = store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '';
-  if (isDirty() && ui.view !== 'yukle') banner += `<div class="banner pub"><p><b>Yayınlanmamış değişiklikler var.</b> Personel bu değişiklikleri siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`;
+  if (isDirty() && ui.view !== 'yukle') banner += canPublish()
+    ? `<div class="banner pub"><p><b>Yayınlanmamış değişiklikler var.</b> Personel bu değişiklikleri siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`
+    : `<div class="banner pub"><p><b>Hazırladığınız liste henüz yayında değil.</b> “Onaya gönder” deyince müdür ya da yönetici kontrol edip yayınlar.${srv.taslak && auth && srv.taslak.kimId === auth.ben.id && srv.taslak.onay ? ' <b>Onaya gönderildi</b> (' + fmtWhen(srv.taslak.tarih) + ').' : ''}</p><button class="btn primary" data-act="send-approval">${ICON_UPLOAD}Onaya gönder</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`;
   const views = { gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, duyuru: viewAnnouncements, personel: viewPersonnel, ayarlar: viewSettings };
   $app.innerHTML = banner + views[ui.view]();
   bindView();
@@ -560,7 +575,7 @@ function viewDaily() {
     ${L.unknown.length ? `<div class="unk"><button class="btn ghost small" data-act="toggle-unk" data-g="${g}">${unkOpen ? 'Gizle' : 'Göster'}: ${L.unknown.length} kişinin bu gün için kaydı yok</button>${unkOpen ? `<p class="small muted">${L.unknown.map((p) => esc(p.name)).join(', ')}</p>` : ''}</div>` : ''}
   </section>
   <div class="row"><button class="btn" data-act="share" data-g="all">${ICON_SHARE}Üç vardiyayı birlikte paylaş</button></div>`
-  : SERVER && !isAdmin() ? `<div class="card stack"><h2>Henüz liste yayınlanmadı</h2><p class="muted">Yöneticiniz vardiya listesini yayınlayınca burada görünür.</p></div>` : `<div class="card stack"><h2>Henüz liste yok</h2><p class="muted">Şirketin gönderdiği vardiya listesi görsellerini yükleyin; isimler ve günler otomatik okunur, kırmızı hücreler OFF sayılır.</p><div><button class="btn primary" data-act="goto" data-view="yukle">${ICON_UPLOAD}Liste yükle</button></div></div>`}`;
+  : SERVER && !canEdit() ? `<div class="card stack"><h2>Henüz liste yayınlanmadı</h2><p class="muted">Yöneticiniz vardiya listesini yayınlayınca burada görünür.</p></div>` : `<div class="card stack"><h2>Henüz liste yok</h2><p class="muted">Şirketin gönderdiği vardiya listesi görsellerini yükleyin; isimler ve günler otomatik okunur, kırmızı hücreler OFF sayılır.</p><div><button class="btn primary" data-act="goto" data-view="yukle">${ICON_UPLOAD}Liste yükle</button></div></div>`}`;
 }
 
 function shareText(date, which, fmt) {
@@ -677,16 +692,19 @@ function gridDays() {
   const n = { '7': 7, '21': 21 }[ui.gridSpan] || 14;
   return Array.from({ length: n }, (_, i) => addDays(ui.gridStart, i));
 }
-function gridSource() { return !isAdmin() && ui.showDraft && srv.taslak && srv.taslak.veri ? srv.taslak.veri.people || {} : store.people; }
+function gridSource() { return store.people; }
 function gridPeople() {
   let people = Object.entries(gridSource()).map(([key, p]) => ({ key, ...p })).sort((a, b) => (a.group || '9').localeCompare(b.group || '9') || cmpName(a, b));
   if (ui.gridGroup !== 'all') people = people.filter((p) => p.group === ui.gridGroup);
   return people;
 }
 function viewGrid() {
-  const range = dataRange(); const admin = isAdmin();
-  const draftBar = !admin && SERVER && srv.taslak ? `<div class="banner draftbar"><p><b>Yayınlanmamış taslak var</b> (${esc(srv.taslak.kim || '')}, ${fmtWhen(srv.taslak.tarih)}). Şef olarak yayından önce görebilirsiniz.</p><button class="btn ${ui.showDraft ? 'primary' : ''}" data-act="toggle-draft">${ui.showDraft ? 'Yayındakini göster' : 'Taslağı göster'}</button></div>` : '';
-  if (!range.min && !admin && !(ui.showDraft && srv.taslak)) return draftBar + `<div class="card stack"><h2>Çizelge boş</h2><p class="muted">Liste yayınlanınca burada görünür.</p></div>`;
+  const range = dataRange(); const admin = canEdit();
+  // başkasının kaydettiği taslak (şefin onaya gönderdiği liste): açıp üzerinde çalışılabilir, müdür/yönetici yayınlar
+  const T = srv.taslak; const otherDraft = admin && SERVER && T && auth && T.kimId !== auth.ben.id;
+  const draftBar = otherDraft ? `<div class="banner draftbar ${T.onay ? 'onay' : ''}"><p><b>${T.onay ? 'Onay bekleyen liste' : 'Kaydedilmiş taslak'}</b>: ${esc(T.kim || '')}${T.unvan ? ' (' + esc(T.unvan) + ')' : ''} · ${fmtWhen(T.tarih)} · ${T.kisi || 0} kişi${T.aralik && T.aralik[0] ? ' · ' + fmtShort(T.aralik[0]) + ' – ' + fmtShort(T.aralik[1]) : ''}</p>
+      <button class="btn primary" data-act="draft-open">Taslağı aç</button>${canPublish() ? '<button class="btn" data-act="draft-del">Taslağı sil</button>' : ''}</div>` : '';
+  if (!range.min && !admin) return `<div class="card stack"><h2>Çizelge boş</h2><p class="muted">Liste yayınlanınca burada görünür.</p></div>`;
   if (!ui.gridStart) {
     if (range.min) { let s = range.min; while (addDays(s, 14) <= ui.date && addDays(s, 14) <= range.max) s = addDays(s, 14); ui.gridStart = s; }
     else { const d = parseIso(todayIso()); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); ui.gridStart = iso(d); }
@@ -713,7 +731,8 @@ function viewGrid() {
   const tools = admin ? `<div class="xltools" role="toolbar" aria-label="Seçili hücrelere yaz">
       <span class="small muted">Seçili hücreler:</span>${['1', '2', '3', 'OFF', 'YI', 'UI', 'R', 'MI'].map((c) => `<button class="code xl xl-${c}" data-act="xl-set" data-code="${c}">${CODES[c].short}</button>`).join('')}<button class="btn small" data-act="xl-set" data-code="">Sil</button>
     </div>
-    <p class="small muted" style="margin:0">Hücreye tıklayıp yazın: <b>1 2 3</b> vardiya, <b>O</b> OFF, <b>Y</b> yıllık izin, <b>Ü</b> ücretsiz izin, <b>R</b> rapor, <b>İ</b> diğer izin, <b>Del</b> sil. Ok tuşlarıyla gezin, sürükleyerek ya da Shift ile çok hücre seçin. Excel'den kopyaladığınız hücreleri Ctrl+V ile yapıştırabilirsiniz. Haftalık OFF günü ve izinler için isme tıklayın; soluk hücreler bu kurallarla otomatik dolar.</p>` : '';
+    <p class="small muted xlhelp-mob" style="margin:0">Hücreye dokunup kodu seçin. Haftalık OFF günü ve izin/rapor tarihleri için kişinin adına dokunun; soluk hücreler bu kurallarla otomatik dolar.</p>
+    <p class="small muted xlhelp-desk" style="margin:0">Hücreye tıklayıp yazın: <b>1 2 3</b> vardiya, <b>O</b> OFF, <b>Y</b> yıllık izin, <b>Ü</b> ücretsiz izin, <b>R</b> rapor, <b>İ</b> diğer izin, <b>Del</b> sil. Ok tuşlarıyla gezin, sürükleyerek ya da Shift ile çok hücre seçin. Excel'den kopyaladığınız hücreleri Ctrl+V ile yapıştırabilirsiniz. Haftalık OFF günü ve izinler için isme tıklayın; soluk hücreler bu kurallarla otomatik dolar.</p>` : '';
   const people0 = !people.length && admin ? `<div class="card stack"><p class="muted" style="margin:0">Çizelgede kimse yok. “Kişi ekle” ile tek tek ekleyin${SERVER ? ' ya da personel hesaplarındaki herkesi tek seferde ekleyin' : ''}.</p>${SERVER ? '<div><button class="btn primary" data-act="grid-from-staff">Personel listesindeki herkesi ekle</button></div>' : ''}</div>` : '';
   return `${draftBar}<div class="card stack">
     <div class="datebar">
@@ -756,7 +775,7 @@ function writeSel(code) {
   rerenderGrid({ r: ui.sel.r0, c: ui.sel.c0 });
 }
 function bindGrid() {
-  const tb = document.getElementById('xlgrid'); if (!tb || !isAdmin()) return;
+  const tb = document.getElementById('xlgrid'); if (!tb || !canEdit()) return;
   let drag = false;
   const at = (el) => { const b = el && el.closest && el.closest('.code[data-r]'); return b ? { r: +b.dataset.r, c: +b.dataset.c, b } : null; };
   const paint = () => tb.querySelectorAll('.code[data-r]').forEach((b) => { const r = +b.dataset.r, c = +b.dataset.c, S = ui.sel; b.classList.toggle('sel', !!S && r >= Math.min(S.r0, S.r1) && r <= Math.max(S.r0, S.r1) && c >= Math.min(S.c0, S.c1) && c <= Math.max(S.c0, S.c1)); });
@@ -794,7 +813,7 @@ function bindGrid() {
 }
 // Excel'den / Excel'e kopyala-yapıştır (sekmeyle ayrılmış hücreler)
 document.addEventListener('paste', (e) => {
-  if (ui.view !== 'cizelge' || !isAdmin() || !ui.sel || !document.activeElement || !document.activeElement.closest('#xlgrid')) return;
+  if (ui.view !== 'cizelge' || !canEdit() || !ui.sel || !document.activeElement || !document.activeElement.closest('#xlgrid')) return;
   const txt = (e.clipboardData || window.clipboardData).getData('text'); if (!txt) return;
   e.preventDefault();
   const r0 = Math.min(ui.sel.r0, ui.sel.r1), c0 = Math.min(ui.sel.c0, ui.sel.c1); const cells = [];
@@ -1168,7 +1187,17 @@ const actions = {
     if (el.dataset.v === 'ozel' && ui.gridSpan !== 'ozel') { const d = gridDays(); ui.gridFrom = d[0]; ui.gridTo = d[d.length - 1]; }
     ui.gridSpan = ['7', '14', '21', 'ay', 'ozel'].includes(el.dataset.v) ? el.dataset.v : '14'; ui.sel = null; if (ui.gridSpan === 'ay' && !ui.gridMonth) ui.gridMonth = (ui.gridStart ? addDays(ui.gridStart, 7) : ui.date).slice(0, 7) + '-01'; render(); },
   'xl-set': (el) => writeSel(el.dataset.code),
-  'toggle-draft': () => { ui.showDraft = !ui.showDraft; render(); },
+  'send-approval': async (el) => {
+    el.disabled = true;
+    try { await api('taslak-kaydet', { veri: { people: store.people, rules: store.rules, settings: { company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule } }, onay: true }); draftSig = pubHash(); await syncData(); toast('Onaya gönderildi · müdür/yönetici yayınlayacak'); }
+    catch (e) { toast(e.message); }
+    render();
+  },
+  'draft-open': () => confirmSheet('Taslak açılsın mı?', `${srv.taslak.kim || 'Taslak'} tarafından hazırlanan liste çizelgeye yüklenir. Bu cihazda yayınlamadığınız değişiklikler varsa onların yerine geçer. Kontrol edip ${canPublish() ? '“Yayınla” deyin' : 'onaya gönderin'}.`, 'Taslağı aç', () => {
+    const v = srv.taslak.veri || {}; store.people = JSON.parse(JSON.stringify(v.people || {})); store.rules = { off: (v.rules && v.rules.off) || {}, leaves: (v.rules && v.rules.leaves) || [] };
+    store.demo = false; draftSig = pubHash(); save(); ui.sel = null; render(); toast('Taslak açıldı');
+  }),
+  'draft-del': () => confirmSheet('Taslak silinsin mi?', 'Onaya gönderilen / kaydedilen taslak silinir. Yayındaki liste değişmez.', 'Sil', async () => { try { await api('taslak-sil', {}); await syncData(); render(); toast('Taslak silindi'); } catch (e) { toast(e.message); } }),
   'grid-quick': (el) => {
     const t = parseIso(todayIso()); ui.sel = null; ui.gridSpan = 'ozel';
     if (el.dataset.v === '4h') { ui.gridFrom = todayIso(); ui.gridTo = addDays(ui.gridFrom, 27); }
@@ -1183,11 +1212,11 @@ const actions = {
       store.demo = false; save(); render(); toast(`${n} kişi çizelgeye eklendi`);
     } catch (e) { toast(e.message); }
   },
-  'cell': (el) => !isAdmin() ? toast('Listeyi yöneticiler günceller') : pickCode(store.people[el.dataset.key].days[el.dataset.date] || '', `${store.people[el.dataset.key].name} · ${fmtShort(el.dataset.date)}`, (code) => {
+  'cell': (el) => !canEdit() ? toast('Listeyi yöneticiler günceller') : pickCode(store.people[el.dataset.key].days[el.dataset.date] || '', `${store.people[el.dataset.key].name} · ${fmtShort(el.dataset.date)}`, (code) => {
     const p = store.people[el.dataset.key]; if (code) p.days[el.dataset.date] = code; else delete p.days[el.dataset.date];
     store.demo = false; save(); render();
   }),
-  'person': (el) => (isAdmin() ? personSheet(el.dataset.key) : (ui.q = store.people[el.dataset.key].name, go('ara'))),
+  'person': (el) => (canEdit() ? personSheet(el.dataset.key) : (ui.q = store.people[el.dataset.key].name, go('ara'))),
   'day-shift': (el) => { ui.dayShift = el.dataset.g; render(); },
   'toggle-unk': (el) => { ui.collapsed['unk-' + el.dataset.g] = !ui.collapsed['unk-' + el.dataset.g]; render(); },
   'add-person': () => personSheet(null),
