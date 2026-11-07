@@ -51,24 +51,25 @@ switch ($r) {
 
     $kimlik = str_in('kimlik', 40); $tel = norm_phone(str_in('telefon', 30));
     $pin = str_in('pin', 12); $yeni = str_in('yeniPin', 12); $hatirla = !empty(body()['hatirla']);
-    if ($kimlik === '' || $tel === '') fail(400, 'Personel ID / TC ve telefon numarasını girin.');
+    if ($kimlik === '' || $tel === '') fail(400, 'Personel ID ve telefon numarasını girin.');
     $p = find_person($kimlik);
-    $generic = 'Bilgiler eşleşmedi. Personel ID / TC, telefon ve şifrenizi kontrol edin.';
-    if (!$p) { stat_inc('giris_hatali'); audit(null, 'giris-bilinmeyen', 'girilen: ' . mb_substr($kimlik, 0, 2) . str_repeat('•', max(0, min(9, mb_strlen($kimlik) - 2)))); fail(401, $generic); }
+    $help = 'Şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.';
+    // listede (sistemde) olmayan ya da silinen kişi
+    if (!$p) { stat_inc('giris_hatali'); audit(null, 'giris-bilinmeyen', 'girilen: ' . mb_substr($kimlik, 0, 2) . str_repeat('•', max(0, min(9, mb_strlen($kimlik) - 2)))); fail(401, "Sisteme kayıtlı değilsiniz. Bu Personel ID listede yok. $help", ['kayitsiz' => true]); }
     if (!empty($p['banned'])) { audit(['id' => $p['id'], 'name' => $p['name']], 'giris-askida'); fail(403, 'Hesabınız askıya alındı. Yöneticinize başvurun.'); }
     if ($p['locked_until'] && $p['locked_until'] > now()) {
       $min = max(1, (int)ceil((strtotime($p['locked_until'] . ' UTC') - time()) / 60));
-      fail(423, "Çok fazla hatalı deneme. $min dakika sonra tekrar deneyin ya da yöneticinize başvurun.");
+      fail(423, "Çok fazla hatalı deneme. $min dakika sonra tekrar deneyin ya da şefiniz, müdürünüz veya yöneticinizle iletişime geçin.");
     }
-    $bad = function () use ($p, $generic) {
+    $bad = function (string $msg) use ($p, $help) {
       $f = (int)$p['failed'] + 1;
       $lock = $f >= 5 ? gmdate('Y-m-d H:i:s', time() + 15 * 60) : null;
       db()->prepare('UPDATE personnel SET failed = ?, locked_until = ? WHERE id = ?')->execute([$lock ? 0 : $f, $lock, $p['id']]);
       stat_inc('giris_hatali');
       audit(['id' => $p['id'], 'name' => $p['name']], 'giris-hatali', $lock ? 'hesap 15 dk kilitlendi' : "hatalı deneme $f");
-      fail(401, $lock ? 'Çok fazla hatalı deneme. Hesap 15 dakika kilitlendi.' : $generic);
+      fail(401, $lock ? "Çok fazla hatalı deneme. Hesap 15 dakika kilitlendi. $help" : $msg . ' (kalan deneme hakkı: ' . (5 - $f) . ')');
     };
-    if (!hash_equals($p['phone_hash'], hmac('tel:' . $tel))) $bad();
+    if (!hash_equals($p['phone_hash'], hmac('tel:' . $tel))) $bad('Telefon numarası bu Personel ID ile eşleşmiyor.');
     if ($p['pin_hash'] === null) {
       // ilk giriş: kişi kendi 6 haneli şifresini belirler
       if ($yeni === '') ok(['durum' => 'pin-olustur', 'ad' => $p['name']]);
@@ -78,9 +79,9 @@ switch ($r) {
       audit(['id' => $p['id'], 'name' => $p['name']], 'sifre-olusturuldu');
     } elseif ($pin === '') {
       // telefon doğru, şifre boş: hatalı deneme sayılmaz, ne yapılacağı söylenir
-      fail(401, 'Bu hesabın şifresi belirlenmiş. 6 haneli şifrenizi yazın; unuttuysanız yöneticiniz sıfırlayabilir.');
+      fail(401, 'Sisteme kayıtlısınız. 6 haneli şifrenizi yazın. Şifrenizi unuttuysanız şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.', ['kayitli' => true]);
     } elseif (!password_verify($pin, $p['pin_hash'])) {
-      $bad();
+      $bad('Şifre yanlış. Unuttuysanız şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.');
     }
     db()->prepare('UPDATE personnel SET failed = 0, locked_until = NULL, last_login = ? WHERE id = ?')->execute([now(), $p['id']]);
     $tok = new_session((int)$p['id'], $hatirla); stat_inc('giris');
@@ -190,10 +191,10 @@ switch ($r) {
       // DEV hesabı başkalarına sıradan Personel olarak görünür; DEV rozeti yalnızca kendisine
       $mask = $p['title'] === 'dev' && $me < 5;
       $touch = can_touch($u, $p);
-      $out[] = ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'tc' => $p['tc_last2'] ? '•••••••••' . $p['tc_last2'] : '', 'telefon' => '•••••• ' . $p['phone_last4'],
+      $out[] = ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'telefon' => '•••••• ' . $p['phone_last4'],
         'rol' => $mask ? 'staff' : (level_of($p['title']) >= 3 ? 'admin' : 'staff'), 'unvan' => $mask ? 'personel' : $p['title'], 'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(),
         'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'ben' => (int)$p['id'] === $u['id'], 'askida' => (bool)$p['banned'],
-        'duzenle' => $touch && $me >= 3, 'sil' => $touch, 'sistem' => $touch && $sys];
+        'duzenle' => $touch && $me >= 3, 'sil' => $touch, 'sifirla' => $touch, 'sistem' => $touch && $sys];
     }
     ok(['personel' => $out, 'hesapliIsimler' => array_values(array_unique($keys))]);
   }
@@ -233,7 +234,7 @@ switch ($r) {
   }
 
   case 'pin-sifirla': {
-    $u = require_level(4, 'Şifre sıfırlamayı yalnızca yöneticiler yapabilir.');
+    $u = require_level(2, 'Şifre sıfırlama yetkiniz yok.');
     $id = (int)(body()['id'] ?? 0);
     $st = db()->prepare('SELECT name, title FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
     if (!$p) fail(404, 'Kişi bulunamadı.');
@@ -438,7 +439,7 @@ switch ($r) {
       'asiriIstek' => array_map(fn($r) => ['ip' => $r['ip'], 'n' => (int)$r['n'], 'son' => utc($r['son'])], $rl),
       'kilitli' => array_map(fn($r) => ['ad' => $r['name'], 'unvan' => $r['title'], 'hatali' => (int)$r['failed'], 'kilit' => $r['locked_until'] ? utc($r['locked_until']) : null], $locked),
       'banlar' => array_map(fn($r) => ['ip' => $r['ip'], 'sebep' => $r['reason'], 'kim' => $r['created_by'], 'tarih' => utc($r['created_at']), 'bitis' => $r['until'] ? utc($r['until']) : null, 'aktif' => !$r['until'] || $r['until'] > now()], $bans),
-      'kurallar' => ['Giriş: aynı IP 15 dakikada en fazla 150 deneme (hastane Wi-Fi gibi ortak ağlar için)', 'Hesap: 5 hatalı şifrede 15 dakika kilit', 'Genel: aynı IP dakikada en fazla 1500 istek', 'Ağ katmanı: Hostinger DDoS koruması + Caddy (HTTPS)', 'Şifreler ve TC/telefon geri çözülemez biçimde saklanır']]);
+      'kurallar' => ['Giriş: aynı IP 15 dakikada en fazla 150 deneme (hastane Wi-Fi gibi ortak ağlar için)', 'Hesap: 5 hatalı şifrede 15 dakika kilit', 'Genel: aynı IP dakikada en fazla 1500 istek', 'Ağ katmanı: Hostinger DDoS koruması + Caddy (HTTPS)', 'Şifreler ve telefon numaraları geri çözülemez biçimde saklanır']]);
   }
 
   case 'dev-ban': {
@@ -517,7 +518,7 @@ function save_person(array $in, array $u, bool $bulk = false): array {
   $id = (int)($in['id'] ?? 0);
   $name = clean_name((string)($in['ad'] ?? ''));
   $sicil = clean_sicil((string)($in['sicil'] ?? ''));
-  $tcRaw = digits((string)($in['tc'] ?? ''));
+  $tcRaw = ''; // TC kimlik numarası artık alınmıyor ve saklanmıyor
   $tel = norm_phone((string)($in['telefon'] ?? ''));
   // unvan: verilmezse Personel; kişi yalnızca kendi verebileceği unvanları atayabilir
   $title = (string)($in['unvan'] ?? '');
@@ -534,15 +535,15 @@ function save_person(array $in, array $u, bool $bulk = false): array {
   if ($id) {
     $st = db()->prepare('SELECT * FROM personnel WHERE id = ?'); $st->execute([$id]); $old = $st->fetch();
     if (!$old) $err('Kişi bulunamadı.');
-    if ($old['title'] === 'dev' && $me < 5) $err($bulk ? "Bu Personel ID ya da TC numarası başka bir kişide kayıtlı ($name)." : 'Bu kişinin bilgileri değiştirilemez.');
+    if ($old['title'] === 'dev' && $me < 5) $err($bulk ? "Bu Personel ID başka bir kişide kayıtlı ($name)." : 'Bu kişinin bilgileri değiştirilemez.');
     // toplu eklemede Personel ID/TC başka isimli bir kişide kayıtlıysa o kişinin kaydı DEĞİŞTİRİLMEZ
-    if ($bulk && $name !== '' && name_key($name) !== name_key($old['name'])) $err("Bu Personel ID ya da TC numarası başka bir kişide kayıtlı: {$old['name']} ($name)");
+    if ($bulk && $name !== '' && name_key($name) !== name_key($old['name'])) $err("Bu Personel ID başka bir kişide kayıtlı: {$old['name']} ($name)");
     if ((int)$old['id'] === $u['id']) $err('Kendi hesabınızın unvanını ya da bilgilerini buradan değiştiremezsiniz.');
     if (!can_touch($u, $old)) $err("{$old['name']}: yalnızca sizden alt unvandaki kişileri düzenleyebilirsiniz.");
     if ($me < 3) $err("{$old['name']} zaten kayıtlı. Şefler yalnızca yeni kişi ekleyip çıkarabilir.");
     // telefon / Personel ID / TC değişikliği sistemsel: yalnızca yönetici (ve DEV)
     $sysChange = ($tel !== '' && !hash_equals($old['phone_hash'], hmac('tel:' . $tel))) || ($sicil !== '' && $sicil !== (string)$old['sicil']) || ($tcHash && $tcHash !== $old['tc_hash']);
-    if ($sysChange && $me < 4) $err('Telefon, Personel ID ve TC değişikliğini yalnızca yöneticiler yapabilir.');
+    if ($sysChange && $me < 4) $err('Telefon ve Personel ID değişikliğini yalnızca yöneticiler yapabilir.');
     if ($bulk) $title = $old['title']; // toplu yükleme unvanları değiştirmez
     elseif ($title !== $old['title'] && $title === 'yonetici') $err('Yönetici unvanı yalnızca DEV panelinden verilir.');
     elseif ($title !== $old['title'] && !in_array($title, $grant, true)) $err('Bu unvanı verme yetkiniz yok.');
@@ -551,19 +552,19 @@ function save_person(array $in, array $u, bool $bulk = false): array {
     if ($tel !== '') { $sets['phone_hash = ?'] = hmac('tel:' . $tel); $sets['phone_last4 = ?'] = substr($tel, -4); }
     try {
       db()->prepare('UPDATE personnel SET ' . implode(', ', array_keys($sets)) . ' WHERE id = ?')->execute([...array_values($sets), $id]);
-    } catch (PDOException $e) { $err('Bu Personel ID ya da TC numarası başka bir kişide kayıtlı.'); }
+    } catch (PDOException $e) { $err('Bu Personel ID başka bir kişide kayıtlı.'); }
     if ($title !== $old['title']) db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$id]); // unvan değişince yeniden girer
     if (!$bulk) audit($u, 'personel-guncellendi', ($name ?: $old['name']) . ($title !== $old['title'] ? ' → ' . TITLES[$title] : ''));
     return ['id' => $id, 'yeni' => false];
   }
   if ($name === '') $err('Ad soyad gerekli.');
-  if ($sicil === '' && !$tcHash) $err("Personel ID ya da TC numarasından en az biri gerekli ($name).");
+  if ($sicil === '') $err("Personel ID gerekli ($name).");
   if ($tel === '') $err("Telefon numarası gerekli ($name).");
   if ($bulk || !in_array($title, $grant, true)) $title = 'personel'; // yeni eklenen herkes Personel; üst unvanı yalnızca yetkili verir
   try {
     db()->prepare('INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
       ->execute([$name, $sicil !== '' ? $sicil : null, $tcHash, $tcHash ? substr($tcRaw, -2) : null, hmac('tel:' . $tel), substr($tel, -4), role_of($title), $title, now()]);
-  } catch (PDOException $e) { $err("Bu Personel ID ya da TC numarası başka bir kişide kayıtlı ($name)."); }
+  } catch (PDOException $e) { $err("Bu Personel ID başka bir kişide kayıtlı ($name)."); }
   $nid = (int)db()->lastInsertId();
   if (!$bulk) audit($u, 'personel-eklendi', $name . ($title !== 'personel' ? ' (' . TITLES[$title] . ')' : ''));
   return ['id' => $nid, 'yeni' => true];
