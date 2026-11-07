@@ -8,4 +8,6 @@ const out = root + 'dist-server/';
 rmSync(out, { recursive: true, force: true }); mkdirSync(out);
 cpSync(root + 'www/', out, { recursive: true, filter: (p) => !/\/samples\/real-/.test(p) });
 for (const f of ['api.php', 'lib.php', 'kurulum.php', 'yonetici.php', '.htaccess', 'gizlilik.html']) cpSync(root + 'server/' + f, out + f);
+// DEV paneli: /livadmin (yalnızca web)
+cpSync(root + 'server/livadmin/', out + 'livadmin/', { recursive: true });
 console.log('dist-server hazır:', readdirSync(out).join(' '));
