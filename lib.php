@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 8;
+const SCHEMA_V = 9;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -155,6 +155,9 @@ function upgrades(PDO $pdo): void {
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
+    // 8 → 9: vardiya görevleri (yapılacaklar listesi) ve kimin ne zaman işaretlediği
+    $pdo->exec("CREATE TABLE IF NOT EXISTS gorevler (id INT AUTO_INCREMENT PRIMARY KEY, tarih DATE NOT NULL, vardiya CHAR(1) NOT NULL DEFAULT '', baslik VARCHAR(160) NOT NULL, maddeler TEXT NOT NULL, created_by INT NULL, created_name VARCHAR(120) NULL, created_at DATETIME NOT NULL, INDEX (tarih)) $T");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS gorev_durum (gorev_id INT NOT NULL, madde SMALLINT NOT NULL, personnel_id INT NULL, who VARCHAR(120) NOT NULL, at DATETIME NOT NULL, PRIMARY KEY (gorev_id, madde)) $T");
 }
 
 // ---------- Yardımcılar ----------
