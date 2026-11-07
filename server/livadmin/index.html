@@ -64,6 +64,7 @@ td.c { text-align: center; font-weight: 700; padding: 3px; min-width: 30px; }
     <div class="brand">CCN Vardiya<small>DEV PANELİ</small></div>
     <button data-v="ozet">📊 Genel bakış</button>
     <button data-v="log">🟢 Canlı loglar</button>
+    <button data-v="den">🧾 Denetim kaydı</button>
     <button data-v="kul">👥 Kullanıcılar</button>
     <button data-v="ot">💻 Oturumlar</button>
     <button data-v="yay">🗂️ Yayın geçmişi</button>
@@ -82,7 +83,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const when = (t) => { if (!t) return '–'; const d = new Date(t); const p = (n) => String(n).padStart(2, '0'); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
 const TITLE = { dev: 'DEV', yonetici: 'Yönetici', mudur: 'Müdür', sef: 'Şef', personel: 'Personel' };
-const ACT = { giris: 'giriş yaptı', cikis: 'çıkış yaptı', 'giris-hatali': 'hatalı giriş', 'giris-bilinmeyen': 'bilinmeyen hesapla giriş denemesi', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', 'personel-eklendi': 'kişi ekledi', 'personel-guncellendi': 'kişi güncelledi', 'personel-silindi': 'kişi sildi', 'personel-toplu': 'toplu kişi ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', ayar: 'ayarları değiştirdi', kurulum: 'kurulum', 'yonetici-cli': 'sunucudan hesap işlemi', 'ip-engellendi': 'IP engelledi', 'ip-engeli-kalkti': 'IP engelini kaldırdı', 'hesap-askiya': 'hesabı askıya aldı', 'hesap-acildi': 'hesabı açtı', 'giris-askida': 'askıdaki hesapla giriş denedi' };
+const ACT = { 'gorev-eklendi': 'görev ekledi', 'gorev-guncellendi': 'görev güncelledi', 'gorev-silindi': 'görev sildi', giris: 'giriş yaptı', cikis: 'çıkış yaptı', 'giris-hatali': 'hatalı giriş', 'giris-bilinmeyen': 'bilinmeyen hesapla giriş denemesi', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', 'personel-eklendi': 'kişi ekledi', 'personel-guncellendi': 'kişi güncelledi', 'personel-silindi': 'kişi sildi', 'personel-toplu': 'toplu kişi ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', ayar: 'ayarları değiştirdi', kurulum: 'kurulum', 'yonetici-cli': 'sunucudan hesap işlemi', 'ip-engellendi': 'IP engelledi', 'ip-engeli-kalkti': 'IP engelini kaldırdı', 'hesap-askiya': 'hesabı askıya aldı', 'hesap-acildi': 'hesabı açtı', 'giris-askida': 'askıdaki hesapla giriş denedi' };
 const tag = (t) => t ? `<span class="tag t-${esc(t)}">${esc(TITLE[t] || t)}</span>` : '';
 async function api(r, body) {
   const res = await fetch(API + r, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(tok ? { 'X-Ccn-Token': tok } : {}) }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
@@ -112,7 +113,7 @@ async function start() {
 function show(v) {
   view = v; location.hash = v; clearInterval(timer); $('#m').onclick = null; $('#m').onchange = null;
   document.querySelectorAll('aside [data-v]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.v === v)));
-  ({ ozet, log: logView, kul, ot, yay, duy, guv }[v] || ozet)();
+  ({ ozet, log: logView, den, kul, ot, yay, duy, guv }[v] || ozet)();
 }
 const M = (h) => { $('#m').innerHTML = h; };
 const fail = (e) => M(`<div class="card err">${esc(e.message)}</div>`);
@@ -161,6 +162,33 @@ async function logView() {
   $('#fr').addEventListener('click', full); $('#fq').addEventListener('keydown', (e) => { if (e.key === 'Enter') full(); });
   $('#m').onclick = banClick;
   await full(); timer = setInterval(poll, 5000);
+}
+// denetim kaydı: salt okunur, sayfalı, işlem türü ve tarih filtresi (Türkiye saatiyle gün)
+async function den() {
+  let sayfa = 1;
+  M(`<div class="top"><h2>Denetim kaydı</h2><span class="mut" id="dt"></span></div>
+    <div class="filters"><select id="di"><option value="">Tüm işlemler</option></select>
+      <label class="mut">Başlangıç <input type="date" id="db"></label><label class="mut">Bitiş <input type="date" id="de"></label>
+      <input id="dq" placeholder="Kişi, ayrıntı ya da IP" style="min-width:200px"><button class="btn" id="dr">Uygula</button><button class="btn" id="dx">Temizle</button></div>
+    <div class="tw"><table><thead><tr><th>Zaman</th><th>Kim</th><th>İşlem</th><th>Ayrıntı</th><th>IP</th><th>Cihaz / tarayıcı</th></tr></thead><tbody id="dbody"><tr><td colspan="6" class="mut">Yükleniyor…</td></tr></tbody></table></div>
+    <div class="filters" style="justify-content:center;margin-top:10px"><button class="btn" id="dp">‹ Önceki</button><span id="dn" class="mut"></span><button class="btn" id="dnx">Sonraki ›</button></div>`);
+  let turYuklendi = false;
+  const load = async () => {
+    const qs = `&sayfa=${sayfa}&islem=${encodeURIComponent($('#di').value)}&bas=${$('#db').value}&bit=${$('#de').value}&q=${encodeURIComponent($('#dq').value.trim())}`;
+    let j; try { j = await api('dev-denetim' + qs); } catch (e) { return fail(e); }
+    if (view !== 'den') return;
+    if (!turYuklendi) { turYuklendi = true; const cur = $('#di').value; $('#di').innerHTML = '<option value="">Tüm işlemler</option>' + j.turler.map((t) => `<option value="${esc(t.islem)}">${esc(ACT[t.islem] || t.islem)} (${t.n})</option>`).join(''); $('#di').value = cur; }
+    $('#dbody').innerHTML = j.kayitlar.map((l) => `<tr><td class="nw mono">${when(l.tarih)}</td><td>${esc(l.kim || 'Sistem')} ${tag(l.unvan)}</td><td class="a-${esc(l.islem)}">${esc(ACT[l.islem] || l.islem)}</td><td>${esc(l.detay || '')}</td><td class="mono">${esc(l.ip || '')}</td><td class="mut">${esc(l.cihaz || '')}</td></tr>`).join('') || '<tr><td colspan="6" class="mut">Bu filtreye uyan kayıt yok</td></tr>';
+    $('#dt').textContent = `${j.toplam} kayıt`; $('#dn').textContent = `Sayfa ${j.sayfa} / ${j.sayfaSayisi}`;
+    $('#dp').disabled = j.sayfa <= 1; $('#dnx').disabled = j.sayfa >= j.sayfaSayisi; sayfa = j.sayfa;
+  };
+  const apply = () => { sayfa = 1; load(); };
+  $('#dr').addEventListener('click', apply); $('#di').addEventListener('change', apply); $('#db').addEventListener('change', apply); $('#de').addEventListener('change', apply);
+  $('#dq').addEventListener('keydown', (e) => { if (e.key === 'Enter') apply(); });
+  $('#dx').addEventListener('click', () => { $('#di').value = ''; $('#db').value = ''; $('#de').value = ''; $('#dq').value = ''; apply(); });
+  $('#dp').addEventListener('click', () => { if (sayfa > 1) { sayfa--; load(); } });
+  $('#dnx').addEventListener('click', () => { sayfa++; load(); });
+  await load();
 }
 async function banClick(e) {
   const b = e.target.closest('[data-ban]'); if (!b) return;

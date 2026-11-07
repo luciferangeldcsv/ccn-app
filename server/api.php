@@ -433,6 +433,27 @@ switch ($r) {
     ok(['loglar' => array_map(fn($r) => ['id' => (int)$r['id'], 'kim' => $r['who'], 'unvan' => $r['title'], 'islem' => $r['action'], 'detay' => $r['detail'], 'ip' => $r['ip'], 'cihaz' => ua_text((string)$r['ua']), 'tarih' => utc($r['at'])], $st->fetchAll())]);
   }
 
+  // denetim kaydı: salt okunur, sayfalı; işlem türü / tarih aralığı (Türkiye saatiyle) / metin filtresi
+  case 'dev-denetim': {
+    dev_only();
+    $adet = 50; $sayfa = max(1, (int)($_GET['sayfa'] ?? 1));
+    $ara = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 60); $islem = preg_replace('/[^a-z-]/', '', (string)($_GET['islem'] ?? ''));
+    $tr = fn(string $d, int $plus) => gmdate('Y-m-d H:i:s', strtotime($d . ' 00:00:00 UTC') + $plus * 86400 - 10800);
+    $w = ['1=1']; $a = [];
+    if ($ara !== '') { $w[] = '(a.who LIKE ? OR a.detail LIKE ? OR a.ip LIKE ?)'; array_push($a, "%$ara%", "%$ara%", "%$ara%"); }
+    if ($islem !== '') { $w[] = 'a.action = ?'; $a[] = $islem; }
+    $bas = (string)($_GET['bas'] ?? ''); $bit = (string)($_GET['bit'] ?? '');
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $bas)) { $w[] = 'a.at >= ?'; $a[] = $tr($bas, 0); }
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $bit)) { $w[] = 'a.at < ?'; $a[] = $tr($bit, 1); }
+    $where = implode(' AND ', $w);
+    $st = db()->prepare("SELECT COUNT(*) FROM audit a WHERE $where"); $st->execute($a); $toplam = (int)$st->fetchColumn();
+    $st = db()->prepare("SELECT a.id, a.who, a.action, a.detail, a.ip, a.ua, a.at, p.title FROM audit a LEFT JOIN personnel p ON p.id = a.personnel_id WHERE $where ORDER BY a.id DESC LIMIT $adet OFFSET " . (($sayfa - 1) * $adet));
+    $st->execute($a);
+    $turler = db()->query('SELECT action, COUNT(*) n FROM audit GROUP BY action ORDER BY action')->fetchAll();
+    ok(['toplam' => $toplam, 'sayfa' => $sayfa, 'sayfaSayisi' => max(1, (int)ceil($toplam / $adet)), 'turler' => array_map(fn($r) => ['islem' => $r['action'], 'n' => (int)$r['n']], $turler),
+      'kayitlar' => array_map(fn($r) => ['id' => (int)$r['id'], 'kim' => $r['who'], 'unvan' => $r['title'], 'islem' => $r['action'], 'detay' => $r['detail'], 'ip' => $r['ip'], 'cihaz' => ua_text((string)$r['ua']), 'tarih' => utc($r['at'])], $st->fetchAll())]);
+  }
+
   case 'dev-kullanicilar': {
     dev_only();
     $rows = db()->query('SELECT p.id, p.name, p.sicil, p.title, p.banned, p.ban_reason, p.phone_last4, p.pin_hash IS NOT NULL has_pin, p.failed, p.locked_until, p.last_login, p.created_at, p.seen_at,
