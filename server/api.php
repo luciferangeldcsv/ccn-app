@@ -16,7 +16,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -277,6 +277,76 @@ switch ($r) {
     ok();
   }
 
+  // ---------- Vardiya görevleri: müdür/yönetici bir güne/vardiyaya yapılacaklar ekler, o vardiyadakiler işaretler ----------
+  case 'gorevler': {
+    $u = current_user(); $lv = level_of($u['title'] ?? '');
+    $t = (string)($_GET['tarih'] ?? ''); if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $t)) fail(400, 'Tarih geçersiz.');
+    $mine = my_codes($u, $t);
+    $st = db()->prepare('SELECT * FROM gorevler WHERE tarih = ? ORDER BY vardiya, id'); $st->execute([$t]);
+    $out = [];
+    foreach ($st->fetchAll() as $g) {
+      $can = gorev_can_check($g, $mine);
+      if ($lv < 2 && !$can) continue; // personel yalnızca kendi vardiyasının görevlerini görür
+      $out[] = gorev_out($g, $u, $lv, $can);
+    }
+    ok(['tarih' => $t, 'vardiyam' => $mine, 'gorevler' => $out]);
+  }
+
+  case 'gorev-kaydet': {
+    $u = require_admin();
+    $b = body(); $id = (int)($b['id'] ?? 0);
+    $t = (string)($b['tarih'] ?? ''); if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $t)) fail(400, 'Tarih geçersiz.');
+    $v = in_array($b['vardiya'] ?? '', ['', '1', '2', '3'], true) ? $b['vardiya'] : '';
+    $baslik = str_in('baslik', 160);
+    $m = []; foreach (array_slice(is_array($b['maddeler'] ?? null) ? $b['maddeler'] : [], 0, 40) as $x) { $x = mb_substr(trim((string)$x), 0, 200); if ($x !== '') $m[] = $x; }
+    if ($baslik === '' && $m) $baslik = 'Yapılacaklar';
+    if (!$m) fail(400, 'En az bir madde yazın.');
+    $json = json_encode($m, JSON_UNESCAPED_UNICODE);
+    if ($id) {
+      $st = db()->prepare('SELECT maddeler FROM gorevler WHERE id = ?'); $st->execute([$id]); $old = $st->fetchColumn();
+      if ($old === false) fail(404, 'Görev bulunamadı.');
+      $old = json_decode((string)$old, true) ?: [];
+      // metni değişen ya da silinen maddelerin işareti kalkar
+      foreach ($old as $i => $x) if (($m[$i] ?? null) !== $x) db()->prepare('DELETE FROM gorev_durum WHERE gorev_id = ? AND madde = ?')->execute([$id, $i]);
+      db()->prepare('UPDATE gorevler SET tarih = ?, vardiya = ?, baslik = ?, maddeler = ? WHERE id = ?')->execute([$t, $v, $baslik, $json, $id]);
+      audit($u, 'gorev-guncellendi', "$baslik (" . tr_date($t) . ($v ? ", $v. vardiya" : '') . ')');
+    } else {
+      db()->prepare('INSERT INTO gorevler (tarih, vardiya, baslik, maddeler, created_by, created_name, created_at) VALUES (?,?,?,?,?,?,?)')->execute([$t, $v, $baslik, $json, $u['id'], shown_name($u), now()]);
+      $id = (int)db()->lastInsertId();
+      audit($u, 'gorev-eklendi', "$baslik (" . tr_date($t) . ($v ? ", $v. vardiya" : '') . ', ' . count($m) . ' madde)');
+    }
+    ok(['id' => $id]);
+  }
+
+  case 'gorev-sil': {
+    $u = require_admin();
+    $id = (int)(body()['id'] ?? 0);
+    $st = db()->prepare('SELECT baslik, tarih FROM gorevler WHERE id = ?'); $st->execute([$id]); $g = $st->fetch();
+    if (!$g) fail(404, 'Görev bulunamadı.');
+    db()->prepare('DELETE FROM gorev_durum WHERE gorev_id = ?')->execute([$id]);
+    db()->prepare('DELETE FROM gorevler WHERE id = ?')->execute([$id]);
+    audit($u, 'gorev-silindi', $g['baslik'] . ' (' . tr_date($g['tarih']) . ')');
+    ok();
+  }
+
+  case 'gorev-isaretle': {
+    $u = current_user(); $lv = level_of($u['title'] ?? '');
+    $b = body(); $id = (int)($b['id'] ?? 0); $i = (int)($b['madde'] ?? -1); $done = !empty($b['yapildi']);
+    $st = db()->prepare('SELECT * FROM gorevler WHERE id = ?'); $st->execute([$id]); $g = $st->fetch();
+    if (!$g) fail(404, 'Görev bulunamadı.');
+    $m = json_decode((string)$g['maddeler'], true) ?: [];
+    if ($i < 0 || $i >= count($m)) fail(400, 'Madde bulunamadı.');
+    if ($lv < 3 && !gorev_can_check($g, my_codes($u, $g['tarih']))) fail(403, 'Bu görev sizin vardiyanıza ait değil.');
+    if ($done) {
+      db()->prepare('INSERT IGNORE INTO gorev_durum (gorev_id, madde, personnel_id, who, at) VALUES (?,?,?,?,?)')->execute([$id, $i, $u['id'], shown_name($u), now()]);
+    } else {
+      $st = db()->prepare('SELECT personnel_id FROM gorev_durum WHERE gorev_id = ? AND madde = ?'); $st->execute([$id, $i]); $by = $st->fetchColumn();
+      if ($by !== false && (int)$by !== $u['id'] && $lv < 3) fail(403, 'Bu maddeyi başkası işaretledi; yalnızca o ya da müdür/yönetici geri alabilir.');
+      db()->prepare('DELETE FROM gorev_durum WHERE gorev_id = ? AND madde = ?')->execute([$id, $i]);
+    }
+    ok(['gorev' => gorev_out($g, $u, $lv, true)]);
+  }
+
   // etkinlikler: şef personelinkini, müdür şef ve personelinkini, yönetici DEV dışında herkesinkini görür; herkes kendisininkini görür
   case 'kayitlar': {
     $u = require_level(2);
@@ -515,6 +585,27 @@ function clean_roster(): array {
     }
     $data = ['people' => $people, 'rules' => $rules, 'settings' => ['company' => mb_substr((string)($s['company'] ?? ''), 0, 80), 'hours' => $hours, 'offRule' => ($s['offRule'] ?? '') === 'team' ? 'team' : 'return']];
     return [$data, count($people), $min, $max];
+}
+
+// Kişinin son yayınlanan listede o günkü kodları (aynı isim birden çok satırda olabilir)
+function my_codes(array $u, string $date): array {
+  static $people = null;
+  if ($people === null) { $j = db()->query('SELECT data FROM rosters ORDER BY id DESC LIMIT 1')->fetchColumn(); $people = $j ? ((json_decode((string)$j, true)['people'] ?? []) ?: []) : []; }
+  $k = name_key((string)$u['name']); $out = [];
+  foreach ($people as $p) if (name_key((string)($p['name'] ?? '')) === $k && isset($p['days'][$date])) $out[] = $p['days'][$date];
+  return array_values(array_unique($out));
+}
+// vardiya boşsa o gün çalışan herkes (1/2/3), değilse yalnızca o vardiyadakiler işaretleyebilir
+function gorev_can_check(array $g, array $codes): bool {
+  return $g['vardiya'] === '' ? (bool)array_intersect($codes, ['1', '2', '3']) : in_array($g['vardiya'], $codes, true);
+}
+function gorev_out(array $g, array $u, int $lv, bool $can): array {
+  $st = db()->prepare('SELECT madde, personnel_id, who, at FROM gorev_durum WHERE gorev_id = ?'); $st->execute([$g['id']]);
+  $d = []; foreach ($st->fetchAll() as $r) $d[(int)$r['madde']] = $r;
+  $m = json_decode((string)$g['maddeler'], true) ?: [];
+  return ['id' => (int)$g['id'], 'tarih' => $g['tarih'], 'vardiya' => $g['vardiya'], 'baslik' => $g['baslik'], 'yazan' => $g['created_name'], 'olusturma' => utc($g['created_at']),
+    'isaretleyebilir' => $lv >= 3 || $can,
+    'maddeler' => array_map(fn($x, $i) => ['metin' => $x, 'yapan' => isset($d[$i]) ? $d[$i]['who'] : null, 'benim' => isset($d[$i]) && (int)$d[$i]['personnel_id'] === $u['id'], 'zaman' => isset($d[$i]) ? utc($d[$i]['at']) : null], $m, array_keys($m))];
 }
 
 // Yeni kişi ekle ya da var olanı güncelle. Toplu eklemede sicil/TC ile eşleşen kişi güncellenir.

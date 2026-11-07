@@ -330,7 +330,7 @@ async function api(r, body) {
 function signOut(msg) {
   auth = null; saveAuth(); clearInterval(pollT);
   store = defaultStore(); try { localStorage.removeItem(STORE_KEY); } catch (e) { /* yoksay */ }
-  srv.v = null; srv.duyurular = []; srv.personel = null; srv.kayitlar = null;
+  srv.v = null; srv.duyurular = []; srv.personel = null; srv.kayitlar = null; srv.gorev = null;
   ui.login = { step: 'giris', hatirla: true, err: msg || '' }; ui.review = null; ui.view = 'gunluk';
   closeSheet(); render();
 }
@@ -472,12 +472,12 @@ function dataRange() {
 }
 
 // ---------- Yönlendirme ----------
-const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarlar'];
+const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'gorev', 'duyuru', 'personel', 'ayarlar'];
 // sekmeler kullanıcının rolüne göre
 function tabList() {
   if (!SERVER) return ['gunluk', 'ara', 'cizelge', 'yukle', 'ayarlar'];
-  if (canEdit()) return canUpload() ? ['gunluk', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarlar'] : ['gunluk', 'cizelge', 'duyuru', 'personel', 'ayarlar'];
-  return ['gunluk', 'ara', 'cizelge', 'duyuru', 'ayarlar'];
+  if (canEdit()) return canUpload() ? ['gunluk', 'cizelge', 'yukle', 'gorev', 'duyuru', 'personel', 'ayarlar'] : ['gunluk', 'cizelge', 'gorev', 'duyuru', 'personel', 'ayarlar'];
+  return ['gunluk', 'ara', 'cizelge', 'gorev', 'duyuru', 'ayarlar'];
 }
 const allowedView = (v) => VIEWS.includes(v) && (v === 'ara' || tabList().includes(v));
 function go(view) {
@@ -489,8 +489,9 @@ window.addEventListener('hashchange', fromHash);
 const $tabs = document.querySelector('.tabs');
 const TAB_ICON = {}; document.querySelectorAll('.tab').forEach((b) => { TAB_ICON[b.dataset.view] = b.querySelector('svg').outerHTML; });
 TAB_ICON.duyuru = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 5.5a9 9 0 0 1 0 13"/></svg>';
+TAB_ICON.gorev = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h10M9 12h10M9 19h10"/><path d="M3.5 5l1.5 1.5L7.5 4M3.5 12l1.5 1.5L7.5 11M3.5 19l1.5 1.5L7.5 18"/></svg>';
 TAB_ICON.personel = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 20a6.5 6.5 0 0 0-3-5.5"/></svg>';
-const TAB_LABEL = { gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', duyuru: 'Duyurular', personel: 'Personel', ayarlar: 'Ayarlar' };
+const TAB_LABEL = { gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', gorev: 'Görevler', duyuru: 'Duyurular', personel: 'Personel', ayarlar: 'Ayarlar' };
 $tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) go(b.dataset.view); });
 function unreadCount() { const seen = prefs.seenAnn || 0; return srv.duyurular.filter((a) => a.id > seen).length; }
 const $side = document.createElement('aside'); $side.id = 'side'; $side.setAttribute('aria-label', 'Yönetim menüsü'); document.body.prepend($side);
@@ -540,7 +541,7 @@ function render() {
   if (isDirty() && ui.view !== 'yukle') banner += canPublish()
     ? `<div class="banner pub"><p><b>Yayınlanmamış değişiklikler var.</b> Personel bu değişiklikleri siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`
     : `<div class="banner pub"><p><b>Hazırladığınız liste henüz yayında değil.</b> “Onaya gönder” deyince müdür ya da yönetici kontrol edip yayınlar.${srv.taslak && auth && srv.taslak.kimId === auth.ben.id && srv.taslak.onay ? ' <b>Onaya gönderildi</b> (' + fmtWhen(srv.taslak.tarih) + ').' : ''}</p><button class="btn primary" data-act="send-approval">${ICON_UPLOAD}Onaya gönder</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`;
-  const views = { gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, duyuru: viewAnnouncements, personel: viewPersonnel, ayarlar: viewSettings };
+  const views = { gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, gorev: viewTasks, duyuru: viewAnnouncements, personel: viewPersonnel, ayarlar: viewSettings };
   $app.innerHTML = banner + views[ui.view]();
   bindView();
 }
@@ -1232,6 +1233,7 @@ function bindView() {
     }));
   }
   if (ui.view === 'ayarlar') bindSettings();
+  if (ui.view === 'gorev') bindTasks();
 
 }
 
@@ -1312,6 +1314,12 @@ const actions = {
     });
   },
   'discard': () => confirmSheet('Yayındaki listeye dönülsün mü?', 'Bu cihazda yapıp yayınlamadığınız değişiklikler silinir; personelin gördüğü liste yüklenir.', 'Yayındakine dön', async () => { try { srv.conflict = false; await syncData(true); } catch (e) { toast(e.message); } render(); }),
+  'g-day': (el) => { ui.gDate = addDays(ui.gDate || todayIso(), +el.dataset.n); render(); },
+  'g-today': () => { ui.gDate = todayIso(); render(); },
+  'g-reload': () => loadTasks(true),
+  'g-new': () => taskSheet(null),
+  'g-edit': (el) => { const g = srv.gorev && srv.gorev.list.find((x) => x.id === +el.dataset.id); if (g) taskSheet(g); },
+  'g-del': (el) => { const g = srv.gorev && srv.gorev.list.find((x) => x.id === +el.dataset.id); if (!g) return; confirmSheet('Görev silinsin mi?', `“${g.baslik}” ve işaretleri silinir.`, 'Sil', async () => { try { await api('gorev-sil', { id: g.id }); await loadTasks(true); toast('Görev silindi'); } catch (e) { toast(e.message); } }); },
   'ann-post': async (el) => {
     const t = document.getElementById('an-title').value.trim(), b = document.getElementById('an-body').value.trim();
     if (!t || !b) { toast('Başlık ve metin yazın'); return; }
@@ -1461,6 +1469,69 @@ function bindLogin() {
 
 function fmtWhen(t) { if (!t) return ''; const d = new Date(t); return isNaN(d) ? '' : `${fmtShort(iso(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 
+// ---------- Vardiya görevleri (yapılacaklar listesi) ----------
+async function loadTasks(force) {
+  const t = ui.gDate || todayIso();
+  if (!force && srv.gorev && srv.gorev.tarih === t) return;
+  if (srv.gorevYukleniyor === t) return; srv.gorevYukleniyor = t;
+  try { const j = await api('gorevler&tarih=' + t); srv.gorev = { tarih: t, list: j.gorevler || [], vardiyam: j.vardiyam || [] }; }
+  catch (e) { srv.gorev = { tarih: t, list: [], vardiyam: [], hata: e.message }; }
+  srv.gorevYukleniyor = null;
+  if (ui.view === 'gorev') render();
+}
+function viewTasks() {
+  const t = ui.gDate || (ui.gDate = todayIso());
+  const G = srv.gorev && srv.gorev.tarih === t ? srv.gorev : null;
+  if (!G) loadTasks();
+  const head = `<div class="card stack"><div class="row" style="flex-wrap:nowrap">
+      <button class="iconbtn" data-act="g-day" data-n="-1" aria-label="Önceki gün">${ICON_LEFT}</button>
+      <div style="flex:1;min-width:0;text-align:center"><h2 style="margin:0;font-size:22px">${fmtShort(t)}</h2><div class="small muted">${DAY_NAMES[parseIso(t).getDay()]}${t === todayIso() ? ' · Bugün' : ''}</div></div>
+      <button class="iconbtn" data-act="g-day" data-n="1" aria-label="Sonraki gün">${ICON_RIGHT}</button></div>
+    <div class="row"><input type="date" id="g-date" value="${t}" aria-label="Tarih seç">${t !== todayIso() ? '<button class="chip" data-act="g-today">Bugün</button>' : ''}<span style="flex:1"></span>${isAdmin() ? `<button class="btn primary" data-act="g-new">${ICON_PLUS}Görev ekle</button>` : ''}</div>
+    ${!canEdit() && G ? `<p class="small muted" style="margin:0">${G.vardiyam.filter((c) => ['1', '2', '3'].includes(c)).length ? `Bu gün ${G.vardiyam.filter((c) => ['1', '2', '3'].includes(c)).map((c) => c + '. vardiya').join(', ')} çalışıyorsunuz. Vardiyanızın görevlerini yaptıkça işaretleyin.` : 'Bu gün listede çalışma vardiyanız görünmüyor.'}</p>` : ''}</div>`;
+  if (!G) return head + `<div class="card"><p class="muted" style="margin:0">Görevler yükleniyor…</p></div>`;
+  if (G.hata) return head + `<div class="card"><p class="muted" style="margin:0">${esc(G.hata)}</p><button class="btn" data-act="g-reload">Tekrar dene</button></div>`;
+  if (!G.list.length) return head + `<div class="card"><p class="muted" style="margin:0">${isAdmin() ? 'Bu gün için görev yok. “Görev ekle” ile bir vardiyaya yapılacaklar listesi ekleyin.' : 'Bu gün için size atanmış görev yok.'}</p></div>`;
+  return head + G.list.map((g) => {
+    const done = g.maddeler.filter((m) => m.yapan).length, all = g.maddeler.length;
+    return `<article class="card stack task">
+      <div class="row" style="flex-wrap:nowrap;align-items:flex-start"><div style="flex:1;min-width:0"><span class="gtag ${g.vardiya ? 'k-' + g.vardiya : 'all'}" style="margin:0 0 4px;display:inline-block">${g.vardiya ? g.vardiya + '. vardiya' : 'Tüm vardiyalar'}</span><h3 style="margin:0;font-size:18px">${esc(g.baslik)}</h3></div>
+        <span class="tprog ${done === all ? 'full' : ''}">${done}/${all}</span>
+        ${isAdmin() ? `<button class="iconbtn" data-act="g-edit" data-id="${g.id}" aria-label="Düzenle">${svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>')}</button><button class="iconbtn" data-act="g-del" data-id="${g.id}" aria-label="Sil">${ICON_TRASH}</button>` : ''}</div>
+      <ul class="tlist">${g.maddeler.map((m, i) => `<li class="${m.yapan ? 'done' : ''}"><label><input type="checkbox" data-gcheck="${g.id}" data-i="${i}" ${m.yapan ? 'checked' : ''} ${g.isaretleyebilir ? '' : 'disabled'}><span>${esc(m.metin)}</span></label>${m.yapan ? `<small>${esc(m.yapan)} · ${fmtWhen(m.zaman)}</small>` : ''}</li>`).join('')}</ul>
+      ${isAdmin() ? `<p class="small muted" style="margin:0">Ekleyen: ${esc(g.yazan || '')} · ${fmtWhen(g.olusturma)}</p>` : ''}
+    </article>`;
+  }).join('');
+}
+function bindTasks() {
+  const d = document.getElementById('g-date'); d && d.addEventListener('change', () => { if (d.value) { ui.gDate = d.value; render(); } });
+  $app.querySelectorAll('[data-gcheck]').forEach((el) => el.addEventListener('change', async () => {
+    const id = +el.dataset.gcheck, i = +el.dataset.i, on = el.checked; el.disabled = true;
+    try { const j = await api('gorev-isaretle', { id, madde: i, yapildi: on }); const L = srv.gorev.list; const k = L.findIndex((g) => g.id === id); if (k >= 0) L[k] = j.gorev; }
+    catch (e) { toast(e.message); el.checked = !on; }
+    render();
+  }));
+}
+function taskSheet(g) {
+  const t = g ? g.tarih : (ui.gDate || todayIso());
+  sheet(`<h3>${g ? 'Görevi düzenle' : 'Görev ekle'}</h3>
+    <div class="settings-grid"><label class="field">Tarih<input type="date" id="gt-date" value="${t}"></label>
+    <label class="field">Vardiya<select id="gt-shift">${[['', 'Tüm vardiyalar'], ['1', '1. vardiya'], ['2', '2. vardiya'], ['3', '3. vardiya']].map(([v, l]) => `<option value="${v}" ${(g ? g.vardiya : '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+    <label class="field">Başlık<input id="gt-title" maxlength="160" value="${esc(g ? g.baslik : '')}" placeholder="Örn. Vardiya devri"></label>
+    <label class="field">Maddeler (her satır bir madde)<textarea id="gt-items" rows="6" placeholder="Dolapları kontrol et&#10;Malzeme sayımı&#10;Teslim formunu doldur">${esc(g ? g.maddeler.map((m) => m.metin).join('\n') : '')}</textarea></label>
+    ${g ? '<p class="small muted" style="margin:0">Metni değişen maddelerin işareti kalkar.</p>' : ''}
+    <div class="row"><button class="btn primary" id="gt-ok">${ICON_CHECK}Kaydet</button><button class="btn" data-x="1">Vazgeç</button></div>`, (bg) => {
+    bg.querySelector('#gt-ok').addEventListener('click', async (e) => {
+      const b = e.currentTarget; const tarih = bg.querySelector('#gt-date').value;
+      const maddeler = bg.querySelector('#gt-items').value.split('\n').map((x) => x.trim()).filter(Boolean);
+      if (!tarih) { toast('Tarih seçin'); return; } if (!maddeler.length) { toast('En az bir madde yazın'); return; }
+      b.disabled = true;
+      try { await api('gorev-kaydet', { id: g ? g.id : 0, tarih, vardiya: bg.querySelector('#gt-shift').value, baslik: bg.querySelector('#gt-title').value.trim(), maddeler }); closeSheet(); ui.gDate = tarih; await loadTasks(true); toast('Görev kaydedildi'); }
+      catch (err) { b.disabled = false; toast(err.message); }
+    });
+  });
+}
+
 function viewAnnouncements() {
   const list = srv.duyurular;
   const compose = isAdmin() ? `<div class="card stack">
@@ -1522,7 +1593,7 @@ function viewPersonnel() {
   return `<div class="pgrid"><div class="pmain stack">${left}<p class="small muted">Yönetici: her şey. Müdür: listeyi çizelgeden hazırlar ve yayınlar (görsel yüklemez), şef/personel verir. Şef: liste görsellerini yükleyerek listeyi hazırlar ve onaya gönderir, kişi ekler/çıkarır. Personel: listeleri görür. Etkinliklerde herkes kendisinin ve alt unvandakilerin işlemlerini görür.</p></div>
     <aside class="pside" id="pside">${personSide()}</aside></div>`;
 }
-const LOG_NAMES = { 'hesap-askiya': 'hesabı askıya alındı', 'hesap-acildi': 'hesabı açıldı', 'giris-askida': 'askıdaki hesapla giriş denedi', cikis: 'çıkış yaptı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', kurulum: 'kurulum' };
+const LOG_NAMES = { 'hesap-askiya': 'hesabı askıya alındı', 'hesap-acildi': 'hesabı açıldı', 'giris-askida': 'askıdaki hesapla giriş denedi', cikis: 'çıkış yaptı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', 'gorev-eklendi': 'görev ekledi', 'gorev-guncellendi': 'görev güncelledi', 'gorev-silindi': 'görev sildi', kurulum: 'kurulum' };
 // Sağ panel: seçili kişinin durumu ve etkinlikleri; kimse seçili değilse son etkinlikler ve listeyi görmeyenler
 const logLine = (k, withWho) => `<div class="logline"><span class="lt">${fmtWhen(k.tarih)}</span><span>${withWho ? `<b>${esc(k.kim || 'Sistem')}</b> ` : ''}${esc(LOG_NAMES[k.islem] || k.islem)}${k.detay ? ` <span class="muted">· ${esc(k.detay)}</span>` : ''}</span></div>`;
 function personSide() {
