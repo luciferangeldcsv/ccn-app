@@ -8,7 +8,7 @@ security_headers();
 cors();
 // engellenen IP'ler ve aşırı istek koruması
 if (ip_banned(client_ip())) fail(403, 'Bu ağdan erişim engellendi.');
-rate_limit();
+rate_limit(1500);
 set_exception_handler(function (Throwable $e) {
   error_log('ccn api: ' . $e->getMessage());
   fail(500, 'Sunucu hatası. Biraz sonra tekrar deneyin.');
@@ -45,7 +45,7 @@ switch ($r) {
     $ip = client_ip();
     $st = db()->prepare('SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND at > ?');
     $st->execute([$ip, gmdate('Y-m-d H:i:s', time() - 900)]);
-    if ((int)$st->fetchColumn() >= 30) fail(429, 'Çok fazla deneme yapıldı. 15 dakika sonra tekrar deneyin.');
+    if ((int)$st->fetchColumn() >= 150) fail(429, 'Çok fazla deneme yapıldı. 15 dakika sonra tekrar deneyin.');
     db()->prepare('INSERT INTO login_attempts (ip, at) VALUES (?, ?)')->execute([$ip, now()]);
     if (random_int(1, 50) === 1) db()->prepare('DELETE FROM login_attempts WHERE at < ?')->execute([gmdate('Y-m-d H:i:s', time() - 86400)]);
 
@@ -403,7 +403,7 @@ switch ($r) {
       'asiriIstek' => array_map(fn($r) => ['ip' => $r['ip'], 'n' => (int)$r['n'], 'son' => utc($r['son'])], $rl),
       'kilitli' => array_map(fn($r) => ['ad' => $r['name'], 'unvan' => $r['title'], 'hatali' => (int)$r['failed'], 'kilit' => $r['locked_until'] ? utc($r['locked_until']) : null], $locked),
       'banlar' => array_map(fn($r) => ['ip' => $r['ip'], 'sebep' => $r['reason'], 'kim' => $r['created_by'], 'tarih' => utc($r['created_at']), 'bitis' => $r['until'] ? utc($r['until']) : null, 'aktif' => !$r['until'] || $r['until'] > now()], $bans),
-      'kurallar' => ['Giriş: aynı IP 15 dakikada en fazla 30 deneme', 'Hesap: 5 hatalı şifrede 15 dakika kilit', 'Genel: aynı IP dakikada en fazla 300 istek', 'Ağ katmanı: Hostinger DDoS koruması + Caddy (HTTPS)', 'Şifreler ve TC/telefon geri çözülemez biçimde saklanır']]);
+      'kurallar' => ['Giriş: aynı IP 15 dakikada en fazla 150 deneme (hastane Wi-Fi gibi ortak ağlar için)', 'Hesap: 5 hatalı şifrede 15 dakika kilit', 'Genel: aynı IP dakikada en fazla 1500 istek', 'Ağ katmanı: Hostinger DDoS koruması + Caddy (HTTPS)', 'Şifreler ve TC/telefon geri çözülemez biçimde saklanır']]);
   }
 
   case 'dev-ban': {

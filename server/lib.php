@@ -196,7 +196,7 @@ function ip_banned(string $ip): bool {
   $st = db()->prepare('SELECT 1 FROM ip_bans WHERE ip = ? AND (until IS NULL OR until > ?)'); $st->execute([$ip, now()]);
   return (bool)$st->fetchColumn();
 }
-// Aşırı istek koruması: aynı IP dakikada 300'den fazla istek atarsa geçici olarak durdurulur (giriş için ayrıca daha sıkı sınır var)
+// Aşırı istek koruması: aynı IP dakikada sınırdan fazla istek atarsa (ortak hastane ağı düşünülerek geniş tutuldu) geçici olarak durdurulur (giriş için ayrıca daha sıkı sınır var)
 function rate_limit(int $perMin = 300): void {
   $ip = client_ip(); if ($ip === '') return;
   $f = sys_get_temp_dir() . '/ccn_rl_' . md5($ip) . '_' . intdiv(time(), 60);
