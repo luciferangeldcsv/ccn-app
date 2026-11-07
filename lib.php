@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 4;
+const SCHEMA_V = 5;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -58,6 +58,8 @@ function migrate(PDO $pdo): void {
     }
     // 2 → 3: kişisel tercihler (tema, paylaşım biçimi) hesapta saklanır, her cihazda aynı olur
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'prefs'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN prefs TEXT NULL AFTER title');
+    // 4 → 5: kişinin son yayınlanan listeyi açıp açmadığı (yöneticiler "kim görmedi" diye bakabilsin)
+    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'seen_roster'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN seen_roster INT NULL, ADD COLUMN seen_at DATETIME NULL');
     // 3 → 4: ilk yönetici (kurucu) gizli DEV hesabı olur
     if (!$pdo->query("SELECT COUNT(*) FROM personnel WHERE title = 'dev'")->fetchColumn()) {
       $first = $pdo->query("SELECT MIN(id) FROM personnel WHERE role = 'admin'")->fetchColumn();
@@ -78,6 +80,8 @@ function migrate(PDO $pdo): void {
     role ENUM('admin','staff') NOT NULL DEFAULT 'staff',
     title VARCHAR(20) NOT NULL DEFAULT 'personel',
     prefs TEXT NULL,
+    seen_roster INT NULL,
+    seen_at DATETIME NULL,
     pin_hash VARCHAR(255) NULL,
     failed INT NOT NULL DEFAULT 0,
     locked_until DATETIME NULL,

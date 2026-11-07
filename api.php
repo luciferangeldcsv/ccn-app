@@ -105,6 +105,8 @@ switch ($r) {
     $l = db()->query('SELECT id, data, published_at, published_name FROM rosters ORDER BY id DESC LIMIT 1')->fetch();
     $d = db()->query('SELECT id, title, body, pinned, created_name, created_at FROM announcements ORDER BY pinned DESC, id DESC LIMIT 100')->fetchAll();
     $taslak = level_of($u['title'] ?? '') >= 2 ? (json_decode((string)(meta_get('taslak') ?? ''), true) ?: null) : null;
+    // kişi son yayınlanan listeyi gördü (yöneticiler "kim görmedi" diye bakar)
+    if ($l) db()->prepare('UPDATE personnel SET seen_roster = ?, seen_at = ? WHERE id = ? AND (seen_roster IS NULL OR seen_roster <> ?)')->execute([(int)$l['id'], now(), $u['id'], (int)$l['id']]);
     ok(['ben' => me_out($u), 'surum' => versions(), 'ayarlar' => json_decode((string)(meta_get('ayarlar') ?? ''), true) ?: null, 'taslak' => $taslak,
       'liste' => $l ? ['id' => (int)$l['id'], 'veri' => json_decode($l['data'], true), 'tarih' => utc($l['published_at']), 'yayinlayan' => $l['published_name']] : null,
       'duyurular' => array_map(fn($a) => ['id' => (int)$a['id'], 'baslik' => $a['title'], 'metin' => $a['body'], 'sabit' => (bool)$a['pinned'], 'yazan' => $a['created_name'], 'tarih' => utc($a['created_at'])], $d)]);
@@ -122,7 +124,7 @@ switch ($r) {
     db()->prepare('DELETE FROM rosters WHERE id < ?')->execute([$id - 30]);
     db()->prepare("DELETE FROM meta WHERE k = 'taslak'")->execute();
     meta_set('taslak_surum', (string)((int)(meta_get('taslak_surum') ?? 0) + 1));
-    audit($u, 'liste-yayinlandi', "$cnt kişi, $min – $max");
+    audit($u, 'liste-yayinlandi', "$cnt kişi, " . tr_date($min) . ' – ' . tr_date($max));
     ok(['id' => $id, 'kisi' => $cnt]);
   }
 
@@ -137,7 +139,7 @@ switch ($r) {
     [$data, $cnt, $min, $max] = clean_roster();
     meta_set('taslak', json_encode(['veri' => $data, 'kim' => shown_name($u), 'kimId' => $u['id'], 'unvan' => TITLES[$u['title'] === 'dev' ? 'yonetici' : $u['title']] ?? '', 'onay' => $onay, 'tarih' => utc(now()), 'kisi' => $cnt, 'aralik' => [$min, $max]], JSON_UNESCAPED_UNICODE));
     meta_set('taslak_surum', (string)((int)(meta_get('taslak_surum') ?? 0) + 1));
-    if ($onay) audit($u, 'taslak-onaya', "$cnt kişi, $min – $max");
+    if ($onay) audit($u, 'taslak-onaya', "$cnt kişi, " . tr_date($min) . ' – ' . tr_date($max));
     ok(['kisi' => $cnt]);
   }
 
@@ -259,17 +261,45 @@ switch ($r) {
   // etkinlikler: şef personelinkini, müdür şef ve personelinkini, yönetici DEV dışında herkesinkini görür; herkes kendisininkini görür
   case 'kayitlar': {
     $u = require_level(2);
-    $me = level_of($u['title']);
-    $rows = db()->query('SELECT a.personnel_id pid, a.who, a.action, a.detail, a.at, p.title FROM audit a LEFT JOIN personnel p ON p.id = a.personnel_id ORDER BY a.id DESC LIMIT 2000')->fetchAll();
-    $out = [];
-    foreach ($rows as $a) {
-      $own = (int)$a['pid'] === $u['id'];
-      $lv = $a['pid'] === null ? 5 : ($a['title'] === null ? 1 : level_of($a['title'])); // sistem kayıtları (komut satırı) DEV düzeyinde
-      $ok = $me === 5 || $own || ($me === 4 ? $lv <= 4 : $lv < $me);
-      if ($ok) $out[] = ['kim' => $a['who'], 'islem' => $a['action'], 'detay' => $a['detail'], 'tarih' => utc($a['at'])];
-      if (count($out) >= 300) break;
+    ok(['kayitlar' => visible_logs($u, null, 300)]);
+  }
+
+  // kişi detayı: durum (giriş, şifre, son listeyi gördü mü) + yaptıkları + kendisiyle ilgili işlemler
+  case 'kisi': {
+    $u = require_level(2);
+    $id = (int)($_GET['id'] ?? 0);
+    $st = db()->prepare('SELECT id, name, sicil, title, phone_last4, tc_last2, pin_hash IS NOT NULL has_pin, failed, locked_until, last_login, seen_roster, seen_at, created_at FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
+    if (!$p) fail(404, 'Kişi bulunamadı.');
+    $me = level_of($u['title']); $mask = $p['title'] === 'dev' && $me < 5; $tl = $mask ? 1 : level_of($p['title']);
+    $own = (int)$p['id'] === $u['id'];
+    if (!($me === 5 || $own || ($me === 4 ? $tl <= 4 : $tl < $me))) fail(403, 'Bu kişinin etkinliklerini görme yetkiniz yok.');
+    $last = (int)(db()->query('SELECT MAX(id) FROM rosters')->fetchColumn() ?: 0);
+    $q = db()->prepare('SELECT COUNT(*) FROM sessions WHERE personnel_id = ? AND expires_at > ?'); $q->execute([$id, now()]); $sess = (int)$q->fetchColumn();
+    // DEV başkalarına sıradan personel gibi görünür; etkinlikleri gizli kalır
+    $logs = $mask ? [] : visible_logs($u, (int)$p['id'], 100);
+    $about = [];
+    if (!$mask) {
+      $q = db()->prepare('SELECT a.personnel_id pid, a.who, a.action, a.detail, a.at, pp.title FROM audit a LEFT JOIN personnel pp ON pp.id = a.personnel_id WHERE a.detail LIKE ? AND (a.personnel_id IS NULL OR a.personnel_id <> ?) ORDER BY a.id DESC LIMIT 100');
+      $q->execute(['%' . $p['name'] . '%', $id]);
+      foreach ($q->fetchAll() as $a) if (log_visible($u, $a)) $about[] = ['kim' => $a['who'], 'islem' => $a['action'], 'detay' => $a['detail'], 'tarih' => utc($a['at'])];
     }
-    ok(['kayitlar' => $out]);
+    ok(['kisi' => ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'unvan' => $mask ? 'personel' : $p['title'], 'telefon' => '•••••• ' . $p['phone_last4'],
+      'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(), 'hatali' => (int)$p['failed'],
+      'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'eklenme' => utc($p['created_at']), 'acikOturum' => $sess,
+      'sonListe' => $last, 'listeyiGordu' => $last && (int)$p['seen_roster'] === $last, 'gordugu' => $p['seen_at'] ? utc($p['seen_at']) : null],
+      'yaptiklari' => $logs, 'hakkinda' => $about]);
+  }
+
+  // bir listeyi kim gördü / görmedi (yönetim)
+  case 'gorenler': {
+    $u = require_level(2);
+    $last = (int)(db()->query('SELECT MAX(id) FROM rosters')->fetchColumn() ?: 0);
+    $me = level_of($u['title']);
+    $rows = db()->query('SELECT id, name, title, seen_roster FROM personnel')->fetchAll();
+    $seen = 0; $not = [];
+    foreach ($rows as $p) { if ($p['title'] === 'dev' && $me < 5) continue; if ($last && (int)$p['seen_roster'] === $last) $seen++; else $not[] = $p['name']; }
+    sort($not);
+    ok(['liste' => $last, 'gordu' => $seen, 'gormedi' => $not]);
   }
 
   default:
@@ -380,3 +410,24 @@ function save_person(array $in, array $u, bool $bulk = false): array {
   if (!$bulk) audit($u, 'personel-eklendi', $name . ($title !== 'personel' ? ' (' . TITLES[$title] . ')' : ''));
   return ['id' => $nid, 'yeni' => true];
 }
+
+// Etkinlik görünürlüğü: şef personelinkini, müdür şef ve personelinkini, yönetici DEV dışında herkesinkini görür; herkes kendisininkini
+function log_visible(array $u, array $a): bool {
+  $me = level_of($u['title'] ?? '');
+  $own = (int)$a['pid'] === $u['id'];
+  $lv = $a['pid'] === null ? 5 : ($a['title'] === null ? 1 : level_of($a['title'])); // sistem kayıtları (komut satırı) DEV düzeyinde
+  return $me === 5 || $own || ($me === 4 ? $lv <= 4 : $lv < $me);
+}
+function visible_logs(array $u, ?int $pid, int $max): array {
+  $sql = 'SELECT a.personnel_id pid, a.who, a.action, a.detail, a.at, p.title FROM audit a LEFT JOIN personnel p ON p.id = a.personnel_id' . ($pid ? ' WHERE a.personnel_id = ?' : '') . ' ORDER BY a.id DESC LIMIT 3000';
+  $st = db()->prepare($sql); $st->execute($pid ? [$pid] : []);
+  $out = [];
+  foreach ($st->fetchAll() as $a) {
+    if (!log_visible($u, $a)) continue;
+    $out[] = ['pid' => $a['pid'] === null ? null : (int)$a['pid'], 'kim' => $a['who'], 'islem' => $a['action'], 'detay' => $a['detail'], 'tarih' => utc($a['at'])];
+    if (count($out) >= $max) break;
+  }
+  return $out;
+}
+
+function tr_date(?string $d): string { return $d && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $d, $m) ? "$m[3].$m[2].$m[1]" : (string)$d; }
