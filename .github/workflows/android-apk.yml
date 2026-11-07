@@ -25,7 +25,7 @@ jobs:
       - run: npm run android:sync
         env:
           # uygulama bu sunucuya bağlanır (ilki çalışmazsa ikincisi): giriş, yayınlanan liste, duyurular
-          CCN_API_URL: https://srv2025553.hstgr.cloud/api.php,https://vardiya.179-198-217-149.sslip.io/api.php
+          CCN_API_URL: https://vardiyahazirla.com/api.php,https://srv2025553.hstgr.cloud/api.php,https://vardiya.179-198-217-149.sslip.io/api.php
       - name: APK ve Play paketi (AAB) derle
         run: cd android && chmod +x gradlew && ./gradlew assembleDebug bundleRelease --no-daemon
       - name: APK adlandır
