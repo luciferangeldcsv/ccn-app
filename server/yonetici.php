@@ -1,6 +1,6 @@
 <?php
 // Sahip / yönetici hesabını SUNUCUDA, komut satırından açar (web'den açılamaz).
-//   php yonetici.php ekle "Ad Soyad" PERSONEL_ID TELEFON [TC]
+//   php yonetici.php ekle "Ad Soyad" PERSONEL_ID TELEFON
 // Hesap şifresiz açılır: kişi ilk girişte sicil (ya da TC) + telefonla girer ve 6 haneli şifresini kendisi belirler.
 // Aynı sicil/TC'li kişi varsa yönetici yapılır ve şifresi sıfırlanır.
 declare(strict_types=1);
@@ -21,8 +21,8 @@ if ($cmd === 'kontrol') {
   foreach (db()->query('SELECT action, detail, at FROM audit ORDER BY id DESC LIMIT 6') as $a) echo '  kayit: ', $a['at'], ' ', $a['action'], ' ', $a['detail'], "\n";
   exit;
 }
-if ($cmd !== 'ekle') { fwrite(STDERR, "Kullanım: php yonetici.php ekle \"Ad Soyad\" PERSONEL_ID TELEFON [TC]\n"); exit(1); }
-$name = clean_name((string)$name); $sicil = clean_sicil((string)$sicil); $tel = norm_phone((string)$tel); $tc = digits((string)$tc);
+if ($cmd !== 'ekle') { fwrite(STDERR, "Kullanım: php yonetici.php ekle \"Ad Soyad\" PERSONEL_ID TELEFON\n"); exit(1); }
+$name = clean_name((string)$name); $sicil = clean_sicil((string)$sicil); $tel = norm_phone((string)$tel); $tc = ''; // TC artık kullanılmıyor
 if ($name === '' || $sicil === '' || $tel === '') { fwrite(STDERR, "Ad soyad, Personel ID ve telefon gerekli.\n"); exit(1); }
 if ($tc !== '' && !valid_tc($tc)) { fwrite(STDERR, "TC kimlik numarası geçersiz.\n"); exit(1); }
 $tcHash = $tc !== '' ? hmac('tc:' . $tc) : null;

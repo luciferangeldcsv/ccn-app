@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 7;
+const SCHEMA_V = 8;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -150,6 +150,8 @@ function upgrades(PDO $pdo): void {
     $T = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci';
     $pdo->exec("CREATE TABLE IF NOT EXISTS ip_bans (ip VARCHAR(45) PRIMARY KEY, reason VARCHAR(200) NULL, created_by VARCHAR(120) NULL, created_at DATETIME NOT NULL, until DATETIME NULL) $T");
     $pdo->exec("CREATE TABLE IF NOT EXISTS daily_stats (day DATE NOT NULL, k VARCHAR(30) NOT NULL, n INT NOT NULL DEFAULT 0, PRIMARY KEY (day, k)) $T");
+    // 7 → 8: TC kimlik numarası artık kullanılmıyor; kayıtlı TC verileri silinir (giriş: Personel ID + telefon + şifre)
+    $pdo->exec('UPDATE personnel SET tc_hash = NULL, tc_last2 = NULL WHERE tc_hash IS NOT NULL OR tc_last2 IS NOT NULL');
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
@@ -262,15 +264,10 @@ function new_session(int $pid, bool $remember): string {
   return $t;
 }
 
-// Kişiyi sicil no ya da TC ile bul
+// Kişiyi Personel ID ile bul (TC artık kullanılmıyor)
 function find_person(string $kimlik): ?array {
-  $k = trim($kimlik); if ($k === '') return null;
-  $d = digits($k);
-  if (strlen($d) === 11 && $d === $k && valid_tc($d)) {
-    $st = db()->prepare('SELECT * FROM personnel WHERE tc_hash = ?'); $st->execute([hmac('tc:' . $d)]);
-    if ($r = $st->fetch()) return $r;
-  }
-  $st = db()->prepare('SELECT * FROM personnel WHERE sicil = ?'); $st->execute([clean_sicil($k)]);
+  $k = clean_sicil(trim($kimlik)); if ($k === '') return null;
+  $st = db()->prepare('SELECT * FROM personnel WHERE sicil = ?'); $st->execute([$k]);
   return $st->fetch() ?: null;
 }
 
