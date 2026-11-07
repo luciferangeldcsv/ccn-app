@@ -298,9 +298,11 @@ const TITLES = [['dev', 'DEV', 'gizli kurucu, her şeye yetkili'], ['yonetici', 
 const titleOf = (u) => (TITLES.find(([k]) => k === (u.unvan || (u.rol === 'admin' ? 'yonetici' : 'personel'))) || TITLES[4])[1];
 const myLevel = () => (!SERVER ? 5 : (auth && auth.ben && auth.ben.seviye) || (isAdmin() ? 4 : 1));
 const canPeople = () => SERVER && myLevel() >= 2;
-// liste hazırlama (çizelge düzenleme, görsel yükleme) şef ve üstü; yayınlama müdür ve üstü
+// liste hazırlama (çizelge düzenleme) şef ve üstü; yayınlama müdür ve üstü
 const canEdit = () => !SERVER || myLevel() >= 2;
 const canPublish = () => !SERVER || myLevel() >= 3;
+// görsel yükleyerek liste okutma yalnızca şeflerde (DEV her şeyi görür); müdür/yönetici listeyi çizelgeden hazırlayıp yayınlar
+const canUpload = () => !SERVER || myLevel() === 2 || myLevel() >= 5;
 const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toLocaleUpperCase('tr');
 const srv = { v: null, duyurular: [], personel: null, kayitlar: null, conflict: false, loading: false };
@@ -426,7 +428,7 @@ const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarl
 // sekmeler kullanıcının rolüne göre
 function tabList() {
   if (!SERVER) return ['gunluk', 'ara', 'cizelge', 'yukle', 'ayarlar'];
-  if (canEdit()) return ['gunluk', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarlar'];
+  if (canEdit()) return canUpload() ? ['gunluk', 'cizelge', 'yukle', 'duyuru', 'personel', 'ayarlar'] : ['gunluk', 'cizelge', 'duyuru', 'personel', 'ayarlar'];
   return ['gunluk', 'ara', 'cizelge', 'duyuru', 'ayarlar'];
 }
 const allowedView = (v) => VIEWS.includes(v) && (v === 'ara' || tabList().includes(v));
@@ -561,7 +563,7 @@ function viewDaily() {
       <button class="iconbtn" aria-label="Sonraki gün" data-act="shift-date" data-n="1">${ICON_RIGHT}</button>
     </div>
     <div class="row"><div class="chips">${chips}</div><input type="date" id="date-pick" value="${d}" aria-label="Tarih seç"></div>
-    ${outOfRange ? `<div class="note">Bu tarih yüklenen listelerin dışında. Yüklü liste: <b>${fmtShort(range.min)} – ${fmtShort(range.max)}</b>. Yeni dönemin listesini “Liste Yükle”den ekleyin.<div class="row" style="margin-top:8px"><button class="chip" data-act="set-date" data-date="${range.min}">İlk gün ${fmtShort(range.min)}</button><button class="chip" data-act="set-date" data-date="${range.max}">Son gün ${fmtShort(range.max)}</button></div></div>` : ''}
+    ${outOfRange ? `<div class="note">Bu tarih yüklenen listelerin dışında. Yüklü liste: <b>${fmtShort(range.min)} – ${fmtShort(range.max)}</b>. ${!SERVER || canUpload() ? 'Yeni dönemin listesini “Liste Yükle”den ekleyin.' : canEdit() ? 'Yeni dönemin listesini “Çizelge”den hazırlayıp yayınlayın.' : 'Yeni dönemin listesi yayınlanınca burada görünür.'}<div class="row" style="margin-top:8px"><button class="chip" data-act="set-date" data-date="${range.min}">İlk gün ${fmtShort(range.min)}</button><button class="chip" data-act="set-date" data-date="${range.max}">Son gün ${fmtShort(range.max)}</button></div></div>` : ''}
     <div class="shiftchips">${tabs}</div>
     ${pubInfo}
   </div>
@@ -579,7 +581,8 @@ function viewDaily() {
     ${L.unknown.length ? `<div class="unk"><button class="btn ghost small" data-act="toggle-unk" data-g="${g}">${unkOpen ? 'Gizle' : 'Göster'}: ${L.unknown.length} kişinin bu gün için kaydı yok</button>${unkOpen ? `<p class="small muted">${L.unknown.map((p) => esc(p.name)).join(', ')}</p>` : ''}</div>` : ''}
   </section>
   <div class="row"><button class="btn" data-act="share" data-g="all">${ICON_SHARE}Üç vardiyayı birlikte paylaş</button></div>`
-  : SERVER && !canEdit() ? `<div class="card stack"><h2>Henüz liste yayınlanmadı</h2><p class="muted">Yöneticiniz vardiya listesini yayınlayınca burada görünür.</p></div>` : `<div class="card stack"><h2>Henüz liste yok</h2><p class="muted">Şirketin gönderdiği vardiya listesi görsellerini yükleyin; isimler ve günler otomatik okunur, kırmızı hücreler OFF sayılır.</p><div><button class="btn primary" data-act="goto" data-view="yukle">${ICON_UPLOAD}Liste yükle</button></div></div>`}`;
+  : SERVER && !canEdit() ? `<div class="card stack"><h2>Henüz liste yayınlanmadı</h2><p class="muted">Yöneticiniz vardiya listesini yayınlayınca burada görünür.</p></div>`
+  : SERVER && !canUpload() ? `<div class="card stack"><h2>Henüz liste yok</h2><p class="muted">Vardiya listesini “Çizelge”den hazırlayıp “Yayınla” deyin; personelin uygulamasına ve web sayfasına hemen gider. Şeflerin görselden hazırlayıp gönderdiği liste de “Çizelge”de açılır.</p><div><button class="btn primary" data-act="goto" data-view="cizelge">Çizelgeyi aç</button></div></div>` : `<div class="card stack"><h2>Henüz liste yok</h2><p class="muted">Şirketin gönderdiği vardiya listesi görsellerini yükleyin; isimler ve günler otomatik okunur, kırmızı hücreler OFF sayılır.</p><div><button class="btn primary" data-act="goto" data-view="yukle">${ICON_UPLOAD}Liste yükle</button></div></div>`}`;
 }
 
 function shareText(date, which, fmt) {
@@ -1065,7 +1068,8 @@ function viewSettings() {
     <div class="settings-grid colors">${Object.keys(COLOR_NAMES).map((c) => `<label class="field"><span class="row" style="gap:6px"><span class="dot" style="background:${SWATCH[c]}"></span>${COLOR_NAMES[c]}</span>
       <select data-org="c-${c}">${[['', 'Dikkate alma'], ['OFF', 'OFF'], ['R', 'Raporlu'], ['YI', 'Yıllık İzin'], ['UI', 'Ücretsiz İzin'], ['MI', 'Diğer İzin']].map(([v, l]) => `<option value="${v}" ${S.colors[c] === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`).join('')}</div>
   </div>
-  <div class="card setlist">${sw('data-pref="photo"', prefs.photoOk, 'Fotoğraflara erişim', 'Liste görsellerini seçebilmek için')}</div>` : '';
+` : '';
+  const photoPart = canUpload() ? `<div class="card setlist">${sw('data-pref="photo"', prefs.photoOk, 'Fotoğraflara erişim', 'Liste görsellerini seçebilmek için')}</div>` : '';
   const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   const appPart = `<h2 class="sect">Uygulama</h2>
   <div class="card setlist">
@@ -1075,7 +1079,7 @@ function viewSettings() {
   const dataPart = !SERVER ? `<h2 class="sect">Veri</h2><div class="card stack">
     <p class="small muted" style="margin:0">Veriler yalnızca bu cihazda saklanır. Başka telefona aktarmak için yedeği kopyalayıp diğer cihazda “Yedekten yükle”ye yapıştırın.</p>
     <div class="row"><button class="btn" data-act="backup">Yedeği kopyala</button><button class="btn" data-act="restore-open">Yedekten yükle</button><button class="btn" data-act="clean-bad">Hatalı isimleri temizle</button><button class="btn danger" data-act="wipe">Tüm verileri sil</button></div></div>` : '';
-  return account + personal + adminPart + appPart + dataPart;
+  return account + personal + adminPart + photoPart + appPart + dataPart;
 }
 // yönetici ayarları sunucuya (herkese), kişisel tercihler hesaba kaydedilir
 const orgSettings = () => ({ company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule, colors: store.settings.colors });
@@ -1450,7 +1454,7 @@ function viewPersonnel() {
       <td class="small">${p.kilitli ? '<span class="pill bad">Kilitli</span>' : p.sifreVar ? (p.sonGiris ? 'Son giriş ' + fmtWhen(p.sonGiris) : 'Şifre var') : '<span class="muted">Henüz girmedi</span>'}</td>
       <td class="nowrap">${p.ben ? '<span class="small muted">siz</span>' : p.duzenle ? `<button class="btn small" data-act="per-edit" data-id="${p.id}">Düzenle</button>` : p.sil ? `${p.sifirla ? `<button class="btn small" data-act="per-pin" data-id="${p.id}">Şifre sıfırla</button> ` : ''}<button class="btn small danger" data-act="per-del" data-id="${p.id}">Çıkar</button>` : ''}</td></tr>`; }).join('') || '<tr><td class="name" colspan="8">Kimse yok</td></tr>'}
   </tbody></table></div>`;
-  return `<div class="pgrid"><div class="pmain stack">${left}<p class="small muted">Yönetici: her şey. Müdür: liste hazırlar, yayınlar, şef/personel verir. Şef: liste hazırlayıp onaya gönderir, kişi ekler/çıkarır. Personel: listeleri görür. Etkinliklerde herkes kendisinin ve alt unvandakilerin işlemlerini görür.</p></div>
+  return `<div class="pgrid"><div class="pmain stack">${left}<p class="small muted">Yönetici: her şey. Müdür: listeyi çizelgeden hazırlar ve yayınlar (görsel yüklemez), şef/personel verir. Şef: liste görsellerini yükleyerek listeyi hazırlar ve onaya gönderir, kişi ekler/çıkarır. Personel: listeleri görür. Etkinliklerde herkes kendisinin ve alt unvandakilerin işlemlerini görür.</p></div>
     <aside class="pside" id="pside">${personSide()}</aside></div>`;
 }
 const LOG_NAMES = { 'hesap-askiya': 'hesabı askıya alındı', 'hesap-acildi': 'hesabı açıldı', 'giris-askida': 'askıdaki hesapla giriş denedi', cikis: 'çıkış yaptı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', kurulum: 'kurulum' };
