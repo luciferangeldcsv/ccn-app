@@ -165,10 +165,11 @@ switch ($r) {
     $out = []; $keys = [];
     foreach ($rows as $p) {
       $keys[] = name_key($p['name']); // hesabı olan isimler (gizli hesap dahil): listedeki isimlerle eşleştirmek için
-      if ($p['title'] === 'dev' && $me < 5) continue; // DEV hesabı yalnızca kendisine görünür
+      // DEV hesabı başkalarına sıradan Personel olarak görünür; DEV rozeti yalnızca kendisine
+      $mask = $p['title'] === 'dev' && $me < 5;
       $touch = can_touch($u, $p);
       $out[] = ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'tc' => $p['tc_last2'] ? '•••••••••' . $p['tc_last2'] : '', 'telefon' => '•••••• ' . $p['phone_last4'],
-        'rol' => level_of($p['title']) >= 3 ? 'admin' : 'staff', 'unvan' => $p['title'], 'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(),
+        'rol' => $mask ? 'staff' : (level_of($p['title']) >= 3 ? 'admin' : 'staff'), 'unvan' => $mask ? 'personel' : $p['title'], 'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(),
         'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'ben' => (int)$p['id'] === $u['id'],
         'duzenle' => $touch && $me >= 3, 'sil' => $touch, 'sistem' => $touch && $sys];
     }
@@ -200,7 +201,8 @@ switch ($r) {
     $id = (int)(body()['id'] ?? 0);
     if ($id === $u['id']) fail(400, 'Kendi hesabınızı silemezsiniz.');
     $st = db()->prepare('SELECT name, role, title FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
-    if (!$p || ($p['title'] === 'dev' && level_of($u['title']) < 5)) fail(404, 'Kişi bulunamadı.');
+    if (!$p) fail(404, 'Kişi bulunamadı.');
+    if ($p['title'] === 'dev' && level_of($u['title']) < 5) fail(403, 'Bu kişi sistemden çıkarılamaz.');
     if (!can_touch($u, $p)) fail(403, 'Yalnızca sizden alt unvandaki kişileri çıkarabilirsiniz.');
     // oturumları da silinir (ON DELETE CASCADE): kişi uygulamadan anında düşer
     db()->prepare('DELETE FROM personnel WHERE id = ?')->execute([$id]);
@@ -212,7 +214,8 @@ switch ($r) {
     $u = require_level(4, 'Şifre sıfırlamayı yalnızca yöneticiler yapabilir.');
     $id = (int)(body()['id'] ?? 0);
     $st = db()->prepare('SELECT name, title FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
-    if (!$p || ($p['title'] === 'dev' && level_of($u['title']) < 5)) fail(404, 'Kişi bulunamadı.');
+    if (!$p) fail(404, 'Kişi bulunamadı.');
+    if ($p['title'] === 'dev' && level_of($u['title']) < 5) fail(403, 'Bu kişinin şifresi sıfırlanamaz.');
     if (!can_touch($u, $p)) fail(403, 'Yalnızca sizden alt unvandaki kişilerin şifresini sıfırlayabilirsiniz.');
     db()->prepare('UPDATE personnel SET pin_hash = NULL, failed = 0, locked_until = NULL WHERE id = ?')->execute([$id]);
     db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$id]);
@@ -329,7 +332,8 @@ function save_person(array $in, array $u, bool $bulk = false): array {
   }
   if ($id) {
     $st = db()->prepare('SELECT * FROM personnel WHERE id = ?'); $st->execute([$id]); $old = $st->fetch();
-    if (!$old || ($old['title'] === 'dev' && $me < 5)) $err('Bu Personel ID ya da TC numarası başka bir kişide kayıtlı' . ($name ? " ($name)" : '') . '.');
+    if (!$old) $err('Kişi bulunamadı.');
+    if ($old['title'] === 'dev' && $me < 5) $err($bulk ? "Bu Personel ID ya da TC numarası başka bir kişide kayıtlı ($name)." : 'Bu kişinin bilgileri değiştirilemez.');
     // toplu eklemede Personel ID/TC başka isimli bir kişide kayıtlıysa o kişinin kaydı DEĞİŞTİRİLMEZ
     if ($bulk && $name !== '' && name_key($name) !== name_key($old['name'])) $err("Bu Personel ID ya da TC numarası başka bir kişide kayıtlı: {$old['name']} ($name)");
     if ((int)$old['id'] === $u['id']) $err('Kendi hesabınızın unvanını ya da bilgilerini buradan değiştiremezsiniz.');
