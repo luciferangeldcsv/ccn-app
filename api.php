@@ -175,7 +175,7 @@ switch ($r) {
     $colors = []; foreach (COLOR_KEYS as $c) { $v = (string)($in['colors'][$c] ?? ''); $colors[$c] = in_array($v, ['', 'OFF', 'R', 'YI', 'UI', 'MI'], true) ? $v : ''; }
     // yayın öncesi uyarı eşikleri (saat)
     $lim = fn(string $k, float $def, float $max) => is_numeric($in['limits'][$k] ?? null) ? max(0.0, min($max, round((float)$in['limits'][$k], 1))) : $def;
-    $limits = ['day' => $lim('day', 11, 24), 'week' => $lim('week', 45, 168), 'rest' => $lim('rest', 11, 48)];
+    $limits = ['day' => $lim('day', 11, 24), 'week' => $lim('week', 45, 168), 'rest' => $lim('rest', 11, 48), 'streak' => (int)round($lim('streak', 6, 31))];
     $a = ['company' => mb_substr(trim((string)($in['company'] ?? '')), 0, 80), 'hours' => $hours, 'offRule' => ($in['offRule'] ?? '') === 'team' ? 'team' : 'return', 'colors' => $colors, 'limits' => $limits];
     meta_set('ayarlar', json_encode($a, JSON_UNESCAPED_UNICODE));
     meta_set('ayar_surum', (string)((int)(meta_get('ayar_surum') ?? 0) + 1));

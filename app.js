@@ -87,7 +87,7 @@ function defaultStore() {
       // OFF / rapor / izin: 'return' = kişinin döndüğü vardiya (3 → OFF → 1 ise 1.), 'team' = kişinin kendi listesinin vardiyası
       offRule: 'return',
       // yayınlamadan önce uyarı eşikleri: günlük / haftalık azami saat, iki vardiya arası en az dinlenme (saat)
-      limits: { day: 11, week: 45, rest: 11 },
+      limits: { day: 11, week: 45, rest: 11, streak: 6 },
     },
   };
 }
@@ -381,7 +381,7 @@ function shiftSpan(g) {
   return [a, b];
 }
 function rosterWarnings() {
-  const L = { day: 11, week: 45, rest: 11, ...(store.settings.limits || {}) };
+  const L = { day: 11, week: 45, rest: 11, streak: 6, ...(store.settings.limits || {}) };
   const today = todayIso(), base = parseIso(today).getTime();
   const byPerson = new Map(); // isim anahtarı -> { name, ivs: [{ d, g, s, e }] } (dakika, bugünün başından)
   for (const p of Object.values(store.people)) {
@@ -395,6 +395,24 @@ function rosterWarnings() {
     }
   }
   const out = []; const h = (min) => Math.round(min / 6) / 10;
+  // üst üste çalışma günü: bugünden önceki günler de sayılır (dizi bugüne uzanıyorsa)
+  if (L.streak > 0) {
+    const work = new Map(); // isim anahtarı -> { name, days: Set }
+    for (const p of Object.values(store.people)) {
+      const k = nameKey(p.name); if (!k) continue;
+      const W = work.get(k) || { name: p.name, days: new Set() }; work.set(k, W);
+      for (const [d, c] of Object.entries(p.days || {})) if (['1', '2', '3'].includes(c) && d >= addDays(today, -62)) W.days.add(d);
+    }
+    for (const W of work.values()) {
+      const ds = [...W.days].sort(); let i = 0;
+      while (i < ds.length) {
+        let j = i; while (j + 1 < ds.length && ds[j + 1] === addDays(ds[j], 1)) j++;
+        const n = j - i + 1;
+        if (n > L.streak && ds[j] >= today) out.push({ kim: W.name, d: ds[i] < today ? today : ds[i], t: 'seri', m: `${fmtShort(ds[i])} – ${fmtShort(ds[j])}: üst üste ${n} gün çalışma (en fazla ${L.streak})` });
+        i = j + 1;
+      }
+    }
+  }
   for (const P of byPerson.values()) {
     const iv = P.ivs.sort((x, y) => x.s - y.s);
     const perDay = {}, perWeek = {};
@@ -608,7 +626,7 @@ function viewDaily() {
   const pubInfo = SERVER && store.pub ? `<p class="small muted" style="margin:0">Liste ${fmtWhen(store.pub.tarih)} tarihinde${store.pub.yayinlayan ? ' ' + esc(store.pub.yayinlayan) + ' tarafından' : ''} yayınlandı.</p>` : '';
   const pinned = SERVER ? srv.duyurular.filter((a) => a.sabit).slice(0, 2).map((a) => `<button class="banner ann-mini" data-act="goto" data-view="duyuru"><b>📌 ${esc(a.baslik)}</b><span class="small">${esc(a.metin.slice(0, 120))}${a.metin.length > 120 ? '…' : ''}</span></button>`).join('') : '';
 
-  return `${pinned}${mine}
+  return `${todayCard()}${pinned}${mine}
   <div class="card stack">
     <div class="datebar">
       <button class="iconbtn" aria-label="Önceki gün" data-act="shift-date" data-n="-1">${ICON_LEFT}</button>
@@ -1122,6 +1140,7 @@ function viewSettings() {
       <label class="field">Günlük azami çalışma (saat)<input type="number" min="1" max="24" step="0.5" inputmode="decimal" data-org="l-day" value="${esc(S.limits.day)}"></label>
       <label class="field">Haftalık azami çalışma (saat)<input type="number" min="1" max="168" step="0.5" inputmode="decimal" data-org="l-week" value="${esc(S.limits.week)}"></label>
       <label class="field">İki vardiya arası en az dinlenme (saat)<input type="number" min="0" max="48" step="0.5" inputmode="decimal" data-org="l-rest" value="${esc(S.limits.rest)}"></label>
+      <label class="field">Üst üste en fazla çalışma (gün)<input type="number" min="0" max="31" step="1" inputmode="numeric" data-org="l-streak" value="${esc(S.limits.streak ?? 6)}"></label>
     </div>
   </div>
   <div class="card stack">
@@ -1320,6 +1339,7 @@ const actions = {
   'discard': () => confirmSheet('Yayındaki listeye dönülsün mü?', 'Bu cihazda yapıp yayınlamadığınız değişiklikler silinir; personelin gördüğü liste yüklenir.', 'Yayındakine dön', async () => { try { srv.conflict = false; await syncData(true); } catch (e) { toast(e.message); } render(); }),
   'g-day': (el) => { ui.gDate = addDays(ui.gDate || todayIso(), +el.dataset.n); render(); },
   'g-today': () => { ui.gDate = todayIso(); render(); },
+  'g-open-today': () => { ui.gDate = todayIso(); srv.gorev = null; go('gorev'); },
   'g-reload': () => loadTasks(true),
   'g-new': () => taskSheet(null),
   'g-edit': (el) => { const g = srv.gorev && srv.gorev.list.find((x) => x.id === +el.dataset.id); if (g) taskSheet(g); },
@@ -1475,6 +1495,7 @@ function fmtWhen(t) { if (!t) return ''; const d = new Date(t); return isNaN(d) 
 
 // ---------- Vardiya görevleri (yapılacaklar listesi) ----------
 async function loadTasks(force) {
+  if (force) srv.bugun = null;
   const t = ui.gDate || todayIso();
   if (!force && srv.gorev && srv.gorev.tarih === t) return;
   if (srv.gorevYukleniyor === t) return; srv.gorevYukleniyor = t;
@@ -1483,6 +1504,38 @@ async function loadTasks(force) {
   srv.gorevYukleniyor = null;
   if (ui.view === 'gorev') render();
 }
+// web paneli (ve ana ekrana eklenen PWA): en üstte "Bugün" kartı — bugünkü vardiya, saatleri ve o vardiyanın görevleri
+async function loadToday() {
+  const t = todayIso(); if (srv.bugunYukleniyor === t) return; srv.bugunYukleniyor = t;
+  try { const j = await api('gorevler&tarih=' + t); srv.bugun = { tarih: t, list: j.gorevler || [] }; }
+  catch (e) { srv.bugun = { tarih: t, list: [], hata: true }; }
+  srv.bugunYukleniyor = null;
+  if (ui.view === 'gunluk') render();
+}
+function todayCard() {
+  if (!SERVER || !auth || NATIVE) return '';
+  const t = todayIso(); const me = myRecord();
+  if (!me && canEdit()) return ''; // listede olmayan yöneticiye boş kart gösterme
+  const c = me ? (me.days[t] || '') : ''; const work = ['1', '2', '3'].includes(c);
+  const title = work ? `${c}. Vardiya` : c ? ({ OFF: 'OFF · hafta tatili', R: 'Raporlu', YI: 'Yıllık izin', UI: 'Ücretsiz izin', MI: 'İzinli' }[c] || c) : 'Bugün vardiyan yok';
+  const B = srv.bugun && srv.bugun.tarih === t ? srv.bugun : null;
+  if (work && !B) loadToday();
+  const tasks = work && B ? B.list.filter((g) => g.vardiya === '' || g.vardiya === c) : [];
+  const items = tasks.flatMap((g) => g.maddeler.map((m) => ({ ...m, g: g.baslik })));
+  const done = items.filter((m) => m.yapan).length;
+  const taskHtml = !work ? '' : !B ? '<p class="small muted" style="margin:0">Görevler yükleniyor…</p>'
+    : !items.length ? '<p class="small muted" style="margin:0">Bu vardiya için görev yok.</p>'
+    : `<div class="row" style="flex-wrap:nowrap"><b style="flex:1">Görevlerin</b><span class="tprog ${done === items.length ? 'full' : ''}">${done}/${items.length}</span></div>
+      <ul class="tlist">${items.slice(0, 8).map((m) => `<li class="${m.yapan ? 'done' : ''}"><label><input type="checkbox" disabled ${m.yapan ? 'checked' : ''}><span>${esc(m.metin)}</span></label>${m.yapan ? `<small>${esc(m.yapan)} · ${fmtWhen(m.zaman)}</small>` : ''}</li>`).join('')}</ul>
+      ${items.length > 8 ? `<p class="small muted" style="margin:0">+${items.length - 8} madde daha</p>` : ''}
+      <div><button class="btn primary" data-act="g-open-today">İşaretlemek için Görevler’e git</button></div>`;
+  return `<section class="card stack today k-${c}">
+    <div class="eyebrow">Bugün · ${DAY_NAMES[parseIso(t).getDay()]} ${fmtShort(t)}</div>
+    <div class="row" style="flex-wrap:nowrap;align-items:center;gap:14px">${work ? `<span class="tbig">${c}</span>` : ''}<div style="min-width:0"><h2 style="margin:0;font-size:24px">${esc(title)}</h2>${work && store.settings.hours[c] ? `<div class="muted">${esc(store.settings.hours[c])}</div>` : ''}${!me ? '<div class="small muted">Adınız yayınlanan listede bulunamadı.</div>' : ''}</div></div>
+    ${taskHtml}
+  </section>`;
+}
+
 function viewTasks() {
   const t = ui.gDate || (ui.gDate = todayIso());
   const G = srv.gorev && srv.gorev.tarih === t ? srv.gorev : null;
@@ -1511,7 +1564,7 @@ function bindTasks() {
   const d = document.getElementById('g-date'); d && d.addEventListener('change', () => { if (d.value) { ui.gDate = d.value; render(); } });
   $app.querySelectorAll('[data-gcheck]').forEach((el) => el.addEventListener('change', async () => {
     const id = +el.dataset.gcheck, i = +el.dataset.i, on = el.checked; el.disabled = true;
-    try { const j = await api('gorev-isaretle', { id, madde: i, yapildi: on }); const L = srv.gorev.list; const k = L.findIndex((g) => g.id === id); if (k >= 0) L[k] = j.gorev; }
+    try { srv.bugun = null; const j = await api('gorev-isaretle', { id, madde: i, yapildi: on }); const L = srv.gorev.list; const k = L.findIndex((g) => g.id === id); if (k >= 0) L[k] = j.gorev; }
     catch (e) { toast(e.message); el.checked = !on; }
     render();
   }));
