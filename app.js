@@ -92,7 +92,7 @@ function defaultStore() {
 let store = load();
 
 // ---------- Cihaz tercihleri (tema, izinler) ve hata günlüğü: "Tüm verileri sil" bunlara dokunmaz ----------
-const APP_VERSION = /^\d/.test('2.7.0') ? '2.7.0' : 'web';
+const APP_VERSION = /^\d/.test('2.8.0') ? '2.8.0' : 'web';
 const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.vardiyapanosu.app';
 const PREFS_KEY = 'ccn-vardiya-prefs', ERR_KEY = 'ccn-vardiya-hatalar';
 const readLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
@@ -1426,14 +1426,14 @@ function viewPersonnel() {
   </div>
   <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Listede</th><th>Personel ID</th><th>TC</th><th>Telefon</th><th>Unvan</th><th>Durum</th><th></th></tr></thead><tbody>
     ${rows.map((p) => { const l = listOf(p.ad); return `<tr class="${ui.pSel === p.id ? 'selrow' : ''}"><td class="name"><button class="linkbtn" data-act="per-sel" data-id="${p.id}">${esc(p.ad)}</button></td><td>${l ? (l.group ? `<span class="gtag k-${l.group}">${l.group}</span>` : '✓') : '<span class="small muted">yok</span>'}</td><td>${esc(p.sicil || '–')}</td><td>${esc(p.tc || '–')}</td><td class="nowrap">${esc(p.telefon)}</td>
-      <td>${p.unvan === 'personel' ? 'Personel' : `<span class="pill t-${p.unvan}">${titleOf(p)}</span>`}</td>
+      <td>${p.unvan === 'personel' ? 'Personel' : `<span class="pill t-${p.unvan}">${titleOf(p)}</span>`}${p.askida ? ' <span class="pill bad">Askıda</span>' : ''}</td>
       <td class="small">${p.kilitli ? '<span class="pill bad">Kilitli</span>' : p.sifreVar ? (p.sonGiris ? 'Son giriş ' + fmtWhen(p.sonGiris) : 'Şifre var') : '<span class="muted">Henüz girmedi</span>'}</td>
       <td class="nowrap">${p.ben ? '<span class="small muted">siz</span>' : p.duzenle ? `<button class="btn small" data-act="per-edit" data-id="${p.id}">Düzenle</button>` : p.sil ? `<button class="btn small danger" data-act="per-del" data-id="${p.id}">Çıkar</button>` : ''}</td></tr>`; }).join('') || '<tr><td class="name" colspan="8">Kimse yok</td></tr>'}
   </tbody></table></div>`;
   return `<div class="pgrid"><div class="pmain stack">${left}<p class="small muted">Yönetici: her şey. Müdür: liste hazırlar, yayınlar, şef/personel verir. Şef: liste hazırlayıp onaya gönderir, kişi ekler/çıkarır. Personel: listeleri görür. Etkinliklerde herkes kendisinin ve alt unvandakilerin işlemlerini görür.</p></div>
     <aside class="pside" id="pside">${personSide()}</aside></div>`;
 }
-const LOG_NAMES = { 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', kurulum: 'kurulum' };
+const LOG_NAMES = { 'hesap-askiya': 'hesabı askıya alındı', 'hesap-acildi': 'hesabı açıldı', 'giris-askida': 'askıdaki hesapla giriş denedi', cikis: 'çıkış yaptı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', kurulum: 'kurulum' };
 // Sağ panel: seçili kişinin durumu ve etkinlikleri; kimse seçili değilse son etkinlikler ve listeyi görmeyenler
 const logLine = (k, withWho) => `<div class="logline"><span class="lt">${fmtWhen(k.tarih)}</span><span>${withWho ? `<b>${esc(k.kim || 'Sistem')}</b> ` : ''}${esc(LOG_NAMES[k.islem] || k.islem)}${k.detay ? ` <span class="muted">· ${esc(k.detay)}</span>` : ''}</span></div>`;
 function personSide() {

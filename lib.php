@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 6;
+const SCHEMA_V = 7;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -34,7 +34,8 @@ function level_of(?string $t): int { return LEVELS[$t ?? ''] ?? 1; }
 function role_of(string $t): string { return level_of($t) >= 3 ? 'admin' : 'staff'; }
 // kim hangi unvanı verebilir: DEV hepsini; yönetici müdür/şef/personel; müdür şef/personel; şef yalnızca personel
 function grantable(string $t): array {
-  return ['dev' => ['yonetici', 'mudur', 'sef', 'personel'], 'yonetici' => ['mudur', 'sef', 'personel'], 'mudur' => ['sef', 'personel'], 'sef' => ['personel']][$t] ?? [];
+  // Yönetici unvanı sitede/uygulamada verilemez; yalnızca DEV panelinden (/livadmin) verilir
+  return ['dev' => ['mudur', 'sef', 'personel'], 'yonetici' => ['mudur', 'sef', 'personel'], 'mudur' => ['sef', 'personel'], 'sef' => ['personel']][$t] ?? [];
 }
 // kişiye dokunabilir mi (düzenle / sil): yalnızca kendinden alt seviyedekiler; DEV'e kimse dokunamaz
 function can_touch(array $u, array $target): bool {
@@ -149,6 +150,8 @@ function upgrades(PDO $pdo): void {
     $T = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci';
     $pdo->exec("CREATE TABLE IF NOT EXISTS ip_bans (ip VARCHAR(45) PRIMARY KEY, reason VARCHAR(200) NULL, created_by VARCHAR(120) NULL, created_at DATETIME NOT NULL, until DATETIME NULL) $T");
     $pdo->exec("CREATE TABLE IF NOT EXISTS daily_stats (day DATE NOT NULL, k VARCHAR(30) NOT NULL, n INT NOT NULL DEFAULT 0, PRIMARY KEY (day, k)) $T");
+    // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
+    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
 }
 
@@ -231,9 +234,10 @@ function current_user(bool $required = true): ?array {
   if ($u !== false) return $u ?: ($required ? fail(401, 'Oturum geçersiz.', ['cikis' => true]) : null);
   $u = null; $t = token_in();
   if ($t) {
-    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.prefs, p.sicil FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
+    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.prefs, p.sicil, p.banned FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
     $st->execute([hash('sha256', $t)]);
     $r = $st->fetch();
+    if ($r && $r['banned']) { db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$r['id']]); $r = null; } // askıya alınan hesap düşer
     if ($r && $r['expires_at'] > now()) {
       // "beni hatırla" oturumu kullanıldıkça uzar; diğeri 12 saatte biter
       $exp = $r['remember'] ? gmdate('Y-m-d H:i:s', time() + 180 * 86400) : $r['expires_at'];

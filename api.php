@@ -16,7 +16,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -55,6 +55,7 @@ switch ($r) {
     $p = find_person($kimlik);
     $generic = 'Bilgiler eşleşmedi. Personel ID / TC, telefon ve şifrenizi kontrol edin.';
     if (!$p) { stat_inc('giris_hatali'); audit(null, 'giris-bilinmeyen', 'girilen: ' . mb_substr($kimlik, 0, 2) . str_repeat('•', max(0, min(9, mb_strlen($kimlik) - 2)))); fail(401, $generic); }
+    if (!empty($p['banned'])) { audit(['id' => $p['id'], 'name' => $p['name']], 'giris-askida'); fail(403, 'Hesabınız askıya alındı. Yöneticinize başvurun.'); }
     if ($p['locked_until'] && $p['locked_until'] > now()) {
       $min = max(1, (int)ceil((strtotime($p['locked_until'] . ' UTC') - time()) / 60));
       fail(423, "Çok fazla hatalı deneme. $min dakika sonra tekrar deneyin ya da yöneticinize başvurun.");
@@ -182,7 +183,7 @@ switch ($r) {
   case 'personel': {
     $u = require_level(2);
     $me = level_of($u['title']); $sys = $me >= 4;
-    $rows = db()->query('SELECT id, name, sicil, tc_last2, phone_last4, role, title, pin_hash IS NOT NULL has_pin, locked_until, last_login, created_at FROM personnel ORDER BY name')->fetchAll();
+    $rows = db()->query('SELECT id, name, sicil, tc_last2, phone_last4, role, title, banned, pin_hash IS NOT NULL has_pin, locked_until, last_login, created_at FROM personnel ORDER BY name')->fetchAll();
     $out = []; $keys = [];
     foreach ($rows as $p) {
       $keys[] = name_key($p['name']); // hesabı olan isimler (gizli hesap dahil): listedeki isimlerle eşleştirmek için
@@ -191,7 +192,7 @@ switch ($r) {
       $touch = can_touch($u, $p);
       $out[] = ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'tc' => $p['tc_last2'] ? '•••••••••' . $p['tc_last2'] : '', 'telefon' => '•••••• ' . $p['phone_last4'],
         'rol' => $mask ? 'staff' : (level_of($p['title']) >= 3 ? 'admin' : 'staff'), 'unvan' => $mask ? 'personel' : $p['title'], 'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(),
-        'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'ben' => (int)$p['id'] === $u['id'],
+        'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'ben' => (int)$p['id'] === $u['id'], 'askida' => (bool)$p['banned'],
         'duzenle' => $touch && $me >= 3, 'sil' => $touch, 'sistem' => $touch && $sys];
     }
     ok(['personel' => $out, 'hesapliIsimler' => array_values(array_unique($keys))]);
@@ -351,7 +352,7 @@ switch ($r) {
 
   case 'dev-kullanicilar': {
     dev_only();
-    $rows = db()->query('SELECT p.id, p.name, p.sicil, p.title, p.phone_last4, p.pin_hash IS NOT NULL has_pin, p.failed, p.locked_until, p.last_login, p.created_at, p.seen_at,
+    $rows = db()->query('SELECT p.id, p.name, p.sicil, p.title, p.banned, p.ban_reason, p.phone_last4, p.pin_hash IS NOT NULL has_pin, p.failed, p.locked_until, p.last_login, p.created_at, p.seen_at,
       (SELECT COUNT(*) FROM sessions s WHERE s.personnel_id = p.id AND s.expires_at > UTC_TIMESTAMP()) oturum,
       (SELECT COUNT(*) FROM audit a WHERE a.personnel_id = p.id) islem,
       (SELECT a.ip FROM audit a WHERE a.personnel_id = p.id AND a.action = \'giris\' ORDER BY a.id DESC LIMIT 1) son_ip,
@@ -359,13 +360,47 @@ switch ($r) {
       FROM personnel p ORDER BY FIELD(p.title, \'dev\', \'yonetici\', \'mudur\', \'sef\', \'personel\'), p.name')->fetchAll();
     ok(['kullanicilar' => array_map(fn($p) => ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'unvan' => $p['title'], 'telefon' => '••' . $p['phone_last4'], 'sifreVar' => (bool)$p['has_pin'],
       'kilitli' => $p['locked_until'] && $p['locked_until'] > now(), 'hatali' => (int)$p['failed'], 'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'eklenme' => utc($p['created_at']),
-      'listeGordu' => $p['seen_at'] ? utc($p['seen_at']) : null, 'oturum' => (int)$p['oturum'], 'islem' => (int)$p['islem'], 'sonIp' => $p['son_ip'], 'sonCihaz' => $p['son_ua'] ? ua_text((string)$p['son_ua']) : null], $rows)]);
+      'listeGordu' => $p['seen_at'] ? utc($p['seen_at']) : null, 'oturum' => (int)$p['oturum'], 'islem' => (int)$p['islem'], 'sonIp' => $p['son_ip'], 'sonCihaz' => $p['son_ua'] ? ua_text((string)$p['son_ua']) : null, 'askida' => (bool)$p['banned'], 'askiSebep' => $p['ban_reason']], $rows)]);
   }
 
   case 'dev-oturumlar': {
     dev_only();
     $rows = db()->query("SELECT s.id, s.personnel_id pid, p.name, p.title, s.created_at, s.last_seen, s.expires_at, s.remember, s.agent, s.ip FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.expires_at > UTC_TIMESTAMP() ORDER BY s.last_seen DESC")->fetchAll();
     ok(['oturumlar' => array_map(fn($r) => ['id' => (int)$r['id'], 'pid' => (int)$r['pid'], 'ad' => $r['name'], 'unvan' => $r['title'], 'acilis' => utc($r['created_at']), 'sonGorulme' => utc($r['last_seen']), 'bitis' => utc($r['expires_at']), 'hatirla' => (bool)$r['remember'], 'cihaz' => ua_text((string)$r['agent']), 'ip' => $r['ip']], $rows)]);
+  }
+
+  // DEV panelinden: unvan (Yönetici dahil), askıya alma, silme
+  case 'dev-unvan': {
+    $u = dev_only();
+    $id = (int)(body()['id'] ?? 0); $t = (string)(body()['unvan'] ?? '');
+    if (!in_array($t, ['yonetici', 'mudur', 'sef', 'personel'], true)) fail(400, 'Geçersiz unvan.');
+    $st = db()->prepare('SELECT name, title FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
+    if (!$p || $p['title'] === 'dev') fail(400, 'Bu hesabın unvanı değiştirilemez.');
+    db()->prepare('UPDATE personnel SET title = ?, role = ? WHERE id = ?')->execute([$t, role_of($t), $id]);
+    db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$id]); // yeni yetkileriyle yeniden girer
+    audit($u, 'personel-guncellendi', $p['name'] . ' → ' . TITLES[$t]);
+    ok();
+  }
+
+  case 'dev-askiya': {
+    $u = dev_only();
+    $id = (int)(body()['id'] ?? 0); $ban = !empty(body()['askiya']); $why = str_in('sebep', 200);
+    $st = db()->prepare('SELECT name, title FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
+    if (!$p || $p['title'] === 'dev') fail(400, 'Bu hesap askıya alınamaz.');
+    db()->prepare('UPDATE personnel SET banned = ?, ban_reason = ? WHERE id = ?')->execute([$ban ? 1 : 0, $ban ? ($why ?: null) : null, $id]);
+    if ($ban) db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$id]);
+    audit($u, $ban ? 'hesap-askiya' : 'hesap-acildi', $p['name'] . ($ban && $why ? " · $why" : ''));
+    ok();
+  }
+
+  case 'dev-sil': {
+    $u = dev_only();
+    $id = (int)(body()['id'] ?? 0);
+    $st = db()->prepare('SELECT name, title FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
+    if (!$p || $p['title'] === 'dev') fail(400, 'Bu hesap silinemez.');
+    db()->prepare('DELETE FROM personnel WHERE id = ?')->execute([$id]);
+    audit($u, 'personel-silindi', $p['name']);
+    ok();
   }
 
   case 'dev-oturum-kapat': {
@@ -509,6 +544,7 @@ function save_person(array $in, array $u, bool $bulk = false): array {
     $sysChange = ($tel !== '' && !hash_equals($old['phone_hash'], hmac('tel:' . $tel))) || ($sicil !== '' && $sicil !== (string)$old['sicil']) || ($tcHash && $tcHash !== $old['tc_hash']);
     if ($sysChange && $me < 4) $err('Telefon, Personel ID ve TC değişikliğini yalnızca yöneticiler yapabilir.');
     if ($bulk) $title = $old['title']; // toplu yükleme unvanları değiştirmez
+    elseif ($title !== $old['title'] && $title === 'yonetici') $err('Yönetici unvanı yalnızca DEV panelinden verilir.');
     elseif ($title !== $old['title'] && !in_array($title, $grant, true)) $err('Bu unvanı verme yetkiniz yok.');
     $sets = ['name = ?' => $name ?: $old['name'], 'sicil = ?' => $sicil !== '' ? $sicil : $old['sicil'], 'role = ?' => role_of($title), 'title = ?' => $title];
     if ($tcHash) { $sets['tc_hash = ?'] = $tcHash; $sets['tc_last2 = ?'] = substr($tcRaw, -2); }

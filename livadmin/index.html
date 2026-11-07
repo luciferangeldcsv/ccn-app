@@ -83,7 +83,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const when = (t) => { if (!t) return '–'; const d = new Date(t); const p = (n) => String(n).padStart(2, '0'); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
 const TITLE = { dev: 'DEV', yonetici: 'Yönetici', mudur: 'Müdür', sef: 'Şef', personel: 'Personel' };
-const ACT = { giris: 'giriş yaptı', cikis: 'çıkış yaptı', 'giris-hatali': 'hatalı giriş', 'giris-bilinmeyen': 'bilinmeyen hesapla giriş denemesi', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', 'personel-eklendi': 'kişi ekledi', 'personel-guncellendi': 'kişi güncelledi', 'personel-silindi': 'kişi sildi', 'personel-toplu': 'toplu kişi ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', ayar: 'ayarları değiştirdi', kurulum: 'kurulum', 'yonetici-cli': 'sunucudan hesap işlemi', 'ip-engellendi': 'IP engelledi', 'ip-engeli-kalkti': 'IP engelini kaldırdı' };
+const ACT = { giris: 'giriş yaptı', cikis: 'çıkış yaptı', 'giris-hatali': 'hatalı giriş', 'giris-bilinmeyen': 'bilinmeyen hesapla giriş denemesi', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', 'personel-eklendi': 'kişi ekledi', 'personel-guncellendi': 'kişi güncelledi', 'personel-silindi': 'kişi sildi', 'personel-toplu': 'toplu kişi ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', ayar: 'ayarları değiştirdi', kurulum: 'kurulum', 'yonetici-cli': 'sunucudan hesap işlemi', 'ip-engellendi': 'IP engelledi', 'ip-engeli-kalkti': 'IP engelini kaldırdı', 'hesap-askiya': 'hesabı askıya aldı', 'hesap-acildi': 'hesabı açtı', 'giris-askida': 'askıdaki hesapla giriş denedi' };
 const tag = (t) => t ? `<span class="tag t-${esc(t)}">${esc(TITLE[t] || t)}</span>` : '';
 async function api(r, body) {
   const res = await fetch(API + r, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(tok ? { 'X-Ccn-Token': tok } : {}) }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
@@ -111,7 +111,7 @@ async function start() {
   $('#login').style.display = 'none'; $('#app').style.display = 'block'; show(location.hash.slice(1) || 'ozet');
 }
 function show(v) {
-  view = v; location.hash = v; clearInterval(timer); $('#m').onclick = null;
+  view = v; location.hash = v; clearInterval(timer); $('#m').onclick = null; $('#m').onchange = null;
   document.querySelectorAll('aside [data-v]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.v === v)));
   ({ ozet, log: logView, kul, ot, yay, duy, guv }[v] || ozet)();
 }
@@ -172,11 +172,27 @@ async function banClick(e) {
 
 async function kul() {
   M('<p class="mut">Yükleniyor…</p>'); let d; try { d = await api('dev-kullanicilar'); } catch (e) { return fail(e); }
-  M(`<div class="top"><h2>Kullanıcılar · ${d.kullanicilar.length}</h2></div><div class="tw"><table><thead><tr><th>Ad soyad</th><th>Unvan</th><th>Personel ID</th><th>Tel</th><th>Şifre</th><th>Son giriş</th><th>Son IP / cihaz</th><th>Oturum</th><th>İşlem</th><th>Liste gördü</th><th>Eklenme</th><th></th></tr></thead><tbody>
-    ${d.kullanicilar.map((u) => `<tr><td>${esc(u.ad)}${u.kilitli ? ' <span class="tag" style="color:var(--bad)">kilitli</span>' : ''}</td><td>${tag(u.unvan)}</td><td class="mono">${esc(u.sicil || '–')}</td><td class="mono">${esc(u.telefon)}</td><td>${u.sifreVar ? '✓' : '<span class="mut">yok</span>'}</td>
-      <td class="nw">${when(u.sonGiris)}</td><td><span class="mono">${esc(u.sonIp || '')}</span><br><span class="mut">${esc(u.sonCihaz || '')}</span></td><td>${u.oturum}</td><td>${u.islem}</td><td class="nw">${when(u.listeGordu)}</td><td class="nw">${when(u.eklenme)}</td>
-      <td>${u.oturum && u.unvan !== 'dev' ? `<button class="btn sm red" data-kill="${u.id}">Oturumları kapat</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`);
-  $('#m').onclick = async (e) => { const b = e.target.closest('[data-kill]'); if (!b || !confirm('Bu kişinin tüm oturumları kapatılsın mı?')) return; try { await api('dev-oturum-kapat', { pid: +b.dataset.kill }); kul(); } catch (err) { alert(err.message); } };
+  const roles = [['yonetici', 'Yönetici'], ['mudur', 'Müdür'], ['sef', 'Şef'], ['personel', 'Personel']];
+  M(`<div class="top"><h2>Kullanıcılar · ${d.kullanicilar.length}</h2></div>
+    <p class="mut" style="margin-top:-8px">Yönetici unvanı yalnızca buradan verilir. Unvan değişince ya da hesap askıya alınınca kişi oturumdan düşer.</p>
+    <div class="tw"><table><thead><tr><th>Ad soyad</th><th>Unvan</th><th>Personel ID</th><th>Tel</th><th>Şifre</th><th>Son giriş</th><th>Son IP / cihaz</th><th>Oturum</th><th>İşlem</th><th>Liste gördü</th><th>İşlemler</th></tr></thead><tbody>
+    ${d.kullanicilar.map((u) => `<tr style="${u.askida ? 'opacity:.6' : ''}"><td>${esc(u.ad)}${u.kilitli ? ' <span class="tag" style="color:var(--bad)">kilitli</span>' : ''}${u.askida ? ` <span class="tag" style="color:var(--bad)">askıda${u.askiSebep ? ': ' + esc(u.askiSebep) : ''}</span>` : ''}</td><td>${tag(u.unvan)}</td><td class="mono">${esc(u.sicil || '–')}</td><td class="mono">${esc(u.telefon)}</td><td>${u.sifreVar ? '✓' : '<span class="mut">yok</span>'}</td>
+      <td class="nw">${when(u.sonGiris)}</td><td><span class="mono">${esc(u.sonIp || '')}</span><br><span class="mut">${esc(u.sonCihaz || '')}</span></td><td>${u.oturum}</td><td>${u.islem}</td><td class="nw">${when(u.listeGordu)}</td>
+      <td class="nw">${u.unvan === 'dev' ? '<span class="mut">siz</span>' : `<select data-role="${u.id}">${roles.map(([k, l]) => `<option value="${k}" ${u.unvan === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <button class="btn sm" data-ban-u="${u.id}" data-on="${u.askida ? 0 : 1}">${u.askida ? 'Askıdan al' : 'Askıya al'}</button>
+        ${u.oturum ? `<button class="btn sm" data-kill="${u.id}">At</button>` : ''}
+        <button class="btn sm red" data-del="${u.id}" data-name="${esc(u.ad)}">Sil</button>`}</td></tr>`).join('')}</tbody></table></div>`);
+  $('#m').onchange = async (e) => { const s2 = e.target.closest('[data-role]'); if (!s2) return; try { await api('dev-unvan', { id: +s2.dataset.role, unvan: s2.value }); kul(); } catch (err) { alert(err.message); kul(); } };
+  $('#m').onclick = async (e) => {
+    const k = e.target.closest('[data-kill]'), b = e.target.closest('[data-ban-u]'), dl = e.target.closest('[data-del]');
+    try {
+      if (k) { if (!confirm('Bu kişinin tüm oturumları kapatılsın mı?')) return; await api('dev-oturum-kapat', { pid: +k.dataset.kill }); }
+      else if (b) { const on = b.dataset.on === '1'; let why = ''; if (on) { why = prompt('Askıya alma sebebi (isteğe bağlı):', ''); if (why === null) return; } await api('dev-askiya', { id: +b.dataset.banU, askiya: on, sebep: why }); }
+      else if (dl) { if (!confirm(`${dl.dataset.name} kalıcı olarak silinsin mi? Hesabı ve oturumları silinir.`)) return; await api('dev-sil', { id: +dl.dataset.del }); }
+      else return;
+      kul();
+    } catch (err) { alert(err.message); }
+  };
 }
 async function ot() {
   M('<p class="mut">Yükleniyor…</p>'); let d; try { d = await api('dev-oturumlar'); } catch (e) { return fail(e); }
