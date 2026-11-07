@@ -444,7 +444,7 @@ const TAB_LABEL = { gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', y
 $tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) go(b.dataset.view); });
 function unreadCount() { const seen = prefs.seenAnn || 0; return srv.duyurular.filter((a) => a.id > seen).length; }
 const $side = document.createElement('aside'); $side.id = 'side'; $side.setAttribute('aria-label', 'Yönetim menüsü'); document.body.prepend($side);
-$side.addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) { document.body.classList.remove('side-open'); go(b.dataset.view); } else if (e.target.closest('[data-side-logout]')) { document.body.classList.remove('side-open'); actions.logout(); } });
+$side.addEventListener('click', (e) => { const r = e.target.closest('[data-role]'); if (r) { document.body.classList.remove('side-open'); ui.pRole = r.dataset.role; ui.pSel = null; go('personel'); return; } const b = e.target.closest('[data-view]'); if (b) { document.body.classList.remove('side-open'); go(b.dataset.view); } else if (e.target.closest('[data-side-logout]')) { document.body.classList.remove('side-open'); actions.logout(); } });
 // telefonda (web) sol menü ☰ ile açılır, dışına dokununca kapanır
 const $menuBtn = document.createElement('button'); $menuBtn.id = 'menuBtn'; $menuBtn.type = 'button'; $menuBtn.setAttribute('aria-label', 'Menüyü aç');
 $menuBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
@@ -467,7 +467,11 @@ function renderTabs() {
     const un = unreadCount();
     $side.innerHTML = `<div class="side-title">Yönetim paneli</div>
       <div class="side-prof"><span class="av">${esc(initials(auth.ben.ad))}</span><div><b>${esc(auth.ben.ad)}</b><span class="role-badge">${esc(titleOf(auth.ben))}</span>${auth.ben.sicil ? `<small>Personel ID ${esc(auth.ben.sicil)}</small>` : ''}</div></div>
-      <nav class="side-nav">${tabList().map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}</button>`).join('')}</nav>
+      <nav class="side-nav">${tabList().filter((v) => v !== 'personel').map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}</button>`).join('')}</nav>
+      ${canPeople() ? `<div class="side-sub">Kişiler</div><nav class="side-nav">${[['all', 'Tüm kişiler', 2], ['yonetici', 'Yöneticiler', 4], ['mudur', 'Müdürler', 3], ['sef', 'Şefler', 2], ['personel', 'Personeller', 2]].filter(([, , m]) => myLevel() >= m).map(([k, l]) => {
+        const n = srv.personel ? (k === 'all' ? srv.personel.length : srv.personel.filter((p) => p.unvan === k).length) : '';
+        const on = ui.view === 'personel' && (ui.pRole || 'all') === k;
+        return `<button type="button" data-role="${k}" aria-current="${on ? 'page' : 'false'}">${k === 'all' ? TAB_ICON.personel : `<span class="rdot r-${k}"></span>`}<span>${l}</span>${n !== '' ? `<span class="cnt">${n}</span>` : ''}</button>`; }).join('')}</nav>` : ''}
       <button type="button" class="side-out" data-side-logout="1">Çıkış yap</button>`;
   } else $side.innerHTML = '';
   if (!show) return;
@@ -1109,6 +1113,8 @@ function bindResults() {
   const r = document.getElementById('ara-res'); if (!r) return;
   r.querySelectorAll('[data-act]').forEach((el) => { if (el.dataset.bound) return; el.dataset.bound = '1'; el.addEventListener('click', (e) => { e.preventDefault(); actions[el.dataset.act] && actions[el.dataset.act](el); }); });
 }
+// yalnızca verilen alandaki (yeniden çizilen) düğmeleri bağla
+function bindIn(root) { root.querySelectorAll('[data-act]').forEach((el) => { if (el.dataset.bound || el.tagName === 'INPUT') return; el.dataset.bound = '1'; el.addEventListener('click', (e) => { e.preventDefault(); actions[el.dataset.act] && actions[el.dataset.act](el); }); }); }
 function bindView() {
   $app.querySelectorAll('[data-act]').forEach((el) => {
     el.dataset.bound = '1';
@@ -1267,7 +1273,13 @@ const actions = {
   'per-role': (el) => { ui.pRole = el.dataset.v; render(); },
   'per-del': (el) => { const p = srv.personel.find((x) => x.id === +el.dataset.id); if (!p) return; confirmSheet(`${p.ad} sistemden çıkarılsın mı?`, 'Kişinin hesabı silinir ve uygulamadan hemen çıkarılır.', 'Çıkar', async () => { try { await api('personel-sil', { id: p.id }); toast(`${p.ad} çıkarıldı`); srv.personel = null; render(); } catch (e) { toast(e.message); } }); },
   'per-bulk': () => bulkSheet(),
-  'per-log': async () => { try { srv.kayitlar = (await api('kayitlar')).kayitlar; render(); } catch (e) { toast(e.message); } },
+  'per-log': async () => { srv.kayitlar = null; srv.gorenler = null; render(); },
+  'per-sel': (el) => {
+    const id = +el.dataset.id; ui.pSel = id || null; srv.kisi = null;
+    // dar ekranda detay ayrı bir pencerede açılır
+    if (id && matchMedia('(max-width: 1199px)').matches) { ui.pSel = id; sheet('<div id="psheet">Yükleniyor…</div><div class="row"><button class="btn" data-x="1">Kapat</button></div>', async (bg) => { try { srv.kisi = await api('kisi&id=' + id); bg.querySelector('#psheet').innerHTML = personSide(); bg.querySelectorAll('[data-act="per-edit"]').forEach((b) => b.addEventListener('click', () => { closeSheet(); personnelSheet(id); })); bg.querySelectorAll('[data-act="per-sel"]').forEach((b) => b.addEventListener('click', () => closeSheet())); } catch (e) { bg.querySelector('#psheet').textContent = e.message; } ui.pSel = null; }); return; }
+    render();
+  },
   'logout': () => confirmSheet('Çıkış yapılsın mı?', 'Bu cihazdaki oturum kapanır. Yeniden girmek için Personel ID / TC, telefon ve şifreniz gerekir.', 'Çıkış yap', async () => { try { await api('cikis', {}); } catch (e) { /* yoksay */ } signOut(''); }),
   'sample': async (el) => {
     const ns = el.dataset.n === 'all' ? ['1', '2', '3'] : [el.dataset.n];
@@ -1405,7 +1417,7 @@ function viewPersonnel() {
     </tbody></table></div>
     <div class="row"><button class="btn primary" data-act="miss-save">Doldurulanları kaydet</button><span class="small muted" id="miss-res"></span></div>` : ''}
   </div>` : `<div class="card"><p class="small muted" style="margin:0">Vardiya listesi yüklenince listedeki isimler burada görünür ve tek tek hesap açılabilir.</p></div>`;
-  return listCard + `<div class="card stack">
+  const left = listCard + `<div class="card stack">
     <div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Yönetim</div><h2 style="font-size:24px">Personel · ${srv.personel.length} kişi</h2></div>
       <button class="btn primary" data-act="per-add">${ICON_PLUS}Kişi ekle</button><button class="btn" data-act="per-bulk">Toplu ekle</button></div>
     <div class="chips">${roleChips}</div>
@@ -1413,20 +1425,56 @@ function viewPersonnel() {
     <input type="search" id="pq" placeholder="İsim ya da Personel ID ara" value="${esc(ui.pq || '')}" aria-label="Personel ara">
   </div>
   <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Listede</th><th>Personel ID</th><th>TC</th><th>Telefon</th><th>Unvan</th><th>Durum</th><th></th></tr></thead><tbody>
-    ${rows.map((p) => { const l = listOf(p.ad); return `<tr><td class="name">${esc(p.ad)}</td><td>${l ? (l.group ? `<span class="gtag k-${l.group}">${l.group}</span>` : '✓') : '<span class="small muted">yok</span>'}</td><td>${esc(p.sicil || '–')}</td><td>${esc(p.tc || '–')}</td><td class="nowrap">${esc(p.telefon)}</td>
+    ${rows.map((p) => { const l = listOf(p.ad); return `<tr class="${ui.pSel === p.id ? 'selrow' : ''}"><td class="name"><button class="linkbtn" data-act="per-sel" data-id="${p.id}">${esc(p.ad)}</button></td><td>${l ? (l.group ? `<span class="gtag k-${l.group}">${l.group}</span>` : '✓') : '<span class="small muted">yok</span>'}</td><td>${esc(p.sicil || '–')}</td><td>${esc(p.tc || '–')}</td><td class="nowrap">${esc(p.telefon)}</td>
       <td>${p.unvan === 'personel' ? 'Personel' : `<span class="pill t-${p.unvan}">${titleOf(p)}</span>`}</td>
       <td class="small">${p.kilitli ? '<span class="pill bad">Kilitli</span>' : p.sifreVar ? (p.sonGiris ? 'Son giriş ' + fmtWhen(p.sonGiris) : 'Şifre var') : '<span class="muted">Henüz girmedi</span>'}</td>
       <td class="nowrap">${p.ben ? '<span class="small muted">siz</span>' : p.duzenle ? `<button class="btn small" data-act="per-edit" data-id="${p.id}">Düzenle</button>` : p.sil ? `<button class="btn small danger" data-act="per-del" data-id="${p.id}">Çıkar</button>` : ''}</td></tr>`; }).join('') || '<tr><td class="name" colspan="8">Kimse yok</td></tr>'}
-  </tbody></table></div>
-  <div class="card stack">
-    <div class="row"><h2 style="font-size:20px;flex:1">İşlem kayıtları</h2><button class="btn" data-act="per-log">${srv.kayitlar ? 'Yenile' : 'Göster'}</button></div>
-    ${srv.kayitlar ? `<div class="loglist">${srv.kayitlar.map((k) => `<div><span class="small muted nowrap">${fmtWhen(k.tarih)}</span> <b>${esc(k.kim || '–')}</b> · ${esc(LOG_NAMES[k.islem] || k.islem)}${k.detay ? ' · ' + esc(k.detay) : ''}</div>`).join('') || '<p class="empty">Kayıt yok</p>'}</div>` : '<p class="small muted" style="margin:0">Kim ne zaman giriş yaptı, liste yayınladı, personel ekledi/sildi.</p>'}
-  </div>
-  <p class="small muted">Yönetici: her şey. Müdür: liste hazırlar, yayınlar, şef/personel verir. Şef: kişi ekler/çıkarır, taslağı görür. Personel: listeleri görür. Etkinliklerde herkes yalnızca kendisinin ve alt unvandakilerin işlemlerini görür.</p>`;
+  </tbody></table></div>`;
+  return `<div class="pgrid"><div class="pmain stack">${left}<p class="small muted">Yönetici: her şey. Müdür: liste hazırlar, yayınlar, şef/personel verir. Şef: liste hazırlayıp onaya gönderir, kişi ekler/çıkarır. Personel: listeleri görür. Etkinliklerde herkes kendisinin ve alt unvandakilerin işlemlerini görür.</p></div>
+    <aside class="pside" id="pside">${personSide()}</aside></div>`;
 }
-const LOG_NAMES = { giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', kurulum: 'kurulum' };
+const LOG_NAMES = { 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', kurulum: 'kurulum' };
+// Sağ panel: seçili kişinin durumu ve etkinlikleri; kimse seçili değilse son etkinlikler ve listeyi görmeyenler
+const logLine = (k, withWho) => `<div class="logline"><span class="lt">${fmtWhen(k.tarih)}</span><span>${withWho ? `<b>${esc(k.kim || 'Sistem')}</b> ` : ''}${esc(LOG_NAMES[k.islem] || k.islem)}${k.detay ? ` <span class="muted">· ${esc(k.detay)}</span>` : ''}</span></div>`;
+function personSide() {
+  if (ui.pSel) {
+    const d = srv.kisi && srv.kisi.kisi && srv.kisi.kisi.id === ui.pSel ? srv.kisi : null;
+    if (!d) { loadKisi(ui.pSel); return '<div class="card"><p class="muted" style="margin:0">Yükleniyor…</p></div>'; }
+    const k = d.kisi; const row = (srv.personel || []).find((x) => x.id === k.id) || {};
+    const st = (ok, label, sub) => `<div class="stline ${ok ? 'ok' : 'no'}"><span class="si">${ok ? '✓' : '✗'}</span><span><b>${label}</b>${sub ? `<small>${sub}</small>` : ''}</span></div>`;
+    return `<div class="card stack pdet">
+      <div class="row" style="flex-wrap:nowrap;align-items:flex-start"><span class="av">${esc(initials(k.ad))}</span><div style="flex:1;min-width:0"><b class="pdn">${esc(k.ad)}</b><div class="small muted">${esc(titleOf({ unvan: k.unvan }))} · Personel ID ${esc(k.sicil || '–')} · ${esc(k.telefon)}</div></div><button class="iconbtn" data-act="per-sel" data-id="0" aria-label="Kapat">✕</button></div>
+      <div class="stlist">
+        ${st(k.sifreVar, k.sifreVar ? 'Şifresini belirledi' : 'Şifresini belirlemedi', k.sifreVar ? '' : 'Henüz ilk girişini yapmadı')}
+        ${st(!!k.sonGiris, k.sonGiris ? 'Son giriş' : 'Hiç giriş yapmadı', k.sonGiris ? fmtWhen(k.sonGiris) : 'Eklendi: ' + fmtWhen(k.eklenme))}
+        ${k.sonListe ? st(k.listeyiGordu, k.listeyiGordu ? 'Son yayınlanan listeyi gördü' : 'Son yayınlanan listeyi görmedi', k.listeyiGordu ? fmtWhen(k.gordugu) : k.gordugu ? 'Önceki bir listeyi ' + fmtWhen(k.gordugu) + ' tarihinde gördü' : 'Hiç liste açmadı') : ''}
+        ${st(k.acikOturum > 0, k.acikOturum > 0 ? `${k.acikOturum} cihazda oturumu açık` : 'Açık oturumu yok', '')}
+        ${k.kilitli ? st(false, 'Hesap kilitli', 'Çok fazla hatalı giriş denemesi') : k.hatali ? st(false, `${k.hatali} hatalı giriş denemesi`, '') : ''}
+      </div>
+      ${row.duzenle ? `<div><button class="btn" data-act="per-edit" data-id="${k.id}">Düzenle</button></div>` : ''}
+      <h4 class="ph">Yaptıkları</h4><div class="loglist">${d.yaptiklari.map((x) => logLine(x)).join('') || '<p class="empty">Kayıt yok</p>'}</div>
+      <h4 class="ph">Kendisiyle ilgili işlemler</h4><div class="loglist">${d.hakkinda.map((x) => logLine(x, true)).join('') || '<p class="empty">Kayıt yok</p>'}</div>
+    </div>`;
+  }
+  if (!srv.kayitlar) { loadLogs(); return '<div class="card"><p class="muted" style="margin:0">Etkinlikler yükleniyor…</p></div>'; }
+  const g = srv.gorenler;
+  return `${g && g.liste ? `<div class="card stack"><h4 class="ph" style="margin:0">Son yayınlanan liste</h4><div class="stline ok"><span class="si">✓</span><span><b>${g.gordu} kişi gördü</b></span></div>
+      <div class="stline ${g.gormedi.length ? 'no' : 'ok'}"><span class="si">${g.gormedi.length ? '✗' : '✓'}</span><span><b>${g.gormedi.length} kişi görmedi</b>${g.gormedi.length ? `<small>${esc(g.gormedi.slice(0, 40).join(', '))}${g.gormedi.length > 40 ? '…' : ''}</small>` : ''}</span></div></div>` : ''}
+    <div class="card stack"><div class="row"><h4 class="ph" style="margin:0;flex:1">Son etkinlikler</h4><button class="btn small" data-act="per-log">Yenile</button></div>
+      <p class="small muted" style="margin:0">Ayrıntı için soldan bir kişiye tıklayın.</p>
+      <div class="loglist">${srv.kayitlar.map((x) => logLine(x, true)).join('') || '<p class="empty">Kayıt yok</p>'}</div></div>`;
+}
+async function loadKisi(id) {
+  try { srv.kisi = await api('kisi&id=' + id); } catch (e) { toast(e.message); ui.pSel = null; }
+  if (ui.view === 'personel') { const el = document.getElementById('pside'); if (el) { el.innerHTML = personSide(); bindIn(el); } }
+}
+async function loadLogs() {
+  try { const [k, g] = await Promise.all([api('kayitlar'), api('gorenler').catch(() => null)]); srv.kayitlar = k.kayitlar; srv.gorenler = g; } catch (e) { srv.kayitlar = []; }
+  if (ui.view === 'personel') { const el = document.getElementById('pside'); if (el) { el.innerHTML = personSide(); bindIn(el); } }
+}
 async function loadPersonnel() {
   try { const j = await api('personel'); srv.personel = j.personel; srv.hesapli = j.hesapliIsimler || []; } catch (e) { srv.personel = []; toast(e.message); }
+  renderTabs();
   if (ui.view === 'personel') render();
 }
 function personnelSheet(id) {
