@@ -55,8 +55,7 @@ td.c { text-align: center; font-weight: 700; padding: 3px; min-width: 30px; }
 <form id="login" autocomplete="off">
   <h1>Giriş</h1>
   <label>Personel ID<input id="k" required></label>
-  <label>Telefon<input id="t" type="tel" required></label>
-  <label>Şifre<input id="p" type="password" inputmode="numeric" maxlength="6" required></label>
+  <label>Şifre<input id="p" type="password" maxlength="64" required></label>
   <div class="err" id="le"></div>
   <button class="btn pri">Giriş</button>
 </form>
@@ -96,8 +95,8 @@ function logout() { try { localStorage.removeItem(KEY); } catch (e) {} if (tok) 
 $('#login').addEventListener('submit', async (e) => {
   e.preventDefault(); $('#le').textContent = '';
   try {
-    const j = await api('giris', { kimlik: $('#k').value.trim(), telefon: $('#t').value.trim(), pin: $('#p').value.trim(), hatirla: false });
-    if (!j.token) throw new Error('Bu panel için önce siteden şifrenizi belirleyin.');
+    const j = await api('giris', { istemci: 2, kimlik: $('#k').value.trim(), pin: $('#p').value, hatirla: false });
+    if (!j.token) throw new Error('Önce siteden giriş yapıp şifrenizi belirleyin ya da güncelleyin.');
     if (!j.ben || j.ben.unvan !== 'dev') { tok = j.token; logout(); throw new Error('Bu panele erişim yetkiniz yok.'); }
     tok = j.token; try { localStorage.setItem(KEY, tok); } catch (e) {}
     start();

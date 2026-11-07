@@ -50,8 +50,9 @@ switch ($r) {
     if (random_int(1, 50) === 1) db()->prepare('DELETE FROM login_attempts WHERE at < ?')->execute([gmdate('Y-m-d H:i:s', time() - 86400)]);
 
     $kimlik = str_in('kimlik', 40); $tel = norm_phone(str_in('telefon', 30));
-    $pin = str_in('pin', 12); $yeni = str_in('yeniPin', 12); $hatirla = !empty(body()['hatirla']);
-    if ($kimlik === '' || $tel === '') fail(400, 'Personel ID ve telefon numarasını girin.');
+    $pin = str_in('pin', 64); $yeni = str_in('yeniPin', 64); $hatirla = !empty(body()['hatirla']);
+    $yeniIstemci = (int)(body()['istemci'] ?? 0) >= 2; // 2.8.2 ve sonrası: giriş = Personel ID + şifre
+    if ($kimlik === '') fail(400, 'Personel ID girin.');
     $p = find_person($kimlik);
     $help = 'Şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.';
     // listede (sistemde) olmayan ya da silinen kişi
@@ -69,19 +70,27 @@ switch ($r) {
       audit(['id' => $p['id'], 'name' => $p['name']], 'giris-hatali', $lock ? 'hesap 15 dk kilitlendi' : "hatalı deneme $f");
       fail(401, $lock ? "Çok fazla hatalı deneme. Hesap 15 dakika kilitlendi. $help" : $msg . ' (kalan deneme hakkı: ' . (5 - $f) . ')');
     };
-    if (!hash_equals($p['phone_hash'], hmac('tel:' . $tel))) $bad('Telefon numarası bu Personel ID ile eşleşmiyor.');
+    $rule = pw_rule($p['title'] ?? 'personel');
+    $info = ['ad' => $p['name'], 'kural' => $rule['metin'], 'kuralTip' => $rule['tip']];
     if ($p['pin_hash'] === null) {
-      // ilk giriş: kişi kendi 6 haneli şifresini belirler
-      if ($yeni === '') ok(['durum' => 'pin-olustur', 'ad' => $p['name']]);
-      if (!preg_match('/^\d{6}$/', $yeni)) fail(400, 'Şifre 6 haneli bir sayı olmalı.');
-      if (preg_match('/^(\d)\1{5}$/', $yeni) || in_array($yeni, ['123456', '654321', '012345', '123123'], true)) fail(400, 'Bu şifre çok kolay tahmin edilir. Başka bir şifre seçin.');
+      // ilk giriş: kayıtlı telefon numarasıyla bir kez doğrulanır, kişi kendi şifresini belirler
+      if ($tel === '') ok(['durum' => 'pin-olustur', 'telefonGerekli' => true] + $info);
+      if (!hash_equals($p['phone_hash'], hmac('tel:' . $tel))) $bad('Telefon numarası kayıtlı numaranızla eşleşmiyor.');
+      if ($yeni === '') ok(['durum' => 'pin-olustur'] + $info);
+      if ($e = pw_error($yeni, $p['title'] ?? 'personel')) fail(400, $e, $info);
       db()->prepare('UPDATE personnel SET pin_hash = ? WHERE id = ? AND pin_hash IS NULL')->execute([password_hash($yeni, PASSWORD_DEFAULT), $p['id']]);
       audit(['id' => $p['id'], 'name' => $p['name']], 'sifre-olusturuldu');
-    } elseif ($pin === '') {
-      // telefon doğru, şifre boş: hatalı deneme sayılmaz, ne yapılacağı söylenir
-      fail(401, 'Sisteme kayıtlısınız. 6 haneli şifrenizi yazın. Şifrenizi unuttuysanız şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.', ['kayitli' => true]);
-    } elseif (!password_verify($pin, $p['pin_hash'])) {
-      $bad('Şifre yanlış. Unuttuysanız şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.');
+    } else {
+      if ($pin === '') fail(401, "Sisteme kayıtlısınız. Şifrenizi yazın. Şifrenizi unuttuysanız $help", ['kayitli' => true]);
+      if (!password_verify($pin, $p['pin_hash'])) $bad('Şifre yanlış. Unuttuysanız şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.');
+      // şifre unvanın kuralına uymuyorsa (ör. şef olan birinin 6 haneli eski şifresi) yenisini belirler
+      if ($yeniIstemci && pw_error($pin, $p['title'] ?? 'personel')) {
+        if ($yeni === '') ok(['durum' => 'sifre-yenile'] + $info);
+        if ($e = pw_error($yeni, $p['title'] ?? 'personel')) fail(400, $e, $info);
+        if (password_verify($yeni, $p['pin_hash'])) fail(400, 'Yeni şifre eskisiyle aynı olamaz.', $info);
+        db()->prepare('UPDATE personnel SET pin_hash = ? WHERE id = ?')->execute([password_hash($yeni, PASSWORD_DEFAULT), $p['id']]);
+        audit(['id' => $p['id'], 'name' => $p['name']], 'sifre-degisti', 'unvan kuralına göre yenilendi');
+      }
     }
     db()->prepare('UPDATE personnel SET failed = 0, locked_until = NULL, last_login = ? WHERE id = ?')->execute([now(), $p['id']]);
     $tok = new_session((int)$p['id'], $hatirla); stat_inc('giris');
@@ -611,3 +620,22 @@ function ua_info(string $ua): array {
   return ['tur' => $tur, 'os' => $os, 'tarayici' => $br];
 }
 function ua_text(string $ua): string { if ($ua === '') return ''; $i = ua_info($ua); return $i['tur'] . ' · ' . $i['os'] . ($i['tarayici'] !== 'Uygulama' ? ' · ' . $i['tarayici'] : ''); }
+
+// Şifre kuralı: personel tam 6 haneli sayı; şef, müdür, yönetici (ve DEV) en az 7 karakter, büyük + küçük harf + rakam
+function pw_rule(string $title): array {
+  return level_of($title) >= 2 ? ['tip' => 'guclu', 'metin' => 'En az 7 karakter; en az bir büyük harf, bir küçük harf ve bir rakam içermeli.']
+    : ['tip' => 'pin6', 'metin' => '6 haneli bir sayı olmalı.'];
+}
+function pw_error(string $pw, string $title): ?string {
+  if (level_of($title) >= 2) {
+    if (mb_strlen($pw) < 7) return 'Şifre en az 7 karakter olmalı.';
+    if (mb_strlen($pw) > 64) return 'Şifre en fazla 64 karakter olabilir.';
+    if (!preg_match('/\p{Lu}/u', $pw)) return 'Şifrede en az bir büyük harf olmalı.';
+    if (!preg_match('/\p{Ll}/u', $pw)) return 'Şifrede en az bir küçük harf olmalı.';
+    if (!preg_match('/\d/', $pw)) return 'Şifrede en az bir rakam olmalı.';
+    return null;
+  }
+  if (!preg_match('/^\d{6}$/', $pw)) return 'Şifre 6 haneli bir sayı olmalı.';
+  if (preg_match('/^(\d)\1{5}$/', $pw) || in_array($pw, ['123456', '654321', '012345', '123123', '112233'], true)) return 'Bu şifre çok kolay tahmin edilir. Başka bir şifre seçin.';
+  return null;
+}
