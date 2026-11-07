@@ -13,7 +13,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat'];
+$POST_ONLY = ['taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -28,7 +28,7 @@ function utc(string $t): string { return str_replace(' ', 'T', $t) . 'Z'; }
 function me_out(array $u): array {
   $t = $u['title'] ?? ($u['role'] === 'admin' ? 'yonetici' : 'personel'); $lv = level_of($t);
   return ['id' => $u['id'], 'ad' => $u['name'], 'rol' => $lv >= 3 ? 'admin' : 'staff', 'unvan' => $t, 'seviye' => $lv, 'sicil' => $u['sicil'],
-    'verebilir' => grantable($t), 'yetki' => ['liste' => $lv >= 3, 'kisi' => $lv >= 2, 'sistem' => $lv >= 4, 'taslak' => $lv >= 2],
+    'verebilir' => grantable($t), 'yetki' => ['liste' => $lv >= 2, 'yayin' => $lv >= 3, 'kisi' => $lv >= 2, 'sistem' => $lv >= 4, 'taslak' => $lv >= 2],
     'tercih' => json_decode((string)($u['prefs'] ?? ''), true) ?: null];
 }
 const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'];
@@ -127,12 +127,26 @@ switch ($r) {
   }
 
   // yayınlanmamış çalışma (taslak): müdür/yönetici kaydeder, şef ve üstü önceden görür
+  // şef ve üstü liste hazırlar; şef "onaya gönder"ir, müdür/yönetici açıp yayınlar
   case 'taslak-kaydet': {
-    $u = require_admin();
+    $u = require_level(2, 'Liste hazırlama yetkiniz yok.');
+    $onay = !empty(body()['onay']);
+    $old = json_decode((string)(meta_get('taslak') ?? ''), true);
+    // otomatik kayıt, başkasının onaya gönderdiği taslağın üstüne yazmaz
+    if (!$onay && $old && !empty($old['onay']) && (int)($old['kimId'] ?? 0) !== $u['id']) ok(['atlandi' => true]);
     [$data, $cnt, $min, $max] = clean_roster();
-    meta_set('taslak', json_encode(['veri' => $data, 'kim' => shown_name($u), 'tarih' => utc(now()), 'kisi' => $cnt], JSON_UNESCAPED_UNICODE));
+    meta_set('taslak', json_encode(['veri' => $data, 'kim' => shown_name($u), 'kimId' => $u['id'], 'unvan' => TITLES[$u['title'] === 'dev' ? 'yonetici' : $u['title']] ?? '', 'onay' => $onay, 'tarih' => utc(now()), 'kisi' => $cnt, 'aralik' => [$min, $max]], JSON_UNESCAPED_UNICODE));
     meta_set('taslak_surum', (string)((int)(meta_get('taslak_surum') ?? 0) + 1));
+    if ($onay) audit($u, 'taslak-onaya', "$cnt kişi, $min – $max");
     ok(['kisi' => $cnt]);
+  }
+
+  case 'taslak-sil': {
+    $u = require_admin();
+    db()->prepare("DELETE FROM meta WHERE k = 'taslak'")->execute();
+    meta_set('taslak_surum', (string)((int)(meta_get('taslak_surum') ?? 0) + 1));
+    audit($u, 'taslak-silindi');
+    ok();
   }
 
   // yönetici ayarları (şirket adı, vardiya saatleri, OFF kuralı, hücre renkleri): kaydedilince herkese uygulanır

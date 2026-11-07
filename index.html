@@ -412,6 +412,20 @@ body.intro-run #side { opacity: 0; }
 .side-nav .badge { margin-left: auto; min-width: 20px; height: 20px; border-radius: 10px; background: var(--off); color: #fff; font-size: 11px; line-height: 20px; text-align: center; padding: 0 6px; }
 .side-out { margin-top: auto; border: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 9px 12px; border-radius: 10px; cursor: pointer; }
 .side-out:hover { color: var(--off); border-color: var(--off); }
+#menuBtn, #sideBack { display: none; }
+@media (max-width: 899px) {
+  body.has-side #side { display: flex; flex-direction: column; position: fixed; z-index: 30; top: 0; bottom: 0; left: 0; width: min(84vw, 300px); box-sizing: border-box; background: var(--surface); border-right: 1px solid var(--line);
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 12px calc(16px + env(safe-area-inset-bottom, 0px)); gap: 14px; overflow-y: auto; transform: translateX(-103%); transition: transform .2s ease; box-shadow: 4px 0 24px rgba(0,0,0,.18); }
+  body.has-side.side-open #side { transform: none; }
+  body.has-side.side-open #sideBack { display: block; position: fixed; inset: 0; z-index: 29; background: rgba(0,0,0,.42); }
+  body.has-side .tabs { display: none; }
+  body.has-side main { padding-bottom: 32px; }
+  body.has-side #menuBtn { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg); flex: none; }
+  body.has-side #menuBtn svg { width: 22px; height: 22px; }
+  body.has-side .topbar-in { flex-wrap: nowrap; gap: 10px; }
+  body.has-side .brand { min-width: 0; } body.has-side .brand h1 { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.has-side .brand-mark { display: none; }
+}
 @media (min-width: 900px) {
   body.has-side #side { display: flex; flex-direction: column; position: fixed; z-index: 7; top: 0; bottom: 0; left: 0; width: 248px; box-sizing: border-box; background: var(--surface); border-right: 1px solid var(--line); padding: 18px 12px; gap: 14px; overflow-y: auto; }
   body.has-side .topbar, body.has-side main { margin-left: 248px; }
@@ -451,6 +465,10 @@ label.setrow { cursor: pointer; }
 .pill.t-dev { background: #2b2b2b; color: #fff; } .pill.t-yonetici { background: var(--s3-bg); color: var(--s3); } .pill.t-mudur { background: var(--s2-bg); color: var(--s2); } .pill.t-sef { background: var(--s1-bg); color: var(--s1); }
 .chip small { opacity: .7; font-weight: 600; margin-left: 2px; }
 .banner.draftbar { background: var(--s1-bg); }
+.xlhelp-mob { display: none; }
+@media (max-width: 600px), (pointer: coarse) { .xlhelp-mob { display: block; } .xlhelp-desk { display: none; } }
+.banner.draftbar.onay { border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
+@media (max-width: 600px) { .banner { padding: 10px 12px; } .banner .btn { flex: 1 1 auto; } .datebar h2 { font-size: 20px; } .xltools .code.xl { min-width: 34px; } }
 .rangebar { align-items: flex-end; gap: 10px; }
 .rangebar .field { min-width: 150px; }
 .rangebar .small, .rangebar .chips { align-self: flex-end; margin-bottom: 9px; }
@@ -486,7 +504,7 @@ label.setrow { cursor: pointer; }
 <div id="overlay"></div>
 
 <script src="vendor/tesseract.min.js" defer></script>
-<script src="app.js?v=05a74e8d01"></script>
+<script src="app.js?v=272cbb7bf2"></script>
 
 </body>
 </html>
