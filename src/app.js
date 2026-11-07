@@ -87,7 +87,7 @@ function defaultStore() {
       // OFF / rapor / izin: 'return' = kişinin döndüğü vardiya (3 → OFF → 1 ise 1.), 'team' = kişinin kendi listesinin vardiyası
       offRule: 'return',
       // yayınlamadan önce uyarı eşikleri: günlük / haftalık azami saat, iki vardiya arası en az dinlenme (saat)
-      limits: { day: 11, week: 45, rest: 11 },
+      limits: { day: 11, week: 45, rest: 11, streak: 6 },
     },
   };
 }
@@ -381,7 +381,7 @@ function shiftSpan(g) {
   return [a, b];
 }
 function rosterWarnings() {
-  const L = { day: 11, week: 45, rest: 11, ...(store.settings.limits || {}) };
+  const L = { day: 11, week: 45, rest: 11, streak: 6, ...(store.settings.limits || {}) };
   const today = todayIso(), base = parseIso(today).getTime();
   const byPerson = new Map(); // isim anahtarı -> { name, ivs: [{ d, g, s, e }] } (dakika, bugünün başından)
   for (const p of Object.values(store.people)) {
@@ -395,6 +395,24 @@ function rosterWarnings() {
     }
   }
   const out = []; const h = (min) => Math.round(min / 6) / 10;
+  // üst üste çalışma günü: bugünden önceki günler de sayılır (dizi bugüne uzanıyorsa)
+  if (L.streak > 0) {
+    const work = new Map(); // isim anahtarı -> { name, days: Set }
+    for (const p of Object.values(store.people)) {
+      const k = nameKey(p.name); if (!k) continue;
+      const W = work.get(k) || { name: p.name, days: new Set() }; work.set(k, W);
+      for (const [d, c] of Object.entries(p.days || {})) if (['1', '2', '3'].includes(c) && d >= addDays(today, -62)) W.days.add(d);
+    }
+    for (const W of work.values()) {
+      const ds = [...W.days].sort(); let i = 0;
+      while (i < ds.length) {
+        let j = i; while (j + 1 < ds.length && ds[j + 1] === addDays(ds[j], 1)) j++;
+        const n = j - i + 1;
+        if (n > L.streak && ds[j] >= today) out.push({ kim: W.name, d: ds[i] < today ? today : ds[i], t: 'seri', m: `${fmtShort(ds[i])} – ${fmtShort(ds[j])}: üst üste ${n} gün çalışma (en fazla ${L.streak})` });
+        i = j + 1;
+      }
+    }
+  }
   for (const P of byPerson.values()) {
     const iv = P.ivs.sort((x, y) => x.s - y.s);
     const perDay = {}, perWeek = {};
@@ -1122,6 +1140,7 @@ function viewSettings() {
       <label class="field">Günlük azami çalışma (saat)<input type="number" min="1" max="24" step="0.5" inputmode="decimal" data-org="l-day" value="${esc(S.limits.day)}"></label>
       <label class="field">Haftalık azami çalışma (saat)<input type="number" min="1" max="168" step="0.5" inputmode="decimal" data-org="l-week" value="${esc(S.limits.week)}"></label>
       <label class="field">İki vardiya arası en az dinlenme (saat)<input type="number" min="0" max="48" step="0.5" inputmode="decimal" data-org="l-rest" value="${esc(S.limits.rest)}"></label>
+      <label class="field">Üst üste en fazla çalışma (gün)<input type="number" min="0" max="31" step="1" inputmode="numeric" data-org="l-streak" value="${esc(S.limits.streak ?? 6)}"></label>
     </div>
   </div>
   <div class="card stack">
