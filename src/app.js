@@ -86,6 +86,8 @@ function defaultStore() {
       share: { bold: true, style: 'num' },
       // OFF / rapor / izin: 'return' = kişinin döndüğü vardiya (3 → OFF → 1 ise 1.), 'team' = kişinin kendi listesinin vardiyası
       offRule: 'return',
+      // yayınlamadan önce uyarı eşikleri: günlük / haftalık azami saat, iki vardiya arası en az dinlenme (saat)
+      limits: { day: 11, week: 45, rest: 11 },
     },
   };
 }
@@ -182,7 +184,7 @@ function askPhotoAccess(then) {
 }
 function normalize(raw) {
   const s = cleanPeople(migrateKeys(raw)); const d = defaultStore();
-  return { ...d, ...s, rules: { off: (s.rules && s.rules.off) || {}, leaves: (s.rules && Array.isArray(s.rules.leaves)) ? s.rules.leaves : [] }, aliases: s.aliases || {}, areas: Array.isArray(s.areas) ? s.areas : d.areas, dayAreas: s.dayAreas || {}, settings: { ...d.settings, ...s.settings, hours: { ...d.settings.hours, ...(s.settings || {}).hours }, colors: { ...d.settings.colors, ...(s.settings || {}).colors }, share: { ...d.settings.share, ...(s.settings || {}).share } } };
+  return { ...d, ...s, rules: { off: (s.rules && s.rules.off) || {}, leaves: (s.rules && Array.isArray(s.rules.leaves)) ? s.rules.leaves : [] }, aliases: s.aliases || {}, areas: Array.isArray(s.areas) ? s.areas : d.areas, dayAreas: s.dayAreas || {}, settings: { ...d.settings, ...s.settings, hours: { ...d.settings.hours, ...(s.settings || {}).hours }, colors: { ...d.settings.colors, ...(s.settings || {}).colors }, share: { ...d.settings.share, ...(s.settings || {}).share }, limits: { ...d.settings.limits, ...(s.settings || {}).limits } } };
 }
 function load() {
   try {
@@ -369,6 +371,52 @@ async function publish() {
   await syncData(true);
   toast(`Liste yayınlandı · ${j.kisi} kişi`);
 }
+// ---------- Yayın öncesi kural kontrolü (engel değil, uyarı) ----------
+// Bugünden itibaren: aynı kişinin (aynı isim, farklı satır) çakışan vardiyaları, günlük/haftalık azami saat, iki vardiya arası dinlenme
+function shiftSpan(g) {
+  const m = (store.settings.hours[g] || '').match(/(\d{1,2})[:.](\d{2})\D+(\d{1,2})[:.](\d{2})/); if (!m) return null;
+  const a = +m[1] * 60 + +m[2]; let b = +m[3] * 60 + +m[4]; if (b <= a) b += 1440;
+  return [a, b];
+}
+function rosterWarnings() {
+  const L = { day: 11, week: 45, rest: 11, ...(store.settings.limits || {}) };
+  const today = todayIso(), base = parseIso(today).getTime();
+  const byPerson = new Map(); // isim anahtarı -> { name, ivs: [{ d, g, s, e }] } (dakika, bugünün başından)
+  for (const p of Object.values(store.people)) {
+    const k = nameKey(p.name); if (!k) continue;
+    const P = byPerson.get(k) || { name: p.name, ivs: [] }; byPerson.set(k, P);
+    for (const [d, c] of Object.entries(p.days || {})) {
+      if (d < addDays(today, -1) || !['1', '2', '3'].includes(c)) continue; // dünü dinlenme hesabı için al
+      const sp = shiftSpan(c); if (!sp) continue;
+      const off = Math.round((parseIso(d).getTime() - base) / 60000);
+      P.ivs.push({ d, g: c, s: off + sp[0], e: off + sp[1] });
+    }
+  }
+  const out = []; const h = (min) => Math.round(min / 6) / 10;
+  for (const P of byPerson.values()) {
+    const iv = P.ivs.sort((x, y) => x.s - y.s);
+    const perDay = {}, perWeek = {};
+    iv.forEach((x, i) => {
+      if (x.d >= today) {
+        perDay[x.d] = (perDay[x.d] || 0) + (x.e - x.s);
+        const wd = parseIso(x.d); const mon = addDays(x.d, -((wd.getDay() + 6) % 7));
+        perWeek[mon] = (perWeek[mon] || 0) + (x.e - x.s);
+      }
+      const y = iv[i + 1]; if (!y || y.d < today) return;
+      if (y.s < x.e) out.push({ kim: P.name, d: y.d, t: 'cakisma', m: `Aynı anda iki vardiya: ${fmtShort(x.d)} ${x.g}. vardiya ile ${fmtShort(y.d)} ${y.g}. vardiya çakışıyor` });
+      else if (y.s - x.e < L.rest * 60) out.push({ kim: P.name, d: y.d, t: 'dinlenme', m: `Yetersiz dinlenme: ${fmtShort(x.d)} ${x.g}. vardiyadan sonra ${fmtShort(y.d)} ${y.g}. vardiyaya ${h(y.s - x.e)} saat (en az ${L.rest})` });
+    });
+    for (const [d, m] of Object.entries(perDay)) if (m > L.day * 60) out.push({ kim: P.name, d, t: 'gun', m: `${fmtShort(d)}: günde ${h(m)} saat (azami ${L.day})` });
+    for (const [d, m] of Object.entries(perWeek)) if (m > L.week * 60) out.push({ kim: P.name, d, t: 'hafta', m: `${fmtShort(d)} haftası: ${h(m)} saat (azami ${L.week})` });
+  }
+  return out.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : a.kim.localeCompare(b.kim, 'tr')));
+}
+function warningsHtml(w) {
+  if (!w.length) return '';
+  const max = 40;
+  return `<div class="warnbox"><b>${w.length} uyarı</b><span class="small"> · yayını engellemez, kontrol edin</span><ul>${w.slice(0, max).map((x) => `<li><b>${esc(x.kim)}</b> — ${esc(x.m)}</li>`).join('')}</ul>${w.length > max ? `<p class="small muted" style="margin:0">+${w.length - max} uyarı daha</p>` : ''}</div>`;
+}
+
 // Yayınlanmamış değişiklikler taslak olarak sunucuya kaydedilir: şef ve üstü önceden görür
 let draftT = null, draftSig = null;
 function scheduleDraft() {
@@ -1064,6 +1112,14 @@ function viewSettings() {
     </div>
   </div>
   <div class="card stack">
+    <div class="setrow" style="padding:0"><span><b>Yayın öncesi uyarılar</b><small>Liste yayınlanırken bu sınırları aşanlar listelenir; yayını engellemez, “Yine de yayınla” ile geçilebilir.</small></span></div>
+    <div class="settings-grid">
+      <label class="field">Günlük azami çalışma (saat)<input type="number" min="1" max="24" step="0.5" inputmode="decimal" data-org="l-day" value="${esc(S.limits.day)}"></label>
+      <label class="field">Haftalık azami çalışma (saat)<input type="number" min="1" max="168" step="0.5" inputmode="decimal" data-org="l-week" value="${esc(S.limits.week)}"></label>
+      <label class="field">İki vardiya arası en az dinlenme (saat)<input type="number" min="0" max="48" step="0.5" inputmode="decimal" data-org="l-rest" value="${esc(S.limits.rest)}"></label>
+    </div>
+  </div>
+  <div class="card stack">
     <div class="setrow" style="padding:0"><span><b>Hücre renkleri</b><small>Okutulan listede renkli hücreler ne demek? Kırmızı varsayılan olarak OFF.</small></span></div>
     <div class="settings-grid colors">${Object.keys(COLOR_NAMES).map((c) => `<label class="field"><span class="row" style="gap:6px"><span class="dot" style="background:${SWATCH[c]}"></span>${COLOR_NAMES[c]}</span>
       <select data-org="c-${c}">${[['', 'Dikkate alma'], ['OFF', 'OFF'], ['R', 'Raporlu'], ['YI', 'Yıllık İzin'], ['UI', 'Ücretsiz İzin'], ['MI', 'Diğer İzin']].map(([v, l]) => `<option value="${v}" ${S.colors[c] === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`).join('')}</div>
@@ -1082,13 +1138,13 @@ function viewSettings() {
   return account + personal + adminPart + photoPart + appPart + dataPart;
 }
 // yönetici ayarları sunucuya (herkese), kişisel tercihler hesaba kaydedilir
-const orgSettings = () => ({ company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule, colors: store.settings.colors });
+const orgSettings = () => ({ company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule, colors: store.settings.colors, limits: store.settings.limits });
 const myPrefs = () => ({ tema: prefs.theme, paylas: { bold: !!store.settings.share.bold, style: store.settings.share.style } });
 let orgT = null, prefT = null;
 function syncOrg() { save(); if (!SERVER || !auth) { toast('Kaydedildi'); return; } clearTimeout(orgT); orgT = setTimeout(async () => { try { const j = await api('ayar-kaydet', { ayarlar: orgSettings() }); if (srv.v) srv.v.ayar = j.surum.ayar; toast('Kaydedildi · herkese uygulandı'); } catch (e) { toast(e.message); } }, 400); }
 function syncPrefs() { savePrefs(); save(); if (!SERVER || !auth) return; clearTimeout(prefT); prefT = setTimeout(() => api('tercih-kaydet', { tercih: myPrefs() }).catch((e) => toast(e.message)), 400); }
 function applyServerSettings(a, t) {
-  if (a) { const S = store.settings; S.company = a.company || ''; for (const g of ['1', '2', '3']) if (a.hours && a.hours[g]) S.hours[g] = a.hours[g]; S.offRule = a.offRule === 'team' ? 'team' : 'return'; if (a.colors) S.colors = { ...S.colors, ...a.colors }; }
+  if (a) { const S = store.settings; S.company = a.company || ''; for (const g of ['1', '2', '3']) if (a.hours && a.hours[g]) S.hours[g] = a.hours[g]; S.offRule = a.offRule === 'team' ? 'team' : 'return'; if (a.colors) S.colors = { ...S.colors, ...a.colors }; if (a.limits) S.limits = { ...S.limits, ...a.limits }; }
   if (t) { if (t.tema && t.tema !== prefs.theme) { prefs.theme = t.tema; savePrefs(); applyTheme(); } if (t.paylas) store.settings.share = { bold: !!t.paylas.bold, style: t.paylas.style || 'num' }; }
   save();
 }
@@ -1106,6 +1162,7 @@ function bindSettings() {
     else if (k === 'company') { S.company = el.value.trim(); }
     else if (/^h[123]$/.test(k)) S.hours[k[1]] = el.value.trim();
     else if (k.startsWith('c-')) S.colors[k.slice(2)] = el.value;
+    else if (k.startsWith('l-')) { const v = parseFloat(String(el.value).replace(',', '.')); if (!(v >= 0)) { el.value = S.limits[k.slice(2)]; return; } S.limits[k.slice(2)] = v; }
     syncOrg(); if (k === 'offteam' || k === 'company') render();
   }));
 }
@@ -1197,7 +1254,14 @@ const actions = {
     if (el.dataset.v === 'ozel' && ui.gridSpan !== 'ozel') { const d = gridDays(); ui.gridFrom = d[0]; ui.gridTo = d[d.length - 1]; }
     ui.gridSpan = ['7', '14', '21', 'ay', 'ozel'].includes(el.dataset.v) ? el.dataset.v : '14'; ui.sel = null; if (ui.gridSpan === 'ay' && !ui.gridMonth) ui.gridMonth = (ui.gridStart ? addDays(ui.gridStart, 7) : ui.date).slice(0, 7) + '-01'; render(); },
   'xl-set': (el) => writeSel(el.dataset.code),
-  'send-approval': async (el) => {
+  'send-approval': async (el, force) => {
+    const warns = force ? [] : rosterWarnings();
+    if (warns.length) {
+      sheet(`<h3>Onaya gönder</h3>${warningsHtml(warns)}<div class="row"><button class="btn primary" id="sa-ok">${ICON_UPLOAD}Yine de gönder</button><button class="btn" data-x="1">Vazgeç</button></div>`, (bg) => {
+        bg.querySelector('#sa-ok').addEventListener('click', () => { closeSheet(); actions['send-approval'](el, true); });
+      });
+      return;
+    }
     el.disabled = true;
     try { await api('taslak-kaydet', { veri: { people: store.people, rules: store.rules, settings: { company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule } }, onay: true }); draftSig = pubHash(); await syncData(); toast('Onaya gönderildi · müdür/yönetici yayınlayacak'); }
     catch (e) { toast(e.message); }
@@ -1232,10 +1296,11 @@ const actions = {
   'add-person': () => personSheet(null),
   'publish': () => {
     const r = dataRange(); const span = r.min ? `${fmtShort(r.min)} – ${fmtShort(r.max)}` : '';
-    sheet(`<h3>Listeyi yayınla</h3><p class="small muted" style="margin:0">Yayınlayınca uygulamayı ve web sitesini kullanan herkes yeni listeyi görür (uygulama açıkken en geç 1 dakika içinde).</p>
+    const warns = rosterWarnings();
+    sheet(`<h3>Listeyi yayınla</h3><p class="small muted" style="margin:0">Yayınlayınca uygulamayı ve web sitesini kullanan herkes yeni listeyi görür (uygulama açıkken en geç 1 dakika içinde).</p>${warningsHtml(warns)}
       <label class="row" style="gap:8px"><input type="checkbox" id="pb-ann" checked> <span>Personele duyuru da gönder</span></label>
       <label class="field">Duyuru metni<textarea id="pb-text" rows="3" maxlength="2000">${esc(`${span} vardiya listesi güncellendi. Kendi günlerinizi “Benim vardiyam” bölümünden görebilirsiniz.`)}</textarea></label>
-      <div class="row"><button class="btn primary" id="pb-ok">${ICON_UPLOAD}Yayınla</button><button class="btn" data-x="1">Vazgeç</button></div>`, (bg) => {
+      <div class="row"><button class="btn primary" id="pb-ok">${ICON_UPLOAD}${warns.length ? 'Yine de yayınla' : 'Yayınla'}</button><button class="btn" data-x="1">Vazgeç</button></div>`, (bg) => {
       bg.querySelector('#pb-ok').addEventListener('click', async (e) => {
         const b = e.currentTarget; b.disabled = true; const ann = bg.querySelector('#pb-ann').checked, text = bg.querySelector('#pb-text').value.trim();
         try {

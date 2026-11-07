@@ -173,7 +173,10 @@ switch ($r) {
     $in = is_array(body()['ayarlar'] ?? null) ? body()['ayarlar'] : [];
     $hours = []; foreach (['1', '2', '3'] as $g) $hours[$g] = mb_substr(trim((string)($in['hours'][$g] ?? '')), 0, 40);
     $colors = []; foreach (COLOR_KEYS as $c) { $v = (string)($in['colors'][$c] ?? ''); $colors[$c] = in_array($v, ['', 'OFF', 'R', 'YI', 'UI', 'MI'], true) ? $v : ''; }
-    $a = ['company' => mb_substr(trim((string)($in['company'] ?? '')), 0, 80), 'hours' => $hours, 'offRule' => ($in['offRule'] ?? '') === 'team' ? 'team' : 'return', 'colors' => $colors];
+    // yayın öncesi uyarı eşikleri (saat)
+    $lim = fn(string $k, float $def, float $max) => is_numeric($in['limits'][$k] ?? null) ? max(0.0, min($max, round((float)$in['limits'][$k], 1))) : $def;
+    $limits = ['day' => $lim('day', 11, 24), 'week' => $lim('week', 45, 168), 'rest' => $lim('rest', 11, 48)];
+    $a = ['company' => mb_substr(trim((string)($in['company'] ?? '')), 0, 80), 'hours' => $hours, 'offRule' => ($in['offRule'] ?? '') === 'team' ? 'team' : 'return', 'colors' => $colors, 'limits' => $limits];
     meta_set('ayarlar', json_encode($a, JSON_UNESCAPED_UNICODE));
     meta_set('ayar_surum', (string)((int)(meta_get('ayar_surum') ?? 0) + 1));
     audit($u, 'ayar', 'yönetici ayarları güncellendi');
