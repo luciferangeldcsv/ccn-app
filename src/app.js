@@ -369,11 +369,39 @@ function pubHash() {
   let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-const isDirty = () => SERVER && canEdit() && Object.keys(store.people).length > 0 && (!store.pub || store.pub.sig !== pubHash());
+// Sunucu modunda yöneticinin çalışma alanı (store.people) yayındaki listeden (store.pubData) ayrıdır:
+// store.yeni = { mod: 'yeni', bas, bit } → yeni dönem listesi (yayınlanınca bas'tan önceki eski günler geçmiş olarak kalır)
+// store.yeni = { mod: 'duzenle' } → yayındaki listenin düzenlenen kopyası (yayınlanınca yerine geçer)
+const isDirty = () => SERVER && canEdit() && !!store.yeni && Object.keys(store.people).length > 0;
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const viewPeople = () => (SERVER && store.pubData ? store.pubData.people : store.people);
+function ensureWorkspace() { if (SERVER && canEdit() && !store.yeni) store.yeni = { mod: 'duzenle' }; }
+// yayınlanacak veri: yeni dönem listesinde eski listenin başlangıçtan önceki günleri korunur
+function composeForPublish() {
+  const base = { people: store.people, rules: store.rules };
+  if (!store.yeni || store.yeni.mod !== 'yeni' || !store.pubData) return base;
+  const bas = store.yeni.bas; const people = {};
+  for (const [k, p] of Object.entries(store.pubData.people || {})) {
+    const days = {}; const auto = {};
+    for (const [d, c] of Object.entries(p.days || {})) if (d < bas) { days[d] = c; if (p.auto && p.auto[d]) auto[d] = p.auto[d]; }
+    if (Object.keys(days).length) people[k] = { ...p, days, ...(Object.keys(auto).length ? { auto } : {}) };
+  }
+  for (const [k, p] of Object.entries(store.people)) {
+    const hasDays = Object.keys(p.days || {}).length > 0;
+    if (people[k]) people[k] = { ...people[k], ...p, days: { ...people[k].days, ...p.days }, auto: { ...(people[k].auto || {}), ...(p.auto || {}) } };
+    else if (hasDays) people[k] = clone(p);
+  }
+  const oldR = store.pubData.rules || { off: {}, leaves: [] };
+  const leaves = [...(oldR.leaves || []).filter((l) => l.to < bas), ...(store.rules.leaves || [])];
+  return { people, rules: { off: { ...(store.rules.off || {}) }, leaves } };
+}
 function applyRoster(L) {
   const v = (L && L.veri) || { people: {}, settings: {} }; const s = v.settings || {};
-  store.people = v.people || {}; store.demo = false;
-  store.rules = { off: (v.rules && v.rules.off) || {}, leaves: (v.rules && Array.isArray(v.rules.leaves)) ? v.rules.leaves : [] };
+  const rules = { off: (v.rules && v.rules.off) || {}, leaves: (v.rules && Array.isArray(v.rules.leaves)) ? v.rules.leaves : [] };
+  if (SERVER) store.pubData = { people: v.people || {}, rules: clone(rules) };
+  // hazırlanan liste varsa ona dokunulmaz; yoksa çalışma alanı yayındakinin kopyasıdır
+  if (!store.yeni || !SERVER) { store.people = clone(v.people || {}); store.rules = rules; }
+  store.demo = false;
   store.settings.company = s.company || '';
   for (const g of ['1', '2', '3']) if (s.hours && s.hours[g]) store.settings.hours[g] = s.hours[g];
   store.settings.offRule = s.offRule === 'team' ? 'team' : 'return';
@@ -388,16 +416,18 @@ async function syncData(force) {
   const L = j.liste;
   srv.ayarlar = j.ayarlar || null; srv.taslak = j.taslak || null;
   // yöneticinin yayınlamadığı değişiklikler korunur; başka biri yeni liste yayınladıysa uyarılır
-  if (!force && isDirty()) srv.conflict = !!(L && (!store.pub || L.id !== store.pub.id));
-  else { srv.conflict = false; applyRoster(L); }
+  if (!force && isDirty() && L && store.pub && L.id !== store.pub.id) srv.conflict = true;
+  if (force) srv.conflict = false;
+  applyRoster(L);
   // ortak (yönetici) ayarlar ve kişinin kendi tercihleri listedekilerin önüne geçer
   applyServerSettings(j.ayarlar, j.ben.tercih);
   try { localStorage.setItem('ccn-son-veri', new Date().toISOString()); } catch (e) { /* yoksay */ }
 }
 async function publish() {
   if (!Object.keys(store.people).length) { toast('Yayınlanacak liste yok'); return; }
-  const j = await api('yayinla', { veri: { people: store.people, rules: store.rules, settings: { company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule } } });
-  srv.conflict = false;
+  const V = composeForPublish();
+  const j = await api('yayinla', { veri: { people: V.people, rules: V.rules, settings: { company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule } } });
+  srv.conflict = false; store.yeni = null; ui.gridMode = 'yayin'; save();
   await syncData(true);
   toast(`Liste yayınlandı · ${j.kisi} kişi`);
 }
@@ -408,11 +438,12 @@ function shiftSpan(g) {
   const a = +m[1] * 60 + +m[2]; let b = +m[3] * 60 + +m[4]; if (b <= a) b += 1440;
   return [a, b];
 }
-function rosterWarnings() {
+function rosterWarnings(src) {
+  const PEOPLE = src || composeForPublish().people;
   const L = { day: 11, week: 45, rest: 11, streak: 6, ...(store.settings.limits || {}) };
   const today = todayIso(), base = parseIso(today).getTime();
   const byPerson = new Map(); // isim anahtarı -> { name, ivs: [{ d, g, s, e }] } (dakika, bugünün başından)
-  for (const p of Object.values(store.people)) {
+  for (const p of Object.values(PEOPLE)) {
     const k = nameKey(p.name); if (!k) continue;
     const P = byPerson.get(k) || { name: p.name, ivs: [] }; byPerson.set(k, P);
     for (const [d, c] of Object.entries(p.days || {})) {
@@ -426,7 +457,7 @@ function rosterWarnings() {
   // üst üste çalışma günü: bugünden önceki günler de sayılır (dizi bugüne uzanıyorsa)
   if (L.streak > 0) {
     const work = new Map(); // isim anahtarı -> { name, days: Set }
-    for (const p of Object.values(store.people)) {
+    for (const p of Object.values(PEOPLE)) {
       const k = nameKey(p.name); if (!k) continue;
       const W = work.get(k) || { name: p.name, days: new Set() }; work.set(k, W);
       for (const [d, c] of Object.entries(p.days || {})) if (['1', '2', '3'].includes(c) && d >= addDays(today, -62)) W.days.add(d);
@@ -471,7 +502,7 @@ function scheduleDraft() {
   clearTimeout(draftT);
   draftT = setTimeout(async () => {
     if (!isDirty()) return; const sig = pubHash(); if (sig === draftSig) return;
-    try { await api('taslak-kaydet', { veri: { people: store.people, rules: store.rules, settings: { company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule } } }); draftSig = sig; } catch (e) { /* bağlantı yoksa sonra */ }
+    try { const V = composeForPublish(); await api('taslak-kaydet', { veri: { people: V.people, rules: V.rules, settings: { company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule } } }); draftSig = sig; } catch (e) { /* bağlantı yoksa sonra */ }
   }, 2500);
 }
 let pollT = null;
@@ -493,6 +524,8 @@ async function checkServer() {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkServer(); });
 async function bootServer() {
   if (!SERVER || !auth) return;
+  // eski sürümden kalan yayınlanmamış değişiklikler "hazırlanan liste" olarak korunur
+  if (canEdit() && store.yeni === undefined && store.pub && Object.keys(store.people).length && store.pub.sig !== pubHash()) { store.yeni = { mod: 'duzenle' }; save(); }
   srv.loading = true;
   try { await syncData(); } catch (e) { if (auth && !srv.offline) toast(e.message); } finally { srv.loading = false; }
   if (auth) { startPoll(); render(); }
@@ -512,10 +545,10 @@ const ui = {
 const $app = document.getElementById('app');
 const $overlay = document.getElementById('overlay');
 
-function allPeople() { return Object.entries(store.people).map(([key, p]) => ({ key, ...p })); }
-function dataRange() {
+function allPeople(src) { return Object.entries(src || store.people).map(([key, p]) => ({ key, ...p })); }
+function dataRange(src) {
   let min = null, max = null;
-  for (const p of Object.values(store.people)) for (const d of Object.keys(p.days)) { if (!min || d < min) min = d; if (!max || d > max) max = d; }
+  for (const p of Object.values(src || store.people)) for (const d of Object.keys(p.days)) { if (!min || d < min) min = d; if (!max || d > max) max = d; }
   return { min, max };
 }
 
@@ -590,8 +623,8 @@ function render() {
   const inst = canOfferInstall() && auth && !prefs.installHide ? `<div class="banner install"><p><b>CCN Vardiya’yı uygulama olarak ekleyin.</b> ${devicePlatform() === 'ios' || devicePlatform() === 'android' ? 'Ana ekranınızdan' : 'Masaüstünüzden'} tek dokunuşla açılır.</p><button class="btn primary" data-act="install-app">${ICON_DOWNLOAD}Ekle</button><button class="btn" data-act="install-hide">Kapat</button></div>` : '';
   let banner = offline + inst + (store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '');
   if (isDirty() && ui.view !== 'yukle') banner += canPublish()
-    ? `<div class="banner pub"><p><b>Yayınlanmamış değişiklikler var.</b> Personel bu değişiklikleri siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`
-    : `<div class="banner pub"><p><b>Hazırladığınız liste henüz yayında değil.</b> “Onaya gönder” deyince müdür ya da yönetici kontrol edip yayınlar.${srv.taslak && auth && srv.taslak.kimId === auth.ben.id && srv.taslak.onay ? ' <b>Onaya gönderildi</b> (' + fmtWhen(srv.taslak.tarih) + ').' : ''}</p><button class="btn primary" data-act="send-approval">${ICON_UPLOAD}Onaya gönder</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`;
+    ? `<div class="banner pub"><p><b>Hazırlanan liste henüz yayında değil.</b> Personel siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button>${ui.view !== 'cizelge' ? '<button class="btn" data-act="goto" data-view="cizelge">Çizelgeye git</button>' : ''}</div>`
+    : `<div class="banner pub"><p><b>Hazırladığınız liste henüz yayında değil.</b> “Onaya gönder” deyince müdür ya da yönetici kontrol edip yayınlar.${srv.taslak && auth && srv.taslak.kimId === auth.ben.id && srv.taslak.onay ? ' <b>Onaya gönderildi</b> (' + fmtWhen(srv.taslak.tarih) + ').' : ''}</p><button class="btn primary" data-act="send-approval">${ICON_UPLOAD}Onaya gönder</button>${ui.view !== 'cizelge' ? '<button class="btn" data-act="goto" data-view="cizelge">Çizelgeye git</button>' : ''}</div>`;
   const views = { gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, gorev: viewTasks, duyuru: viewAnnouncements, personel: viewPersonnel, ayarlar: viewSettings };
   $app.innerHTML = banner + views[ui.view]();
   bindView();
@@ -607,7 +640,7 @@ function absenceShift(p, date) {
   return p.group || '';
 }
 function dayLists(date) {
-  const people = allPeople();
+  const people = allPeople(viewPeople());
   const out = {};
   const team = store.settings.offRule === 'team';
   const absShift = {}; for (const p of people) if (p.days[date] && !['1', '2', '3'].includes(p.days[date])) absShift[p.key] = team && p.group ? p.group : absenceShift(p, date);
@@ -634,8 +667,8 @@ function viewDaily() {
   const d = ui.date; const lists = dayLists(d); const t = todayIso();
   if (!ui.dayShift) ui.dayShift = shiftNow();
   const g = ui.dayShift; const L = lists[g]; const S = shiftStats(L);
-  const hasAny = Object.keys(store.people).length > 0;
-  const range = dataRange();
+  const hasAny = Object.keys(viewPeople()).length > 0;
+  const range = dataRange(viewPeople());
   const outOfRange = hasAny && range.min && (d < range.min || d > range.max);
   const chips = [[addDays(t, -1), 'Dün'], [t, 'Bugün'], [addDays(t, 1), 'Yarın']]
     .map(([v, l]) => `<button class="chip" data-act="set-date" data-date="${v}" aria-pressed="${v === d}">${l}</button>`).join('');
@@ -724,7 +757,7 @@ function viewSearch() {
 }
 function searchResults() {
   const q = nameKey(ui.q || ''); if (!q) return `<p class="muted">İsim yazınca kişinin ${fmtShort(ui.date)} günündeki durumu ve tüm çalışma günleri görünür.</p>`;
-  const hits = allPeople().filter((p) => nameKey(p.name).includes(q)).sort(cmpName).slice(0, 20);
+  const hits = allPeople(viewPeople()).filter((p) => nameKey(p.name).includes(q)).sort(cmpName).slice(0, 20);
   if (!hits.length) return `<p class="muted">“${esc(ui.q)}” adında kimse bulunamadı.</p>`;
   return hits.map((p) => {
     const st = statusOf(p, ui.date);
@@ -799,16 +832,39 @@ function gridDays() {
   const n = { '7': 7, '21': 21 }[ui.gridSpan] || 14;
   return Array.from({ length: n }, (_, i) => addDays(ui.gridStart, i));
 }
-function gridSource() { return store.people; }
+const gridRO = () => SERVER && canEdit() && (ui.gridMode || (store.yeni ? 'hazir' : 'yayin')) === 'yayin';
+function gridSource() { return gridRO() ? ((store.pubData && store.pubData.people) || store.people) : store.people; }
 function gridPeople() {
   let people = Object.entries(gridSource()).map(([key, p]) => ({ key, ...p })).sort((a, b) => (a.group || '9').localeCompare(b.group || '9') || cmpName(a, b));
   if (ui.gridGroup !== 'all') people = people.filter((p) => p.group === ui.gridGroup);
   return people;
 }
 function viewGrid() {
-  const range = dataRange(); const admin = canEdit();
+  const ro = gridRO(); const range = dataRange(gridSource()); const admin = canEdit() && !ro;
+  const modeTabs = SERVER && canEdit() ? `<div class="segtabs"><button class="chip" data-act="grid-mode" data-m="yayin" aria-pressed="${ro}">Yayındaki liste</button><button class="chip" data-act="grid-mode" data-m="hazir" aria-pressed="${!ro}">Hazırlanan liste${store.yeni ? ' •' : ''}</button></div>` : '';
+  if (SERVER && canEdit() && !ro && !store.yeni) return modeTabs + newListCard();
+  return modeTabs + viewGridInner(range, admin, ro);
+}
+function newListCard() {
+  const pr = store.pubData ? dataRange(store.pubData.people) : { min: null, max: null };
+  const bas = pr.max && pr.max >= todayIso() ? addDays(pr.max, 1) : todayIso(); const bit = addDays(bas, 13);
+  const T = srv.taslak; const otherDraft = T && auth && T.kimId !== auth.ben.id;
+  return `${otherDraft ? `<div class="banner draftbar ${T.onay ? 'onay' : ''}"><p><b>${T.onay ? 'Onay bekleyen liste' : 'Kaydedilmiş taslak'}</b>: ${esc(T.kim || '')} · ${fmtWhen(T.tarih)} · ${T.kisi || 0} kişi</p><button class="btn primary" data-act="draft-open">Taslağı aç</button>${canPublish() ? '<button class="btn" data-act="draft-del">Taslağı sil</button>' : ''}</div>` : ''}
+  <div class="card stack"><h2 style="font-size:22px">Yeni liste hazırla</h2>
+    <p class="small muted" style="margin:0">Yayındaki liste değişmez. Hazırladığınız liste ayrı tutulur; “Yayınla” deyince yayına girer. Başlangıç tarihinden önceki eski günler geçmiş olarak kalır.</p>
+    <div class="settings-grid"><label class="field">Başlangıç<input type="date" id="ny-bas" value="${bas}"></label><label class="field">Bitiş<input type="date" id="ny-bit" value="${bit}"></label></div>
+    <label class="row" style="gap:8px"><input type="checkbox" id="ny-names" checked> <span>Yayındaki listedeki kişileri boş satır olarak ekle</span></label>
+    <div><button class="btn primary" data-act="ny-create">${ICON_PLUS}Yeni liste oluştur</button></div>
+  </div>
+  <div class="card stack"><h2 style="font-size:20px">Yayındaki listeyi düzenle</h2>
+    <p class="small muted" style="margin:0">Yayındaki listenin bir kopyası açılır; değişiklik yapıp yayınlayınca yayındakinin yerine geçer.</p>
+    <div class="row"><button class="btn" data-act="ny-copy">Kopyasını aç</button>${!NATIVE ? `<button class="btn" data-act="xl-import">${ICON_UPLOAD}Excel’den yapıştır</button>` : ''}</div>
+  </div>`;
+}
+function viewGridInner(range, admin, ro) {
   // başkasının kaydettiği taslak (şefin onaya gönderdiği liste): açıp üzerinde çalışılabilir, müdür/yönetici yayınlar
   const T = srv.taslak; const otherDraft = admin && SERVER && T && auth && T.kimId !== auth.ben.id;
+  const wsInfo = SERVER && admin && store.yeni ? `<div class="banner"><p><b>${store.yeni.mod === 'yeni' ? `Yeni liste: ${fmtShort(store.yeni.bas)} – ${fmtShort(store.yeni.bit)}` : 'Yayındaki listenin düzenlenen kopyası'}</b> · yayında değil. Bitirince “Yayınla” deyin.</p><button class="btn" data-act="discard">Hazırlanan listeyi sil</button></div>` : ro ? '<p class="small muted" style="margin:0">Yayındaki liste (salt okunur). Değişiklik ya da yeni liste için “Hazırlanan liste”ye geçin.</p>' : '';
   const draftBar = otherDraft ? `<div class="banner draftbar ${T.onay ? 'onay' : ''}"><p><b>${T.onay ? 'Onay bekleyen liste' : 'Kaydedilmiş taslak'}</b>: ${esc(T.kim || '')}${T.unvan ? ' (' + esc(T.unvan) + ')' : ''} · ${fmtWhen(T.tarih)} · ${T.kisi || 0} kişi${T.aralik && T.aralik[0] ? ' · ' + fmtShort(T.aralik[0]) + ' – ' + fmtShort(T.aralik[1]) : ''}</p>
       <button class="btn primary" data-act="draft-open">Taslağı aç</button>${canPublish() ? '<button class="btn" data-act="draft-del">Taslağı sil</button>' : ''}</div>` : '';
   if (!range.min && !admin) return `<div class="card stack"><h2>Çizelge boş</h2><p class="muted">Liste yayınlanınca burada görünür.</p></div>`;
@@ -841,14 +897,14 @@ function viewGrid() {
     <p class="small muted xlhelp-mob" style="margin:0">Hücreye dokunup kodu seçin. Haftalık OFF günü ve izin/rapor tarihleri için kişinin adına dokunun; soluk hücreler bu kurallarla otomatik dolar.</p>
     <p class="small muted xlhelp-desk" style="margin:0">Hücreye tıklayıp yazın: <b>1 2 3</b> vardiya, <b>O</b> OFF, <b>Y</b> yıllık izin, <b>Ü</b> ücretsiz izin, <b>R</b> rapor, <b>İ</b> diğer izin, <b>Del</b> sil. Ok tuşlarıyla gezin, sürükleyerek ya da Shift ile çok hücre seçin. Excel'den kopyaladığınız hücreleri Ctrl+V ile yapıştırabilirsiniz. Haftalık OFF günü ve izinler için isme tıklayın; soluk hücreler bu kurallarla otomatik dolar.</p>` : '';
   const people0 = !people.length && admin ? `<div class="card stack"><p class="muted" style="margin:0">Çizelgede kimse yok. “Kişi ekle” ile tek tek ekleyin${SERVER ? ' ya da personel hesaplarındaki herkesi tek seferde ekleyin' : ''}.</p>${SERVER ? '<div><button class="btn primary" data-act="grid-from-staff">Personel listesindeki herkesi ekle</button></div>' : ''}</div>` : '';
-  return `${draftBar}<div class="card stack">
+  return `${wsInfo}${draftBar}<div class="card stack">
     <div class="datebar">
       <button class="iconbtn" aria-label="Geri" data-act="grid-move" data-n="-1">${ICON_LEFT}</button>
       <div class="dtitle"><h2>${title}</h2><span>${people.length} kişi${admin ? ' · Excel gibi düzenleyin' : ''}</span></div>
       <button class="iconbtn" aria-label="İleri" data-act="grid-move" data-n="1">${ICON_RIGHT}</button>
     </div>
     <div class="row"><div class="chips">${span}</div><div class="chips">${filt}</div><span style="flex:1"></span>
-      <button class="btn" data-act="xl-export">${ICON_DOWNLOAD}Excel indir</button>${admin ? `<button class="btn" data-act="add-person">${ICON_PLUS}Kişi ekle</button>` : ''}${admin && SERVER && !NATIVE ? `<button class="btn" data-act="xl-import">${ICON_UPLOAD}Excel’den yapıştır</button>` : ''}</div>
+      <button class="btn" data-act="xl-export">${ICON_DOWNLOAD}Excel indir</button>${admin ? `<button class="btn" data-act="add-person">${ICON_PLUS}Kişi ekle</button>` : ''}${canEdit() && SERVER && !NATIVE ? `<button class="btn" data-act="xl-import">${ICON_UPLOAD}Excel’den yapıştır</button>` : ''}</div>
     ${rangeBar}
     ${tools}
     <div class="legend">${CODE_ORDER.filter((c) => c).map((c) => `<span><span class="code xl xl-${c} mini">${CODES[c].short}</span>${CODES[c].label}</span>`).join('')}</div>
@@ -882,7 +938,7 @@ function writeSel(code) {
   rerenderGrid({ r: ui.sel.r0, c: ui.sel.c0 });
 }
 function bindGrid() {
-  const tb = document.getElementById('xlgrid'); if (!tb || !canEdit()) return;
+  const tb = document.getElementById('xlgrid'); if (!tb || !canEdit() || gridRO()) return;
   let drag = false;
   const at = (el) => { const b = el && el.closest && el.closest('.code[data-r]'); return b ? { r: +b.dataset.r, c: +b.dataset.c, b } : null; };
   const paint = () => tb.querySelectorAll('.code[data-r]').forEach((b) => { const r = +b.dataset.r, c = +b.dataset.c, S = ui.sel; b.classList.toggle('sel', !!S && r >= Math.min(S.r0, S.r1) && r <= Math.max(S.r0, S.r1) && c >= Math.min(S.c0, S.c1) && c <= Math.max(S.c0, S.c1)); });
@@ -920,7 +976,7 @@ function bindGrid() {
 }
 // Excel'den / Excel'e kopyala-yapıştır (sekmeyle ayrılmış hücreler)
 document.addEventListener('paste', (e) => {
-  if (ui.view !== 'cizelge' || !canEdit() || !ui.sel || !document.activeElement || !document.activeElement.closest('#xlgrid')) return;
+  if (ui.view !== 'cizelge' || !canEdit() || gridRO() || !ui.sel || !document.activeElement || !document.activeElement.closest('#xlgrid')) return;
   const txt = (e.clipboardData || window.clipboardData).getData('text'); if (!txt) return;
   e.preventDefault();
   const r0 = Math.min(ui.sel.r0, ui.sel.r1), c0 = Math.min(ui.sel.c0, ui.sel.c1); const cells = [];
@@ -1318,13 +1374,13 @@ const actions = {
       return;
     }
     el.disabled = true;
-    try { await api('taslak-kaydet', { veri: { people: store.people, rules: store.rules, settings: { company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule } }, onay: true }); draftSig = pubHash(); await syncData(); toast('Onaya gönderildi · müdür/yönetici yayınlayacak'); }
+    try { const V = composeForPublish(); await api('taslak-kaydet', { veri: { people: V.people, rules: V.rules, settings: { company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule } }, onay: true }); draftSig = pubHash(); await syncData(); toast('Onaya gönderildi · müdür/yönetici yayınlayacak'); }
     catch (e) { toast(e.message); }
     render();
   },
   'draft-open': () => confirmSheet('Taslak açılsın mı?', `${srv.taslak.kim || 'Taslak'} tarafından hazırlanan liste çizelgeye yüklenir. Bu cihazda yayınlamadığınız değişiklikler varsa onların yerine geçer. Kontrol edip ${canPublish() ? '“Yayınla” deyin' : 'onaya gönderin'}.`, 'Taslağı aç', () => {
     const v = srv.taslak.veri || {}; store.people = JSON.parse(JSON.stringify(v.people || {})); store.rules = { off: (v.rules && v.rules.off) || {}, leaves: (v.rules && v.rules.leaves) || [] };
-    store.demo = false; draftSig = pubHash(); save(); ui.sel = null; render(); toast('Taslak açıldı');
+    store.yeni = { mod: 'duzenle' }; store.demo = false; draftSig = pubHash(); save(); Object.assign(ui, { sel: null, gridMode: 'hazir', gridStart: null }); if (ui.gridSpan === 'ozel') ui.gridSpan = '14'; render(); toast('Taslak açıldı');
   }),
   'draft-del': () => confirmSheet('Taslak silinsin mi?', 'Onaya gönderilen / kaydedilen taslak silinir. Yayındaki liste değişmez.', 'Sil', async () => { try { await api('taslak-sil', {}); await syncData(); render(); toast('Taslak silindi'); } catch (e) { toast(e.message); } }),
   'grid-quick': (el) => {
@@ -1345,10 +1401,35 @@ const actions = {
     const p = store.people[el.dataset.key]; if (code) p.days[el.dataset.date] = code; else delete p.days[el.dataset.date];
     store.demo = false; save(); render();
   }),
-  'person': (el) => (canEdit() ? personSheet(el.dataset.key) : (ui.q = store.people[el.dataset.key].name, go('ara'))),
+  'person': (el) => (canEdit() && !SERVER ? personSheet(el.dataset.key) : (ui.q = (viewPeople()[el.dataset.key] || store.people[el.dataset.key] || { name: '' }).name, go('ara'))),
   'day-shift': (el) => { ui.dayShift = el.dataset.g; render(); },
   'toggle-unk': (el) => { ui.collapsed['unk-' + el.dataset.g] = !ui.collapsed['unk-' + el.dataset.g]; render(); },
   'add-person': () => personSheet(null),
+  'grid-mode': (el) => {
+    ui.gridMode = el.dataset.m; ui.sel = null; ui.gridStart = null;
+    if (ui.gridMode === 'hazir' && store.yeni && store.yeni.mod === 'yeni') Object.assign(ui, { gridSpan: 'ozel', gridFrom: store.yeni.bas, gridTo: store.yeni.bit });
+    else if (ui.gridSpan === 'ozel') ui.gridSpan = '14';
+    render();
+  },
+  'ny-create': () => {
+    const bas = (document.getElementById('ny-bas') || {}).value, bit = (document.getElementById('ny-bit') || {}).value;
+    if (!bas || !bit || bit < bas) { toast('Başlangıç ve bitiş tarihini seçin'); return; }
+    if (Math.round((parseIso(bit) - parseIso(bas)) / 864e5) + 1 > MAX_RANGE) { toast(`En fazla ${MAX_RANGE} gün seçilebilir`); return; }
+    const names = (document.getElementById('ny-names') || {}).checked; const P = (store.pubData && store.pubData.people) || {};
+    const people = {}; if (names) for (const [k, p] of Object.entries(P)) people[k] = { name: p.name, group: p.group || '', days: {} };
+    const R = (store.pubData && store.pubData.rules) || { off: {}, leaves: [] };
+    store.people = people;
+    store.rules = { off: Object.fromEntries(Object.entries(R.off || {}).filter(([k]) => people[k])), leaves: (R.leaves || []).filter((l) => people[l.key] && l.to >= bas && l.from <= bit) };
+    store.yeni = { mod: 'yeni', bas, bit }; store.demo = false; save();
+    Object.assign(ui, { gridMode: 'hazir', gridSpan: 'ozel', gridFrom: bas, gridTo: bit, gridStart: bas, sel: null });
+    render(); toast('Yeni liste oluşturuldu · hücreleri doldurup “Yayınla” deyin');
+  },
+  'ny-copy': () => {
+    const P = store.pubData || { people: {}, rules: { off: {}, leaves: [] } };
+    store.people = clone(P.people || {}); store.rules = clone(P.rules || { off: {}, leaves: [] });
+    store.yeni = { mod: 'duzenle' }; save(); Object.assign(ui, { gridMode: 'hazir', gridStart: null, sel: null }); if (ui.gridSpan === 'ozel') ui.gridSpan = '14';
+    render(); toast('Yayındaki listenin kopyası açıldı');
+  },
   'install-app': () => installApp(),
   'install-hide': () => { prefs.installHide = true; savePrefs(); render(); toast('İstediğiniz zaman Ayarlar’dan ekleyebilirsiniz'); },
   'xl-import': () => importSheet(),
@@ -1369,7 +1450,7 @@ const actions = {
       });
     });
   },
-  'discard': () => confirmSheet('Yayındaki listeye dönülsün mü?', 'Bu cihazda yapıp yayınlamadığınız değişiklikler silinir; personelin gördüğü liste yüklenir.', 'Yayındakine dön', async () => { try { srv.conflict = false; await syncData(true); } catch (e) { toast(e.message); } render(); }),
+  'discard': () => confirmSheet('Hazırlanan liste silinsin mi?', 'Bu cihazda hazırlayıp yayınlamadığınız liste silinir. Yayındaki liste değişmez.', 'Sil', async () => { store.yeni = null; srv.conflict = false; ui.gridMode = 'yayin'; ui.gridStart = null; if (ui.gridSpan === 'ozel') ui.gridSpan = '14'; save(); try { await syncData(true); } catch (e) { toast(e.message); } render(); }),
   'g-day': (el) => { ui.gDate = addDays(ui.gDate || todayIso(), +el.dataset.n); render(); },
   'g-today': () => { ui.gDate = todayIso(); render(); },
   'g-open-today': () => { ui.gDate = todayIso(); srv.gorev = null; go('gorev'); },
@@ -1637,7 +1718,7 @@ function taskSheet(g) {
 
 function viewAnnouncements() {
   const list = srv.duyurular;
-  const compose = isAdmin() ? `<div class="card stack">
+  const compose = canEdit() ? `<div class="card stack">
     <h2 style="font-size:22px">Yeni duyuru</h2>
     <label class="field">Başlık<input id="an-title" maxlength="160" placeholder="Örn. Cuma toplantısı"></label>
     <label class="field">Metin<textarea id="an-body" rows="4" maxlength="5000" placeholder="Duyuru metni"></textarea></label>
@@ -1646,7 +1727,7 @@ function viewAnnouncements() {
     <p class="small muted" style="margin:0">Yayınlanan duyuruyu uygulamayı kullanan herkes görür.</p>
   </div>` : '';
   const items = list.length ? list.map((a) => `<article class="card stack ann ${a.sabit ? 'pinned' : ''}">
-      <div class="row" style="flex-wrap:nowrap;align-items:flex-start"><h3 style="flex:1;min-width:0;font-size:18px;margin:0">${a.sabit ? '📌 ' : ''}${esc(a.baslik)}</h3>${isAdmin() ? `<button class="iconbtn" data-act="ann-del" data-id="${a.id}" aria-label="Duyuruyu sil">${ICON_TRASH}</button>` : ''}</div>
+      <div class="row" style="flex-wrap:nowrap;align-items:flex-start"><h3 style="flex:1;min-width:0;font-size:18px;margin:0">${a.sabit ? '📌 ' : ''}${esc(a.baslik)}</h3>${isAdmin() || (canEdit() && auth && a.yazanId === auth.ben.id) ? `<button class="iconbtn" data-act="ann-del" data-id="${a.id}" aria-label="Duyuruyu sil">${ICON_TRASH}</button>` : ''}</div>
       <p style="margin:0;white-space:pre-wrap">${esc(a.metin)}</p>
       <span class="small muted">${esc(a.yazan || '')} · ${fmtWhen(a.tarih)}</span>
     </article>`).join('') : `<div class="card"><p class="empty" style="margin:0">Henüz duyuru yok.</p></div>`;
@@ -1663,7 +1744,7 @@ function viewPersonnel() {
     .map(([k, l]) => { const n = k === 'all' ? srv.personel.length : srv.personel.filter((p) => p.unvan === k).length; return `<button class="chip" data-act="per-role" data-v="${k}" aria-pressed="${pr === k}">${l} <small>${n}</small></button>`; }).join('');
   const lv = myLevel();
   // yayınlanan / yüklenen vardiya listesindeki isimler ile personel hesapları eşleştirilir
-  const listed = allPeople().sort(cmpName);
+  const listed = allPeople(viewPeople()).sort(cmpName);
   const listOf = (ad) => listed.find((x) => nameKey(x.name) === nameKey(ad)) || listed.find((x) => sameStrict(x.name, ad));
   const hasAcc = (name) => (srv.hesapli || []).includes(nameKey(name)) || srv.personel.some((p) => nameKey(p.ad) === nameKey(name) || sameStrict(p.ad, name));
   const missing = listed.filter((x) => !hasAcc(x.name));
@@ -1692,7 +1773,7 @@ function viewPersonnel() {
       <td class="small">${p.kilitli ? '<span class="pill bad">Kilitli</span>' : p.sifreVar ? (p.sonGiris ? 'Son giriş ' + fmtWhen(p.sonGiris) : 'Şifre var') : '<span class="muted">Henüz girmedi</span>'}</td>
       <td class="nowrap">${p.ben ? '<span class="small muted">siz</span>' : p.duzenle ? `<button class="btn small" data-act="per-edit" data-id="${p.id}">Düzenle</button>` : p.sil ? `${p.sifirla ? `<button class="btn small" data-act="per-pin" data-id="${p.id}">Şifre sıfırla</button> ` : ''}<button class="btn small danger" data-act="per-del" data-id="${p.id}">Çıkar</button>` : ''}</td></tr>`; }).join('') || '<tr><td class="name" colspan="8">Kimse yok</td></tr>'}
   </tbody></table></div>`;
-  return `<div class="pgrid"><div class="pmain stack">${left}<p class="small muted">Yönetici: her şey. Müdür: listeyi çizelgeden hazırlar ve yayınlar (görsel yüklemez), şef/personel verir. Şef: liste görsellerini yükleyerek listeyi hazırlar ve onaya gönderir, kişi ekler/çıkarır. Personel: listeleri görür. Etkinliklerde herkes kendisinin ve alt unvandakilerin işlemlerini görür.</p></div>
+  return `<div class="pgrid"><div class="pmain stack">${left}<p class="small muted">Yönetici: her şey. Müdür: listeyi çizelgeden hazırlar ve yayınlar (görsel yüklemez), şef/personel verir. Şef: liste görsellerini yükleyerek listeyi hazırlar ve onaya gönderir, kişi ekler/çıkarır, duyuru yayınlar. Personel: listeleri görür. Etkinliklerde herkes kendisinin ve alt unvandakilerin işlemlerini görür.</p></div>
     <aside class="pside" id="pside">${personSide()}</aside></div>`;
 }
 const LOG_NAMES = { 'hesap-askiya': 'hesabı askıya alındı', 'hesap-acildi': 'hesabı açıldı', 'giris-askida': 'askıdaki hesapla giriş denedi', cikis: 'çıkış yaptı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', 'gorev-eklendi': 'görev ekledi', 'gorev-guncellendi': 'görev güncelledi', 'gorev-silindi': 'görev sildi', kurulum: 'kurulum' };
@@ -1806,7 +1887,7 @@ function bulkSheet() {
 function myRecord() {
   if (!SERVER || !auth) return null;
   const me = auth.ben.ad; const k = nameKey(me);
-  return allPeople().find((p) => p.key === k) || allPeople().find((p) => sameStrict(p.name, me)) || null;
+  return allPeople(viewPeople()).find((p) => p.key === k) || allPeople(viewPeople()).find((p) => sameStrict(p.name, me)) || null;
 }
 
 // ---------- Paylaşım ----------
@@ -1883,7 +1964,7 @@ function importSheet() {
     };
     ta.addEventListener('input', check); setTimeout(() => ta.focus(), 50);
     ok.addEventListener('click', () => {
-      if (!R || R.hata) return; let added = 0, n = 0;
+      if (!R || R.hata) return; let added = 0, n = 0; ensureWorkspace(); ui.gridMode = 'hazir';
       for (const x of R.people) {
         let k = findPerson(x.name);
         if (!k) { k = nameKey(x.name); let i = 2; while (store.people[k]) k = nameKey(x.name) + i++; store.people[k] = { name: x.name, group: '', days: {} }; added++; }
@@ -2001,6 +2082,11 @@ function saveReview() {
   const M = mergedReview();
   const rows = M.rows.filter((m) => !isSkipped(m) && m.name);
   if (!rows.length) { toast('Kaydedilecek kişi yok. İsimleri yazın ya da satırları işaretleyin.'); return; }
+  if (SERVER && canEdit()) {
+    if (R.wipe) { const ds = rows.flatMap((m) => Object.keys(m.cells || {})).sort(); store.yeni = { mod: 'yeni', bas: ds[0] || todayIso(), bit: ds[ds.length - 1] || todayIso() }; store.rules = { off: {}, leaves: [] }; }
+    else ensureWorkspace();
+    ui.gridMode = 'hazir';
+  }
   if (store.demo || R.wipe) { store.people = {}; store.uploads = []; store.dayAreas = {}; store.aliases = {}; store.demo = false; }
   for (const m of rows) {
     let k = nameKey(m.name);
