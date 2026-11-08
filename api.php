@@ -143,14 +143,14 @@ switch ($r) {
   case 'veri': {
     $u = current_user();
     $l = db()->query('SELECT id, data, published_at, published_name FROM rosters ORDER BY id DESC LIMIT 1')->fetch();
-    $d = db()->query('SELECT id, title, body, pinned, created_name, created_at FROM announcements ORDER BY pinned DESC, id DESC LIMIT 100')->fetchAll();
+    $d = db()->query('SELECT id, title, body, pinned, created_by, created_name, created_at FROM announcements ORDER BY pinned DESC, id DESC LIMIT 100')->fetchAll();
     $taslak = level_of($u['title'] ?? '') >= 2 ? (json_decode((string)(meta_get('taslak') ?? ''), true) ?: null) : null;
     stat_inc('goruntuleme');
     // kişi son yayınlanan listeyi gördü (yöneticiler "kim görmedi" diye bakar)
     if ($l) db()->prepare('UPDATE personnel SET seen_roster = ?, seen_at = ? WHERE id = ? AND (seen_roster IS NULL OR seen_roster <> ?)')->execute([(int)$l['id'], now(), $u['id'], (int)$l['id']]);
     ok(['ben' => me_out($u), 'surum' => versions(), 'ayarlar' => json_decode((string)(meta_get('ayarlar') ?? ''), true) ?: null, 'taslak' => $taslak,
       'liste' => $l ? ['id' => (int)$l['id'], 'veri' => json_decode($l['data'], true), 'tarih' => utc($l['published_at']), 'yayinlayan' => $l['published_name']] : null,
-      'duyurular' => array_map(fn($a) => ['id' => (int)$a['id'], 'baslik' => $a['title'], 'metin' => $a['body'], 'sabit' => (bool)$a['pinned'], 'yazan' => $a['created_name'], 'tarih' => utc($a['created_at'])], $d)]);
+      'duyurular' => array_map(fn($a) => ['id' => (int)$a['id'], 'baslik' => $a['title'], 'metin' => $a['body'], 'sabit' => (bool)$a['pinned'], 'yazan' => $a['created_name'], 'yazanId' => (int)$a['created_by'], 'tarih' => utc($a['created_at'])], $d)]);
   }
 
   case 'yayinla': {
@@ -283,8 +283,9 @@ switch ($r) {
     ok();
   }
 
+  // duyuru: şef ve üstü yazar; şef yalnızca kendi duyurusunu siler, müdür/yönetici hepsini
   case 'duyuru': {
-    $u = require_admin();
+    $u = require_level(2, 'Duyuru yayınlama yetkiniz yok.');
     $t = str_in('baslik', 160); $m = str_in('metin', 5000);
     if ($t === '' || $m === '') fail(400, 'Başlık ve metin gerekli.');
     db()->prepare('INSERT INTO announcements (title, body, pinned, created_by, created_name, created_at) VALUES (?,?,?,?,?,?)')
@@ -295,8 +296,9 @@ switch ($r) {
   }
 
   case 'duyuru-sil': {
-    $u = require_admin();
+    $u = require_level(2, 'Duyuru silme yetkiniz yok.');
     $id = (int)(body()['id'] ?? 0);
+    if (level_of($u['title'] ?? '') < 3) { $st = db()->prepare('SELECT created_by FROM announcements WHERE id = ?'); $st->execute([$id]); if ((int)$st->fetchColumn() !== $u['id']) fail(403, 'Yalnızca kendi duyurunuzu silebilirsiniz.'); }
     db()->prepare('DELETE FROM announcements WHERE id = ?')->execute([$id]);
     audit($u, 'duyuru-silindi', "#$id");
     ok();
