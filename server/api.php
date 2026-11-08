@@ -83,8 +83,9 @@ switch ($r) {
       audit(['id' => $p['id'], 'name' => $p['name']], 'sifre-olusturuldu');
     } elseif ($p['pin_hash'] === null) {
       // eski uygulama sürümleri: kayıtlı telefon numarasıyla bir kez doğrulanır, kişi kendi şifresini belirler
-      if ($tel === '') ok(['durum' => 'pin-olustur', 'telefonGerekli' => true] + $info);
-      if (!hash_equals($p['phone_hash'], hmac('tel:' . $tel))) $bad('Telefon numarası kayıtlı numaranızla eşleşmiyor.');
+      $hasTel = (string)$p['phone_hash'] !== '';
+      if ($hasTel && $tel === '') ok(['durum' => 'pin-olustur', 'telefonGerekli' => true] + $info);
+      if ($hasTel && !hash_equals($p['phone_hash'], hmac('tel:' . $tel))) $bad('Telefon numarası kayıtlı numaranızla eşleşmiyor.');
       if ($yeni === '') ok(['durum' => 'pin-olustur'] + $info);
       if ($e = pw_error($yeni, $p['title'] ?? 'personel')) fail(400, $e, $info);
       db()->prepare('UPDATE personnel SET pin_hash = ? WHERE id = ? AND pin_hash IS NULL')->execute([password_hash($yeni, PASSWORD_DEFAULT), $p['id']]);
@@ -224,10 +225,10 @@ switch ($r) {
     $out = []; $keys = [];
     foreach ($rows as $p) {
       $keys[] = name_key($p['name']); // hesabı olan isimler (gizli hesap dahil): listedeki isimlerle eşleştirmek için
-      // DEV hesabı başkalarına sıradan Personel olarak görünür; DEV rozeti yalnızca kendisine
-      $mask = $p['title'] === 'dev' && $me < 5;
+      // DEV hesabı herkese (kendisine de) sıradan Personel olarak görünür; DEV yalnızca /livadmin'de belli olur
+      $mask = $p['title'] === 'dev';
       $touch = can_touch($u, $p);
-      $out[] = ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'telefon' => '•••••• ' . $p['phone_last4'],
+      $out[] = ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'telefon' => $p['phone_last4'] !== '' ? '•••••• ' . $p['phone_last4'] : '',
         'rol' => $mask ? 'staff' : (level_of($p['title']) >= 3 ? 'admin' : 'staff'), 'unvan' => $mask ? 'personel' : $p['title'], 'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(),
         'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'ben' => (int)$p['id'] === $u['id'], 'askida' => (bool)$p['banned'],
         'duzenle' => $touch && $me >= 3, 'sil' => $touch, 'sifirla' => $touch, 'sistem' => $touch && $sys];
@@ -396,7 +397,7 @@ switch ($r) {
       $q->execute(['%' . $p['name'] . '%', $id]);
       foreach ($q->fetchAll() as $a) if (log_visible($u, $a)) $about[] = ['kim' => $a['who'], 'islem' => $a['action'], 'detay' => $a['detail'], 'tarih' => utc($a['at'])];
     }
-    ok(['kisi' => ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'unvan' => $mask ? 'personel' : $p['title'], 'telefon' => '•••••• ' . $p['phone_last4'],
+    ok(['kisi' => ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'unvan' => $p['title'] === 'dev' ? 'personel' : $p['title'], 'telefon' => $p['phone_last4'] !== '' ? '•••••• ' . $p['phone_last4'] : '',
       'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(), 'hatali' => (int)$p['failed'],
       'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'eklenme' => utc($p['created_at']), 'acikOturum' => $sess,
       'sonListe' => $last, 'listeyiGordu' => $last && (int)$p['seen_roster'] === $last, 'gordugu' => $p['seen_at'] ? utc($p['seen_at']) : null],
@@ -707,11 +708,10 @@ function save_person(array $in, array $u, bool $bulk = false): array {
   }
   if ($name === '') $err('Ad soyad gerekli.');
   if ($sicil === '') $err("Personel ID gerekli ($name).");
-  if ($tel === '') $err("Telefon numarası gerekli ($name).");
   if ($bulk || !in_array($title, $grant, true)) $title = 'personel'; // yeni eklenen herkes Personel; üst unvanı yalnızca yetkili verir
   try {
     db()->prepare('INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-      ->execute([$name, $sicil !== '' ? $sicil : null, $tcHash, $tcHash ? substr($tcRaw, -2) : null, hmac('tel:' . $tel), substr($tel, -4), role_of($title), $title, now()]);
+      ->execute([$name, $sicil !== '' ? $sicil : null, $tcHash, $tcHash ? substr($tcRaw, -2) : null, $tel !== '' ? hmac('tel:' . $tel) : '', $tel !== '' ? substr($tel, -4) : '', role_of($title), $title, now()]);
   } catch (PDOException $e) { $err("Bu Personel ID başka bir kişide kayıtlı ($name)."); }
   $nid = (int)db()->lastInsertId();
   if (!$bulk) audit($u, 'personel-eklendi', $name . ($title !== 'personel' ? ' (' . TITLES[$title] . ')' : ''));
