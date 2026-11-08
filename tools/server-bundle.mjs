@@ -7,7 +7,7 @@ execSync('node tools/build.mjs', { cwd: root, stdio: 'inherit', env: { ...proces
 const out = root + 'dist-server/';
 rmSync(out, { recursive: true, force: true }); mkdirSync(out);
 cpSync(root + 'www/', out, { recursive: true, filter: (p) => !/\/samples\/real-/.test(p) });
-for (const f of ['api.php', 'lib.php', 'kurulum.php', 'yonetici.php', '.htaccess', 'gizlilik.html']) cpSync(root + 'server/' + f, out + f);
+for (const f of ['api.php', 'lib.php', 'push.php', 'kurulum.php', 'yonetici.php', '.htaccess', 'gizlilik.html']) cpSync(root + 'server/' + f, out + f);
 // PWA (yalnızca web): ana ekrana ekleme, çevrimdışı açılış. Telefon uygulamasının index.html'ine dokunulmaz.
 for (const f of readdirSync(root + 'server/pwa/')) cpSync(root + 'server/pwa/' + f, out + f);
 {

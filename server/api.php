@@ -3,6 +3,7 @@
 declare(strict_types=1);
 const CCN = 1;
 require __DIR__ . '/lib.php';
+require __DIR__ . '/push.php';
 
 security_headers();
 cors();
@@ -16,7 +17,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -35,6 +36,9 @@ function me_out(array $u): array {
     'tercih' => json_decode((string)($u['prefs'] ?? ''), true) ?: null];
 }
 const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'];
+
+// vardiya hatırlatmaları: sık gelen isteklerle (en fazla 5 dk'da bir) kontrol edilir
+if (in_array($r, ['surum', 'veri', 'zamanla'], true)) { try { run_reminders($r === 'zamanla'); } catch (Throwable $e) { error_log('ccn hatirlat: ' . $e->getMessage()); } }
 
 switch ($r) {
   case 'durum':
@@ -123,6 +127,31 @@ switch ($r) {
     ok(['var' => $p['pin_hash'] !== null, 'kural' => $rule['metin'], 'kuralTip' => $rule['tip']]);
   }
 
+  // ---------- Bildirimler (isteğe bağlı, cihaz başına) ----------
+  case 'bildirim-anahtar': { current_user(); ok(['anahtar' => vapid()['pub']]); }
+  case 'bildirim-kaydet': {
+    $u = current_user(); $sub = body()['abonelik'] ?? null;
+    $ep = is_array($sub) ? (string)($sub['endpoint'] ?? '') : ''; $k = is_array($sub['keys'] ?? null) ? $sub['keys'] : [];
+    if (!preg_match('#^https://[^\s]{10,2000}$#', $ep) || empty($k['p256dh']) || empty($k['auth'])) fail(400, 'Bildirim aboneliği geçersiz.');
+    $h = hash('sha256', $ep);
+    db()->prepare('DELETE FROM push_subs WHERE ep_hash = ?')->execute([$h]);
+    db()->prepare('INSERT INTO push_subs (personnel_id, endpoint, ep_hash, p256dh, auth, ua, created_at) VALUES (?,?,?,?,?,?,?)')
+      ->execute([$u['id'], $ep, $h, mb_substr((string)$k['p256dh'], 0, 200), mb_substr((string)$k['auth'], 0, 100), mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 200), now()]);
+    ok();
+  }
+  case 'bildirim-sil': {
+    $u = current_user(); $ep = (string)(body()['endpoint'] ?? '');
+    if ($ep !== '') db()->prepare('DELETE FROM push_subs WHERE ep_hash = ? AND personnel_id = ?')->execute([hash('sha256', $ep), $u['id']]);
+    ok();
+  }
+  case 'bildirim-test': {
+    $u = current_user();
+    $n = push_to_people([$u['id']], ['baslik' => 'CCN Vardiya', 'metin' => 'Bildirimler açık. Duyurular, yeni liste ve vardiya hatırlatmaları bu cihaza gelecek.', 'url' => './']);
+    if (!$n) fail(502, 'Deneme bildirimi gönderilemedi. Bildirimi kapatıp yeniden açmayı deneyin.');
+    ok(['gonderildi' => $n]);
+  }
+  case 'zamanla': { ok(); }
+
   case 'cikis': {
     $u = current_user(false);
     if ($u) { db()->prepare('DELETE FROM sessions WHERE id = ?')->execute([$u['sid']]); audit($u, 'cikis'); }
@@ -166,6 +195,7 @@ switch ($r) {
     db()->prepare("DELETE FROM meta WHERE k = 'taslak'")->execute();
     meta_set('taslak_surum', (string)((int)(meta_get('taslak_surum') ?? 0) + 1));
     audit($u, 'liste-yayinlandi', "$cnt kişi, " . tr_date($min) . ' – ' . tr_date($max));
+    if (empty(body()['sessiz'])) { try { push_to_all(['baslik' => 'Vardiya listesi güncellendi', 'metin' => tr_date($min) . ' – ' . tr_date($max) . ' listesi yayınlandı. Kendi günlerinize bakın.', 'url' => './', 'etiket' => 'liste'], $u['id']); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); } }
     ok(['id' => $id, 'kisi' => $cnt]);
   }
 
@@ -265,7 +295,7 @@ switch ($r) {
     if ($p['title'] === 'dev' && level_of($u['title']) < 5) fail(403, 'Bu kişi sistemden çıkarılamaz.');
     if (!can_touch($u, $p)) fail(403, 'Yalnızca sizden alt unvandaki kişileri çıkarabilirsiniz.');
     // oturumları da silinir (ON DELETE CASCADE): kişi uygulamadan anında düşer
-    db()->prepare('DELETE FROM personnel WHERE id = ?')->execute([$id]);
+    db()->prepare('DELETE FROM personnel WHERE id = ?')->execute([$id]); db()->prepare('DELETE FROM push_subs WHERE personnel_id = ?')->execute([$id]);
     audit($u, 'personel-silindi', $p['name']);
     ok();
   }
@@ -292,6 +322,7 @@ switch ($r) {
       ->execute([$t, $m, !empty(body()['sabit']) ? 1 : 0, $u['id'], shown_name($u), now()]);
     $id = (int)db()->lastInsertId();
     audit($u, 'duyuru', $t);
+    try { push_to_all(['baslik' => 'Duyuru: ' . $t, 'metin' => mb_substr($m, 0, 180), 'url' => './#duyuru', 'etiket' => "duyuru-$id"], $u['id']); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
     ok(['id' => $id]);
   }
 
@@ -529,7 +560,7 @@ switch ($r) {
     $id = (int)(body()['id'] ?? 0);
     $st = db()->prepare('SELECT name, title FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
     if (!$p || $p['title'] === 'dev') fail(400, 'Bu hesap silinemez.');
-    db()->prepare('DELETE FROM personnel WHERE id = ?')->execute([$id]);
+    db()->prepare('DELETE FROM personnel WHERE id = ?')->execute([$id]); db()->prepare('DELETE FROM push_subs WHERE personnel_id = ?')->execute([$id]);
     audit($u, 'personel-silindi', $p['name']);
     ok();
   }

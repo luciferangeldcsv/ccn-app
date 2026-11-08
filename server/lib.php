@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 9;
+const SCHEMA_V = 10;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -157,6 +157,8 @@ function upgrades(PDO $pdo): void {
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
     // 8 → 9: vardiya görevleri (yapılacaklar listesi) ve kimin ne zaman işaretlediği
     $pdo->exec("CREATE TABLE IF NOT EXISTS gorevler (id INT AUTO_INCREMENT PRIMARY KEY, tarih DATE NOT NULL, vardiya CHAR(1) NOT NULL DEFAULT '', baslik VARCHAR(160) NOT NULL, maddeler TEXT NOT NULL, created_by INT NULL, created_name VARCHAR(120) NULL, created_at DATETIME NOT NULL, INDEX (tarih)) $T");
+    // 9 → 10: web bildirim abonelikleri (cihaz başına)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS push_subs (id INT AUTO_INCREMENT PRIMARY KEY, personnel_id INT NOT NULL, endpoint TEXT NOT NULL, ep_hash CHAR(64) NOT NULL UNIQUE, p256dh VARCHAR(200) NOT NULL, auth VARCHAR(100) NOT NULL, ua VARCHAR(200) NULL, created_at DATETIME NOT NULL, last_ok DATETIME NULL, INDEX (personnel_id)) $T");
     $pdo->exec("CREATE TABLE IF NOT EXISTS gorev_durum (gorev_id INT NOT NULL, madde SMALLINT NOT NULL, personnel_id INT NULL, who VARCHAR(120) NOT NULL, at DATETIME NOT NULL, PRIMARY KEY (gorev_id, madde)) $T");
 }
 

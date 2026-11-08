@@ -320,6 +320,55 @@ function devicePlatform() {
 }
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; if (typeof render === 'function' && document.getElementById('app')) try { render(); } catch (err) { /* açılış sürüyor */ } });
 window.addEventListener('appinstalled', () => { installEvt = null; try { toast('Uygulama eklendi'); render(); } catch (err) { /* yoksay */ } });
+// ---------- Web bildirimleri (isteğe bağlı, cihaz başına) ----------
+const pushSupported = () => SERVER && !NATIVE && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const b64uToU8 = (s) => { const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)); return Uint8Array.from(b, (c) => c.charCodeAt(0)); };
+async function pushSub() { try { const reg = await navigator.serviceWorker.getRegistration(); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; } }
+async function pushStateNow() {
+  if (!SERVER || NATIVE) return 'yok';
+  if (devicePlatform() === 'ios' && !isStandalone()) return 'ios';
+  if (!pushSupported()) return 'yok';
+  if (Notification.permission === 'denied') return 'red';
+  return Notification.permission === 'granted' && (await pushSub()) ? 'acik' : 'kapali';
+}
+async function pushEnable() {
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error(perm === 'denied' ? 'Bildirim izni verilmedi. Tarayıcı ya da telefon ayarlarından bu siteye bildirim izni verin.' : 'Bildirim izni verilmedi.');
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) { const { anahtar } = await api('bildirim-anahtar'); sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToU8(anahtar) }); }
+  await api('bildirim-kaydet', { abonelik: sub.toJSON() });
+}
+async function pushDisable(silent) {
+  const sub = await pushSub(); if (!sub) return;
+  try { await api('bildirim-sil', { endpoint: sub.endpoint }); } catch (e) { if (!silent) throw e; }
+  try { await sub.unsubscribe(); } catch (e) { /* yoksay */ }
+}
+// açılışta: izin ve abonelik varsa sunucudaki kaydı tazele (başka hesapla girilmiş olabilir)
+async function pushResync() { try { if (pushSupported() && Notification.permission === 'granted') { const sub = await pushSub(); if (sub) await api('bildirim-kaydet', { abonelik: sub.toJSON() }); } } catch (e) { /* sessiz */ } }
+async function renderPushCard() {
+  const el = document.getElementById('push-card'); if (!el) return;
+  const st = await pushStateNow(); if (!document.body.contains(el)) return;
+  const info = `<ul class="small muted" style="margin:0;padding-left:18px"><li><b>Duyurular</b> ve <b>yeni vardiya listesi</b>: herkese anında.</li><li><b>Vardiya hatırlatması</b>: vardiyanızdan 1 saat önce, yalnızca çalıştığınız günlerde. OFF, izin ve rapor günlerinde gönderilmez.</li></ul>`;
+  const body = {
+    yok: '<p class="small muted" style="margin:0">Bu tarayıcı bildirimleri desteklemiyor. Android’de Chrome, bilgisayarda Chrome ya da Edge kullanın.</p>',
+    ios: `<p class="small muted" style="margin:0">iPhone ve iPad’de bildirim için önce siteyi ana ekrana ekleyin, sonra ana ekrandaki <b>CCN Vardiya</b> simgesinden açıp buradan bildirimi açın.</p><div><button class="btn" data-act="install-app">${ICON_DOWNLOAD}Ana ekrana ekle</button></div>`,
+    red: '<p class="small muted" style="margin:0">Bildirim izni kapalı. Tarayıcının ya da telefonun ayarlarından bu site için bildirimlere izin verin, sonra sayfayı yenileyin.</p>',
+    acik: '', kapali: '',
+  }[st];
+  el.innerHTML = `<div class="setrow" style="padding:0"><span><b>Bildirimler</b><small>İsteğe bağlı. Bu cihaz için açılır.</small></span>${st === 'acik' || st === 'kapali' ? `<span class="switch"><input type="checkbox" id="push-on" ${st === 'acik' ? 'checked' : ''}><i></i></span>` : ''}</div>${info}${body}${st === 'acik' ? '<div><button class="btn small" id="push-test">Deneme bildirimi gönder</button></div>' : ''}`;
+  bindIn(el);
+  const sw = el.querySelector('#push-on');
+  sw && sw.addEventListener('change', async () => {
+    sw.disabled = true;
+    try { if (sw.checked) { await pushEnable(); toast('Bildirimler açıldı'); } else { await pushDisable(); toast('Bildirimler kapatıldı'); } }
+    catch (e) { toast(e.message || 'Bildirim açılamadı'); }
+    renderPushCard();
+  });
+  const tb = el.querySelector('#push-test');
+  tb && tb.addEventListener('click', async () => { tb.disabled = true; try { await api('bildirim-test', {}); toast('Deneme bildirimi gönderildi'); } catch (e) { toast(e.message); } tb.disabled = false; });
+}
+
 function installApp() {
   if (installEvt) { const ev = installEvt; ev.prompt(); ev.userChoice.then((c) => { if (c && c.outcome === 'accepted') { installEvt = null; render(); } }).catch(() => {}); return; }
   const pf = devicePlatform();
@@ -528,7 +577,7 @@ async function bootServer() {
   if (canEdit() && store.yeni === undefined && store.pub && Object.keys(store.people).length && store.pub.sig !== pubHash()) { store.yeni = { mod: 'duzenle' }; save(); }
   srv.loading = true;
   try { await syncData(); } catch (e) { if (auth && !srv.offline) toast(e.message); } finally { srv.loading = false; }
-  if (auth) { startPoll(); render(); }
+  if (auth) { startPoll(); render(); if (!NATIVE) pushResync(); }
 }
 
 // ---------- Uygulama durumu ----------
@@ -1246,7 +1295,8 @@ function viewSettings() {
     <p class="small muted" style="margin:0">Veriler yalnızca bu cihazda saklanır. Başka telefona aktarmak için yedeği kopyalayıp diğer cihazda “Yedekten yükle”ye yapıştırın.</p>
     <div class="row"><button class="btn" data-act="backup">Yedeği kopyala</button><button class="btn" data-act="restore-open">Yedekten yükle</button><button class="btn" data-act="clean-bad">Hatalı isimleri temizle</button><button class="btn danger" data-act="wipe">Tüm verileri sil</button></div></div>` : '';
   const installPart = canOfferInstall() ? `<div class="card stack"><div class="setrow" style="padding:0"><span><b>Uygulama olarak ekle</b><small>Bilgisayarınızın masaüstüne ya da telefonunuzun ana ekranına ekleyin; tarayıcı açmadan tek dokunuşla açılır.</small></span></div><div><button class="btn primary" data-act="install-app">${ICON_DOWNLOAD}Uygulama olarak ekle</button></div></div>` : '';
-  return account + installPart + personal + adminPart + photoPart + appPart + dataPart;
+  const pushPart = SERVER && auth && !NATIVE ? '<div class="card stack" id="push-card"><p class="small muted" style="margin:0">Bildirim ayarı yükleniyor…</p></div>' : '';
+  return account + installPart + pushPart + personal + adminPart + photoPart + appPart + dataPart;
 }
 // yönetici ayarları sunucuya (herkese), kişisel tercihler hesaba kaydedilir
 const orgSettings = () => ({ company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule, colors: store.settings.colors, limits: store.settings.limits });
@@ -1342,7 +1392,7 @@ function bindView() {
       P.start = el.value; render();
     }));
   }
-  if (ui.view === 'ayarlar') bindSettings();
+  if (ui.view === 'ayarlar') { bindSettings(); renderPushCard(); }
   if (ui.view === 'gorev') bindTasks();
 
 }
@@ -1496,7 +1546,7 @@ const actions = {
     if (id && matchMedia('(max-width: 1199px)').matches) { ui.pSel = id; sheet('<div id="psheet">Yükleniyor…</div><div class="row"><button class="btn" data-x="1">Kapat</button></div>', async (bg) => { try { srv.kisi = await api('kisi&id=' + id); bg.querySelector('#psheet').innerHTML = personSide(); bg.querySelectorAll('[data-act="per-edit"]').forEach((b) => b.addEventListener('click', () => { closeSheet(); personnelSheet(id); })); bg.querySelectorAll('[data-act="per-sel"]').forEach((b) => b.addEventListener('click', () => closeSheet())); } catch (e) { bg.querySelector('#psheet').textContent = e.message; } ui.pSel = null; }); return; }
     render();
   },
-  'logout': () => confirmSheet('Çıkış yapılsın mı?', 'Bu cihazdaki oturum kapanır. Yeniden girmek için Personel ID ve şifreniz gerekir.', 'Çıkış yap', async () => { try { await api('cikis', {}); } catch (e) { /* yoksay */ } signOut(''); }),
+  'logout': () => confirmSheet('Çıkış yapılsın mı?', 'Bu cihazdaki oturum kapanır. Yeniden girmek için Personel ID ve şifreniz gerekir.', 'Çıkış yap', async () => { try { await pushDisable(true); } catch (e) { /* yoksay */ } try { await api('cikis', {}); } catch (e) { /* yoksay */ } signOut(''); }),
   'sample': async (el) => {
     const ns = el.dataset.n === 'all' ? ['1', '2', '3'] : [el.dataset.n];
     try { handleFiles(await Promise.all(ns.map(async (n) => new File([await (await fetch(`samples/vardiya-${n}.png`)).blob()], `vardiya-${n}.png`, { type: 'image/png' })))); }
