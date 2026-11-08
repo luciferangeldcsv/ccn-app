@@ -80,7 +80,7 @@ function defaultStore() {
     rules: { off: {}, leaves: [] },
     settings: {
       company: '',
-      hours: { '1': '08:00–16:00', '2': '16:00–24:00', '3': '00:00–08:00' },
+      hours: { '1': '07:00–16:00', '2': '14:00–23:00', '3': '23:00–07:00' },
       colors: { red: 'OFF', orange: '', yellow: '', green: '', blue: '', purple: '', gray: '' },
       // paylaşılan liste: başlıklar kalın mı, isimler numaralı / maddeli / düz
       share: { bold: true, style: 'num' },
@@ -824,7 +824,7 @@ function renameDayAreas(oldK, newK) {
   for (const m of Object.values(store.dayAreas)) if (oldK in m) { if (newK) m[newK] = m[oldK]; delete m[oldK]; }
 }
 function shiftNow() {
-  // ayarlardaki saatlere göre şu an hangi vardiya (ör. "08:00–16:00")
+  // ayarlardaki saatlere göre şu an hangi vardiya (ör. "07:00–16:00")
   const now = new Date(); const mins = now.getHours() * 60 + now.getMinutes();
   for (const g of ['1', '2', '3']) {
     const m = (store.settings.hours[g] || '').match(/(\d{1,2})[:.](\d{2})\D+(\d{1,2})[:.](\d{2})/); if (!m) continue;
