@@ -16,7 +16,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -52,6 +52,7 @@ switch ($r) {
     $kimlik = str_in('kimlik', 40); $tel = norm_phone(str_in('telefon', 30));
     $pin = str_in('pin', 64); $yeni = str_in('yeniPin', 64); $hatirla = !empty(body()['hatirla']);
     $yeniIstemci = (int)(body()['istemci'] ?? 0) >= 2; // 2.8.2 ve sonrası: giriş = Personel ID + şifre
+    $v3 = (int)(body()['istemci'] ?? 0) >= 3; // 2.8.5 ve web: telefon sorulmaz, ilk şifre "Şifrem yok" ekranından oluşturulur
     if ($kimlik === '') fail(400, 'Personel ID girin.');
     $p = find_person($kimlik);
     $help = 'Şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.';
@@ -72,8 +73,16 @@ switch ($r) {
     };
     $rule = pw_rule($p['title'] ?? 'personel');
     $info = ['ad' => $p['name'], 'kural' => $rule['metin'], 'kuralTip' => $rule['tip']];
-    if ($p['pin_hash'] === null) {
-      // ilk giriş: kayıtlı telefon numarasıyla bir kez doğrulanır, kişi kendi şifresini belirler
+    if ($v3 && $p['pin_hash'] !== null && $pin === '' && $yeni !== '') fail(409, "Zaten bir şifreniz var. Unuttuysanız şefiniz ya da müdürünüzle görüşün.", ['sifreVar' => true]);
+    if ($v3 && $p['pin_hash'] === null) {
+      // ilk giriş (yeni istemci): Personel ID + yeni şifre; telefon sorulmaz
+      if ($yeni === '') fail(401, 'Henüz şifreniz yok. Aşağıdaki “Şifrem yok · Şifre oluştur” ile şifrenizi oluşturun.', ['sifreYok' => true] + $info);
+      if ($e = pw_error($yeni, $p['title'] ?? 'personel')) fail(400, $e, $info);
+      $st = db()->prepare('UPDATE personnel SET pin_hash = ? WHERE id = ? AND pin_hash IS NULL'); $st->execute([password_hash($yeni, PASSWORD_DEFAULT), $p['id']]);
+      if (!$st->rowCount()) fail(409, "Zaten bir şifreniz var. Unuttuysanız şefiniz ya da müdürünüzle görüşün.", ['sifreVar' => true]);
+      audit(['id' => $p['id'], 'name' => $p['name']], 'sifre-olusturuldu');
+    } elseif ($p['pin_hash'] === null) {
+      // eski uygulama sürümleri: kayıtlı telefon numarasıyla bir kez doğrulanır, kişi kendi şifresini belirler
       if ($tel === '') ok(['durum' => 'pin-olustur', 'telefonGerekli' => true] + $info);
       if (!hash_equals($p['phone_hash'], hmac('tel:' . $tel))) $bad('Telefon numarası kayıtlı numaranızla eşleşmiyor.');
       if ($yeni === '') ok(['durum' => 'pin-olustur'] + $info);
@@ -96,6 +105,21 @@ switch ($r) {
     $tok = new_session((int)$p['id'], $hatirla); stat_inc('giris');
     audit(['id' => $p['id'], 'name' => $p['name']], 'giris');
     ok(['token' => $tok, 'ben' => me_out(['id' => (int)$p['id'], 'name' => $p['name'], 'role' => $p['role'], 'title' => $p['title'] ?? null, 'prefs' => $p['prefs'] ?? null, 'sicil' => $p['sicil']]), 'hatirla' => $hatirla]);
+  }
+
+  // "Şifrem yok": yazılan Personel ID'nin şifresi var mı (varsa uyarı), şifre kuralı ne
+  case 'sifre-kontrol': {
+    $ip = client_ip();
+    $st = db()->prepare('SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND at > ?');
+    $st->execute([$ip, gmdate('Y-m-d H:i:s', time() - 900)]);
+    if ((int)$st->fetchColumn() >= 150) fail(429, 'Çok fazla deneme yapıldı. 15 dakika sonra tekrar deneyin.');
+    db()->prepare('INSERT INTO login_attempts (ip, at) VALUES (?, ?)')->execute([$ip, now()]);
+    $kimlik = str_in('kimlik', 40); if ($kimlik === '') fail(400, 'Personel ID girin.');
+    $p = find_person($kimlik);
+    if (!$p) fail(401, 'Sisteme kayıtlı değilsiniz. Bu Personel ID listede yok. Şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.', ['kayitsiz' => true]);
+    if (!empty($p['banned'])) fail(403, 'Hesabınız askıya alındı. Yöneticinize başvurun.');
+    $rule = pw_rule($p['title'] ?? 'personel');
+    ok(['var' => $p['pin_hash'] !== null, 'kural' => $rule['metin'], 'kuralTip' => $rule['tip']]);
   }
 
   case 'cikis': {
