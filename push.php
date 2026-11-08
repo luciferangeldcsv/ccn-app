@@ -96,7 +96,7 @@ function run_reminders(bool $force = false): int {
   if (!$force && $nowUtc - $last < 300) return 0;
   meta_set('hatirlat_son', (string)$nowUtc);
   $ayar = json_decode((string)(meta_get('ayarlar') ?? ''), true) ?: [];
-  $hours = ($ayar['hours'] ?? null) ?: ['1' => '08:00–16:00', '2' => '16:00–24:00', '3' => '00:00–08:00'];
+  $hours = ($ayar['hours'] ?? null) ?: ['1' => '07:00–16:00', '2' => '14:00–23:00', '3' => '23:00–07:00'];
   $roster = db()->query('SELECT data FROM rosters ORDER BY id DESC LIMIT 1')->fetchColumn();
   $people = $roster ? (json_decode((string)$roster, true)['people'] ?? []) : [];
   if (!$people) return 0;

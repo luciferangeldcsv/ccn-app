@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 10;
+const SCHEMA_V = 11;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -155,6 +155,15 @@ function upgrades(PDO $pdo): void {
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
+    // 10 → 11: vardiya saatleri güncellendi (bir kez uygulanır; sonra yönetici Ayarlar'dan değiştirebilir)
+    if (!$pdo->query("SELECT COUNT(*) FROM meta WHERE k = 'saat_2026_11'")->fetchColumn()) {
+      $a = json_decode((string)($pdo->query("SELECT v FROM meta WHERE k = 'ayarlar'")->fetchColumn() ?: ''), true); if (!is_array($a)) $a = [];
+      $a['hours'] = ['1' => '07:00–16:00', '2' => '14:00–23:00', '3' => '23:00–07:00'];
+      $pdo->prepare("REPLACE INTO meta (k, v) VALUES ('ayarlar', ?)")->execute([json_encode($a, JSON_UNESCAPED_UNICODE)]);
+      $sv = (int)($pdo->query("SELECT v FROM meta WHERE k = 'ayar_surum'")->fetchColumn() ?: 0);
+      $pdo->prepare("REPLACE INTO meta (k, v) VALUES ('ayar_surum', ?)")->execute([(string)($sv + 1)]);
+      $pdo->exec("REPLACE INTO meta (k, v) VALUES ('saat_2026_11', '1')");
+    }
     // 8 → 9: vardiya görevleri (yapılacaklar listesi) ve kimin ne zaman işaretlediği
     $pdo->exec("CREATE TABLE IF NOT EXISTS gorevler (id INT AUTO_INCREMENT PRIMARY KEY, tarih DATE NOT NULL, vardiya CHAR(1) NOT NULL DEFAULT '', baslik VARCHAR(160) NOT NULL, maddeler TEXT NOT NULL, created_by INT NULL, created_name VARCHAR(120) NULL, created_at DATETIME NOT NULL, INDEX (tarih)) $T");
     // 9 → 10: web bildirim abonelikleri (cihaz başına)
