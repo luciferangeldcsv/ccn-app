@@ -1253,7 +1253,7 @@ function viewSettings() {
     <div class="setrow"><span class="acc"><span class="av">${esc(initials(auth.ben.ad))}</span><span><b>${esc(auth.ben.ad)}</b><small>${esc(titleOf(auth.ben))}${auth.ben.sicil ? ' · Personel ID ' + esc(auth.ben.sicil) : ''} · ${auth.hatirla ? 'oturum açık kalır' : 'uygulama kapanınca oturum kapanır'}</small></span></span><button class="btn" data-act="logout">Çıkış yap</button></div>
     ${store.pub ? `<p class="small muted" style="margin:0">Yayındaki liste: ${fmtWhen(store.pub.tarih)}${store.pub.yayinlayan ? ' · ' + esc(store.pub.yayinlayan) : ''}</p>` : ''}
   </div>` : '';
-  const personal = `<h2 class="sect">Kişisel ayarlar${SERVER ? '<span class="sect-note">Hesabınıza kaydedilir, her cihazda aynı</span>' : ''}</h2>
+  const personal = `<h2 class="sect">${SERVER ? 'Görünüm ve paylaşım<span class="sect-note">Yalnızca sizin için · hesabınıza kaydedilir, her cihazda aynı</span>' : 'Kişisel ayarlar'}</h2>
   <div class="card setlist">
     ${sw('data-pref="dark"', dark, 'Koyu tema', 'Kapalıyken açık (krem) tema')}
     ${sw('data-pref="bold"', S.share.bold, 'Paylaşımda başlıklar kalın', 'WhatsApp’ta *kalın* görünür')}
@@ -1296,7 +1296,13 @@ function viewSettings() {
     <div class="row"><button class="btn" data-act="backup">Yedeği kopyala</button><button class="btn" data-act="restore-open">Yedekten yükle</button><button class="btn" data-act="clean-bad">Hatalı isimleri temizle</button><button class="btn danger" data-act="wipe">Tüm verileri sil</button></div></div>` : '';
   const installPart = canOfferInstall() ? `<div class="card stack"><div class="setrow" style="padding:0"><span><b>Uygulama olarak ekle</b><small>Bilgisayarınızın masaüstüne ya da telefonunuzun ana ekranına ekleyin; tarayıcı açmadan tek dokunuşla açılır.</small></span></div><div><button class="btn primary" data-act="install-app">${ICON_DOWNLOAD}Uygulama olarak ekle</button></div></div>` : '';
   const pushPart = SERVER && auth && !NATIVE ? '<div class="card stack" id="push-card"><p class="small muted" style="margin:0">Bildirim ayarı yükleniyor…</p></div>' : '';
-  return account + installPart + pushPart + personal + adminPart + photoPart + appPart + dataPart;
+  if (!SERVER) return account + installPart + pushPart + personal + adminPart + photoPart + appPart + dataPart;
+  // sunucu modu: kullanıcı ayarları (herkes, kendine özel) ve yönetici ayarları (müdür/yönetici, herkese uygulanır) ayrı sekmelerde
+  const userPart = account + installPart + pushPart + personal + photoPart + appPart;
+  if (!isAdmin()) return userPart;
+  const tab = ui.setTab === 'yonetici' ? 'yonetici' : 'kullanici';
+  const tabs = `<div class="segtabs"><button class="chip" data-act="set-tab" data-t="kullanici" aria-pressed="${tab === 'kullanici'}">Kullanıcı ayarları</button><button class="chip" data-act="set-tab" data-t="yonetici" aria-pressed="${tab === 'yonetici'}">Yönetici ayarları</button></div>`;
+  return tabs + (tab === 'yonetici' ? `<p class="small muted" style="margin:0 0 4px">Bu sayfadaki ayarlar kaydedilince <b>herkese</b> uygulanır (uygulama ve web).</p>` + adminPart : userPart);
 }
 // yönetici ayarları sunucuya (herkese), kişisel tercihler hesaba kaydedilir
 const orgSettings = () => ({ company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule, colors: store.settings.colors, limits: store.settings.limits });
@@ -1456,6 +1462,7 @@ const actions = {
   'day-shift': (el) => { ui.dayShift = el.dataset.g; render(); },
   'toggle-unk': (el) => { ui.collapsed['unk-' + el.dataset.g] = !ui.collapsed['unk-' + el.dataset.g]; render(); },
   'add-person': () => personSheet(null),
+  'set-tab': (el) => { ui.setTab = el.dataset.t; render(); },
   'grid-mode': (el) => {
     ui.gridMode = el.dataset.m; ui.sel = null; ui.gridStart = null;
     if (ui.gridMode === 'hazir' && store.yeni && store.yeni.mod === 'yeni') Object.assign(ui, { gridSpan: 'ozel', gridFrom: store.yeni.bas, gridTo: store.yeni.bit });
