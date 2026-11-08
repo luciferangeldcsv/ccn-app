@@ -94,7 +94,7 @@ function defaultStore() {
 let store = load();
 
 // ---------- Cihaz tercihleri (tema, izinler) ve hata günlüğü: "Tüm verileri sil" bunlara dokunmaz ----------
-const APP_VERSION = /^\d/.test('2.8.4') ? '2.8.4' : 'web';
+const APP_VERSION = /^\d/.test('2.8.5') ? '2.8.5' : 'web';
 const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.vardiyapanosu.app';
 const PREFS_KEY = 'ccn-vardiya-prefs', ERR_KEY = 'ccn-vardiya-hatalar';
 const readLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
@@ -1373,7 +1373,7 @@ const actions = {
   },
   'per-edit': (el) => personnelSheet(+el.dataset.id),
   'per-role': (el) => { ui.pRole = el.dataset.v; render(); },
-  'per-pin': (el) => { const p = srv.personel.find((x) => x.id === +el.dataset.id); if (!p) return; confirmSheet(`${p.ad} için şifre sıfırlansın mı?`, 'Kişi uygulamadan çıkar; bir sonraki girişte kayıtlı telefonuyla doğrulanıp yeni şifresini kendisi belirler.', 'Sıfırla', async () => { try { await api('pin-sifirla', { id: p.id }); toast('Şifre sıfırlandı'); srv.personel = null; render(); } catch (e) { toast(e.message); } }); },
+  'per-pin': (el) => { const p = srv.personel.find((x) => x.id === +el.dataset.id); if (!p) return; confirmSheet(`${p.ad} için şifre sıfırlansın mı?`, 'Kişi uygulamadan çıkar; bir sonraki girişte “Şifrem yok · Şifre oluştur” ile yeni şifresini kendisi belirler.', 'Sıfırla', async () => { try { await api('pin-sifirla', { id: p.id }); toast('Şifre sıfırlandı'); srv.personel = null; render(); } catch (e) { toast(e.message); } }); },
   'per-del': (el) => { const p = srv.personel.find((x) => x.id === +el.dataset.id); if (!p) return; confirmSheet(`${p.ad} sistemden çıkarılsın mı?`, 'Kişinin hesabı silinir ve uygulamadan hemen çıkarılır.', 'Çıkar', async () => { try { await api('personel-sil', { id: p.id }); toast(`${p.ad} çıkarıldı`); srv.personel = null; render(); } catch (e) { toast(e.message); } }); },
   'per-bulk': () => bulkSheet(),
   'per-log': async () => { srv.kayitlar = null; srv.gorenler = null; render(); },
@@ -1430,18 +1430,19 @@ function viewLogin() {
       <label class="field">Yeni şifre (tekrar)<input id="lg-new2" type="password" ${pwAttrs} autocomplete="new-password" required></label>
       <p class="small muted" style="margin:-4px 0 0">Şifre kuralı: ${esc(L.kural || '')}</p>`;
   let form;
-  if (L.step === 'olustur') form = `<p style="margin:0">Merhaba <b>${esc(L.ad || '')}</b>, sisteme kayıtlısınız. İlk girişiniz: ${L.telefonGerekli ? 'güvenlik için <b>kayıtlı telefon numaranızı</b> yazın ve ' : ''}kendinize bir şifre belirleyin. Bundan sonra Personel ID ve bu şifreyle gireceksiniz.</p>
-      ${L.telefonGerekli ? `<label class="field">Kayıtlı telefon numaranız<input id="lg-tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="05xx xxx xx xx" value="${esc(L.telefon || '')}" required></label>` : ''}
-      ${newPw}
-      <div class="row"><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Kaydediliyor…' : 'Şifreyi kaydet ve gir'}</button><button class="btn" type="button" data-act="login-back">Geri</button></div>`;
+  if (L.step === 'olustur') form = `<p style="margin:0">İlk kez giriyorsanız Personel ID’nizi yazıp kendinize bir şifre belirleyin. Bundan sonra Personel ID ve bu şifreyle gireceksiniz.</p>
+      <label class="field">Personel ID<input id="lg-kimlik" autocomplete="username" autocapitalize="off" value="${esc(L.kimlik || '')}" required></label>
+      <label class="field">Şifre<input id="lg-new" type="password" ${pwAttrs} autocomplete="new-password" required></label>
+      <label class="field">Şifre (tekrar)<input id="lg-new2" type="password" ${pwAttrs} autocomplete="new-password" required></label>
+      <p class="small muted" style="margin:-4px 0 0">${L.kural ? 'Şifre kuralı: ' + esc(L.kural) : 'Personel: 6 haneli sayı. Şef, müdür ve yönetici: en az 7 karakter; büyük harf, küçük harf ve rakam.'}</p>
+      <div class="row"><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Oluşturuluyor…' : 'Oluştur ve giriş yap'}</button><button class="btn" type="button" data-act="login-back">Geri</button></div>`;
   else if (L.step === 'yenile') form = `<p style="margin:0">Merhaba <b>${esc(L.ad || '')}</b>. Unvanınız için şifre kuralı farklı; devam etmek için yeni bir şifre belirleyin.</p>
       ${newPw}
       <div class="row"><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Kaydediliyor…' : 'Şifreyi güncelle ve gir'}</button><button class="btn" type="button" data-act="login-back">Geri</button></div>`;
   else form = `<label class="field">Personel ID<input id="lg-kimlik" autocomplete="username" autocapitalize="off" value="${esc(L.kimlik || '')}" required></label>
-      <label class="field">Şifre<input id="lg-pin" type="password" maxlength="64" autocomplete="current-password"></label>
-      <p class="small muted" style="margin:-4px 0 0">İlk kez giriyorsanız şifreyi boş bırakın; şifrenizi belirlemeniz istenecek.</p>
+      <label class="field">Şifre<input id="lg-pin" type="password" maxlength="64" autocomplete="current-password" required></label>
       <label class="row" style="gap:8px"><input type="checkbox" id="lg-remember" ${L.hatirla !== false ? 'checked' : ''}> <span>Beni hatırla <span class="small muted">(uygulama kapansa da oturum açık kalır)</span></span></label>
-      <div><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Giriş yapılıyor…' : 'Giriş yap'}</button></div>`;
+      <div class="row"><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Giriş yapılıyor…' : 'Giriş yap'}</button><button class="btn" type="button" data-act="login-create" ${L.busy ? 'disabled' : ''}>Şifrem yok · Şifre oluştur</button></div>`;
   return `<div class="card stack login">
     <div class="eyebrow">Personel girişi</div><h2 style="font-size:24px">${L.step === 'olustur' ? 'Şifre oluştur' : L.step === 'yenile' ? 'Şifreyi güncelle' : 'Giriş yap'}</h2>
     ${err}
@@ -1460,30 +1461,41 @@ function pwCheck(pw, tip) {
 }
 function bindLogin() {
   const f = document.getElementById('lg-form'); if (!f) return;
-  $app.querySelectorAll('[data-act="login-back"]').forEach((b) => b.addEventListener('click', () => { Object.assign(ui.login, { step: 'giris', err: '', pin: '' }); render(); }));
+  $app.querySelectorAll('[data-act="login-back"]').forEach((b) => b.addEventListener('click', () => { const k = f.querySelector('#lg-kimlik'); if (k) ui.login.kimlik = k.value.trim(); Object.assign(ui.login, { step: 'giris', err: '', pin: '' }); render(); }));
+  // "Şifrem yok": yazılan ID'nin şifresi varsa uyar, yoksa şifre oluşturma ekranına geç
+  $app.querySelectorAll('[data-act="login-create"]').forEach((b) => b.addEventListener('click', async () => {
+    const L = ui.login; L.kimlik = f.querySelector('#lg-kimlik').value.trim(); L.hatirla = f.querySelector('#lg-remember').checked;
+    Object.assign(L, { kural: '', kuralTip: '' });
+    if (!L.kimlik) { Object.assign(L, { step: 'olustur', err: '' }); render(); return; }
+    L.busy = true; L.err = ''; render();
+    try {
+      const j = await api('sifre-kontrol', { kimlik: L.kimlik }); L.busy = false;
+      if (j.var) { L.err = 'Zaten bir şifreniz var. Unuttuysanız şefiniz ya da müdürünüzle görüşün.'; render(); return; }
+      Object.assign(L, { step: 'olustur', kural: j.kural, kuralTip: j.kuralTip }); render();
+    } catch (err) { L.busy = false; L.err = err.message; render(); }
+  }));
   const first = f.querySelector('input'); if (first && !('ontouchstart' in window)) first.focus();
   f.addEventListener('submit', async (e) => {
     e.preventDefault(); const L = ui.login; if (L.busy) return;
-    const body = { istemci: 2, kimlik: L.kimlik, hatirla: L.hatirla };
+    const body = { istemci: 3, kimlik: L.kimlik, hatirla: L.hatirla };
     if (L.step === 'giris') {
       L.kimlik = f.querySelector('#lg-kimlik').value.trim(); L.hatirla = f.querySelector('#lg-remember').checked; L.pin = f.querySelector('#lg-pin').value;
       if (!L.kimlik) { L.err = 'Personel ID girin.'; render(); return; }
+      if (!L.pin) { L.err = 'Şifrenizi yazın. Şifreniz yoksa “Şifrem yok · Şifre oluştur”a dokunun.'; render(); return; }
       Object.assign(body, { kimlik: L.kimlik, hatirla: L.hatirla, pin: L.pin });
     } else {
+      if (L.step === 'olustur') { L.kimlik = f.querySelector('#lg-kimlik').value.trim(); body.kimlik = L.kimlik; if (!L.kimlik) { L.err = 'Personel ID girin.'; render(); return; } }
       const a = f.querySelector('#lg-new').value, b = f.querySelector('#lg-new2').value;
-      if (L.step === 'olustur' && L.telefonGerekli) { L.telefon = f.querySelector('#lg-tel').value.trim(); if (!L.telefon) { L.err = 'Kayıtlı telefon numaranızı yazın.'; render(); return; } }
-      const pe = pwCheck(a, L.kuralTip); if (pe) { L.err = pe; render(); return; }
+      if (!a) { L.err = 'Şifre girin.'; render(); return; }
+      const pe = L.kuralTip ? pwCheck(a, L.kuralTip) : ''; if (pe) { L.err = pe; render(); return; }
       if (a !== b) { L.err = 'İki şifre aynı değil.'; render(); return; }
-      Object.assign(body, { yeniPin: a, telefon: L.telefon || '', pin: L.step === 'yenile' ? L.pin : '' });
+      Object.assign(body, { yeniPin: a, pin: L.step === 'yenile' ? L.pin : '' });
     }
     L.busy = true; L.err = ''; render();
     try {
       const j = await api('giris', body);
       L.busy = false;
-      if (j.durum === 'pin-olustur' || j.durum === 'sifre-yenile') {
-        Object.assign(L, { step: j.durum === 'pin-olustur' ? 'olustur' : 'yenile', ad: j.ad, kural: j.kural, kuralTip: j.kuralTip, telefonGerekli: j.durum === 'pin-olustur' && (j.telefonGerekli || L.telefonGerekli) });
-        render(); return;
-      }
+      if (j.durum === 'sifre-yenile') { Object.assign(L, { step: 'yenile', ad: j.ad, kural: j.kural, kuralTip: j.kuralTip }); render(); return; }
       auth = { token: j.token, ben: j.ben, hatirla: !!j.hatirla }; saveAuth();
       ui.login = null; ui.view = 'gunluk'; ui.date = todayIso();
       await bootServer();
@@ -1710,7 +1722,7 @@ function personnelSheet(id) {
     ${opts.length > 1 ? `<label class="field">Unvan / yetki<select id="pe-unvan">${opts.map(([k, l, d]) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${l} (${d})</option>`).join('')}</select></label>` : `<p class="small muted" style="margin:0">Unvan: <b>${esc(titleOf({ unvan: cur }))}</b>${!id ? ' (yeni eklenen herkes Personel olur)' : ''}</p>`}
     <div class="row"><button class="btn primary" id="pe-save">Kaydet</button><button class="btn" data-x="1">Vazgeç</button></div>
     ${id ? `<div class="row" style="border-top:1px solid var(--line);padding-top:12px">${p.sifirla ? '<button class="btn" id="pe-reset">Şifreyi sıfırla</button>' : ''}<span style="flex:1"></span>${p.sil ? '<button class="btn danger" id="pe-del">Sistemden çıkar</button>' : ''}</div>
-      ${p.sifirla ? '<p class="small muted" style="margin:0">Şifre sıfırlanınca kişi uygulamadan çıkar; bir sonraki girişte kayıtlı telefonuyla doğrulanıp yeni şifresini kendisi belirler.</p>' : ''}` : ''}`, (bg) => {
+      ${p.sifirla ? '<p class="small muted" style="margin:0">Şifre sıfırlanınca kişi uygulamadan çıkar; bir sonraki girişte “Şifrem yok · Şifre oluştur” ile yeni şifresini kendisi belirler.</p>' : ''}` : ''}`, (bg) => {
     const v = (s2) => { const el = bg.querySelector(s2); return el ? el.value.trim() : ''; };
     bg.querySelector('#pe-save').addEventListener('click', async (e) => {
       const b = e.currentTarget; b.disabled = true;
