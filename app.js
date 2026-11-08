@@ -306,6 +306,34 @@ const canPublish = () => !SERVER || myLevel() >= 3;
 // görsel yükleyerek liste okutma yalnızca şeflerde (DEV her şeyi görür); müdür/yönetici listeyi çizelgeden hazırlayıp yayınlar
 const canUpload = () => !SERVER || myLevel() === 2 || myLevel() >= 5;
 const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+// ---------- Web: uygulama olarak ekleme (PWA) — bilgisayar (Chrome/Edge/Safari), Android ve iPhone/iPad ----------
+let installEvt = null;
+const isStandalone = () => { try { return matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: window-controls-overlay)').matches || navigator.standalone === true; } catch (e) { return false; } };
+const canOfferInstall = () => SERVER && !NATIVE && !isStandalone();
+function devicePlatform() {
+  const ua = navigator.userAgent || ''; const touchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  if (/iPhone|iPad|iPod/.test(ua) || touchMac) return 'ios';
+  if (/Android/.test(ua)) return 'android';
+  if (/Firefox\//.test(ua)) return 'firefox';
+  if (/Macintosh/.test(ua) && /Safari\//.test(ua) && !/Chrome|Chromium|Edg\//.test(ua)) return 'macsafari';
+  return 'desktop';
+}
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; if (typeof render === 'function' && document.getElementById('app')) try { render(); } catch (err) { /* açılış sürüyor */ } });
+window.addEventListener('appinstalled', () => { installEvt = null; try { toast('Uygulama eklendi'); render(); } catch (err) { /* yoksay */ } });
+function installApp() {
+  if (installEvt) { const ev = installEvt; ev.prompt(); ev.userChoice.then((c) => { if (c && c.outcome === 'accepted') { installEvt = null; render(); } }).catch(() => {}); return; }
+  const pf = devicePlatform();
+  const steps = {
+    ios: ['Bu sayfayı <b>Safari</b>’de açın (Chrome’da da olur).', 'Alttaki <b>Paylaş</b> düğmesine dokunun (kare ve yukarı ok).', 'Listeyi kaydırıp <b>Ana Ekrana Ekle</b>’ye dokunun.', 'Sağ üstte <b>Ekle</b>’ye dokunun. Simge ana ekranda çıkar.'],
+    android: ['Bu sayfayı <b>Chrome</b>’da açın.', 'Sağ üstteki <b>⋮</b> menüsüne dokunun.', '<b>Uygulamayı yükle</b> ya da <b>Ana ekrana ekle</b>’ye dokunun.', '<b>Yükle</b>’ye dokunun. Simge ana ekranda ve uygulamalar arasında çıkar.'],
+    macsafari: ['Safari menü çubuğunda <b>Dosya</b>’ya tıklayın.', '<b>Dock’a Ekle</b>’yi seçin.', '<b>Ekle</b>’ye tıklayın. Uygulama Dock’ta ve Uygulamalar klasöründe çıkar.'],
+    firefox: ['Firefox uygulama olarak eklemeyi desteklemiyor.', 'Bu sayfayı <b>Google Chrome</b> ya da <b>Microsoft Edge</b>’de açın ve buradaki düğmeye tekrar basın.'],
+    desktop: ['Adres çubuğunun sağındaki <b>yükle</b> simgesine (⊕ ya da ekran simgesi) tıklayın.', 'Simge yoksa: Chrome’da <b>⋮</b> menüsü → <b>Yayınla, kaydet ve paylaş</b> → <b>Sayfayı uygulama olarak yükle</b>; Edge’de <b>…</b> menüsü → <b>Uygulamalar</b> → <b>Bu siteyi uygulama olarak yükle</b>.', '<b>Yükle</b>’ye tıklayın. Masaüstünde ve Başlat menüsünde simgesi çıkar.'],
+  }[pf];
+  sheet(`<h3>Uygulama olarak ekle</h3><p class="small muted" style="margin:0">CCN Vardiya ${pf === 'ios' || pf === 'android' ? 'ana ekranınıza' : 'bilgisayarınıza'} uygulama olarak eklenir; tek dokunuşla, tarayıcı çubuğu olmadan açılır.</p>
+    <ol class="steps">${steps.map((x) => `<li>${x}</li>`).join('')}</ol>
+    <div class="row"><button class="btn primary" data-x="1">Tamam</button></div>`);
+}
 const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toLocaleUpperCase('tr');
 const srv = { v: null, duyurular: [], personel: null, kayitlar: null, conflict: false, loading: false };
 const serverPage = (f) => (API_URL.startsWith('http') ? API_URL.replace(/api\.php$/, f) : f);
@@ -559,7 +587,8 @@ function render() {
   sub.textContent = store.settings.company ? store.settings.company : SERVER && auth ? (canEdit() ? 'Yönetim paneli' : 'Vardiya listesi') : '1 · 2 · 3 vardiya, OFF ve izin takibi';
   let lastSync = null; try { lastSync = localStorage.getItem('ccn-son-veri'); } catch (e) { /* yoksay */ }
   const offline = SERVER && auth && srv.offline ? `<div class="banner offline"><p><b>Çevrimdışı</b> · son güncelleme ${lastSync ? fmtWhen(lastSync) : 'bilinmiyor'}. İnternet gelince liste kendiliğinden yenilenir.</p></div>` : '';
-  let banner = offline + (store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '');
+  const inst = canOfferInstall() && auth && !prefs.installHide ? `<div class="banner install"><p><b>CCN Vardiya’yı uygulama olarak ekleyin.</b> ${devicePlatform() === 'ios' || devicePlatform() === 'android' ? 'Ana ekranınızdan' : 'Masaüstünüzden'} tek dokunuşla açılır.</p><button class="btn primary" data-act="install-app">${ICON_DOWNLOAD}Ekle</button><button class="btn" data-act="install-hide">Kapat</button></div>` : '';
+  let banner = offline + inst + (store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '');
   if (isDirty() && ui.view !== 'yukle') banner += canPublish()
     ? `<div class="banner pub"><p><b>Yayınlanmamış değişiklikler var.</b> Personel bu değişiklikleri siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`
     : `<div class="banner pub"><p><b>Hazırladığınız liste henüz yayında değil.</b> “Onaya gönder” deyince müdür ya da yönetici kontrol edip yayınlar.${srv.taslak && auth && srv.taslak.kimId === auth.ben.id && srv.taslak.onay ? ' <b>Onaya gönderildi</b> (' + fmtWhen(srv.taslak.tarih) + ').' : ''}</p><button class="btn primary" data-act="send-approval">${ICON_UPLOAD}Onaya gönder</button><button class="btn" data-act="discard">Yayındakine dön</button></div>`;
@@ -1159,7 +1188,8 @@ function viewSettings() {
   const dataPart = !SERVER ? `<h2 class="sect">Veri</h2><div class="card stack">
     <p class="small muted" style="margin:0">Veriler yalnızca bu cihazda saklanır. Başka telefona aktarmak için yedeği kopyalayıp diğer cihazda “Yedekten yükle”ye yapıştırın.</p>
     <div class="row"><button class="btn" data-act="backup">Yedeği kopyala</button><button class="btn" data-act="restore-open">Yedekten yükle</button><button class="btn" data-act="clean-bad">Hatalı isimleri temizle</button><button class="btn danger" data-act="wipe">Tüm verileri sil</button></div></div>` : '';
-  return account + personal + adminPart + photoPart + appPart + dataPart;
+  const installPart = canOfferInstall() ? `<div class="card stack"><div class="setrow" style="padding:0"><span><b>Uygulama olarak ekle</b><small>Bilgisayarınızın masaüstüne ya da telefonunuzun ana ekranına ekleyin; tarayıcı açmadan tek dokunuşla açılır.</small></span></div><div><button class="btn primary" data-act="install-app">${ICON_DOWNLOAD}Uygulama olarak ekle</button></div></div>` : '';
+  return account + installPart + personal + adminPart + photoPart + appPart + dataPart;
 }
 // yönetici ayarları sunucuya (herkese), kişisel tercihler hesaba kaydedilir
 const orgSettings = () => ({ company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule, colors: store.settings.colors, limits: store.settings.limits });
@@ -1319,6 +1349,8 @@ const actions = {
   'day-shift': (el) => { ui.dayShift = el.dataset.g; render(); },
   'toggle-unk': (el) => { ui.collapsed['unk-' + el.dataset.g] = !ui.collapsed['unk-' + el.dataset.g]; render(); },
   'add-person': () => personSheet(null),
+  'install-app': () => installApp(),
+  'install-hide': () => { prefs.installHide = true; savePrefs(); render(); toast('İstediğiniz zaman Ayarlar’dan ekleyebilirsiniz'); },
   'xl-import': () => importSheet(),
   'publish': () => {
     const r = dataRange(); const span = r.min ? `${fmtShort(r.min)} – ${fmtShort(r.max)}` : '';
@@ -1447,6 +1479,7 @@ function viewLogin() {
     <div class="eyebrow">Personel girişi</div><h2 style="font-size:24px">${L.step === 'olustur' ? 'Şifre oluştur' : L.step === 'yenile' ? 'Şifreyi güncelle' : 'Giriş yap'}</h2>
     ${err}
     <form id="lg-form" class="stack" novalidate>${form}</form>
+    ${canOfferInstall() ? `<button class="btn" type="button" id="lg-install">${ICON_DOWNLOAD}Uygulama olarak ekle</button>` : ''}
     <p class="small muted" style="margin:0">Şifrenizi unuttuysanız şefiniz, müdürünüz ya da yöneticinizle iletişime geçin; şifrenizi sıfırlayabilirler. Bilgileriniz <a href="${esc(serverPage('gizlilik.html'))}" target="_blank" rel="noopener">aydınlatma metninde</a> açıklandığı gibi yalnızca vardiya listesi için kullanılır.</p>
   </div>`;
 }
@@ -1475,6 +1508,7 @@ function bindLogin() {
     } catch (err) { L.busy = false; L.err = err.message; render(); }
   }));
   const first = f.querySelector('input'); if (first && !('ontouchstart' in window)) first.focus();
+  const ib = document.getElementById('lg-install'); ib && ib.addEventListener('click', installApp);
   f.addEventListener('submit', async (e) => {
     e.preventDefault(); const L = ui.login; if (L.busy) return;
     const body = { istemci: 3, kimlik: L.kimlik, hatirla: L.hatirla };
