@@ -1024,8 +1024,8 @@ function buildXlsx(days, people, title) {
   const B = 'borderId="1" applyBorder="1"', ctr = '<alignment horizontal="center" vertical="center"/>';
   const xfs = ['<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>',
     `<xf numFmtId="0" fontId="1" fillId="4" ${B} applyFont="1" applyFill="1" applyAlignment="1" xfId="0">${ctr}</xf>`,
-    `<xf numFmtId="0" fontId="1" fillId="2" ${B} applyFont="1" applyFill="1" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" textRotation="90"/></xf>`,
-    `<xf numFmtId="0" fontId="1" fillId="3" ${B} applyFont="1" applyFill="1" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" textRotation="90"/></xf>`,
+    `<xf numFmtId="0" fontId="1" fillId="2" ${B} applyFont="1" applyFill="1" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="bottom" textRotation="90" shrinkToFit="1"/></xf>`,
+    `<xf numFmtId="0" fontId="1" fillId="3" ${B} applyFont="1" applyFill="1" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="bottom" textRotation="90" shrinkToFit="1"/></xf>`,
     `<xf numFmtId="0" fontId="1" fillId="0" ${B} applyFont="1" xfId="0"/>`,
     `<xf numFmtId="0" fontId="0" fillId="0" ${B} applyAlignment="1" xfId="0">${ctr}</xf>`,
     `<xf numFmtId="0" fontId="0" fillId="0" ${B} applyAlignment="1" xfId="0">${ctr}</xf>`,
@@ -1037,8 +1037,9 @@ function buildXlsx(days, people, title) {
   const num = (ref, v, s) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
   const rows = [];
   let cells = str('A1', 'No', 1) + str('B1', 'Ad Soyad', 1) + str('C1', 'Ekip', 1);
-  days.forEach((d, i) => { const we = [0, 6].includes(parseIso(d).getDay()); cells += str(col(3 + i) + '1', `${fmtShort(d)} ${DAY_SHORT[parseIso(d).getDay()]}`, we ? 3 : 2); });
-  rows.push(`<row r="1" ht="78" customHeight="1">${cells}</row>`);
+  // tarih başlıkları dik (aşağıdan yukarı) yazılır: kısa gün adı + gün.ay, sütuna sığar
+  days.forEach((d, i) => { const dt = parseIso(d); const we = [0, 6].includes(dt.getDay()); cells += str(col(3 + i) + '1', `${DAY_SHORT[dt.getDay()]} ${pad(dt.getDate())}.${pad(dt.getMonth() + 1)}`, we ? 3 : 2); });
+  rows.push(`<row r="1" ht="58" customHeight="1">${cells}</row>`);
   people.forEach((p, ri) => {
     const r = ri + 2; let c = num('A' + r, ri + 1, 5) + str('B' + r, p.name, 4) + (p.group ? num('C' + r, p.group, 5) : str('C' + r, '', 5));
     days.forEach((d, i) => { const code = p.days[d] || ''; const ref = col(3 + i) + r; c += !code ? str(ref, '', 6) : /^[123]$/.test(code) ? num(ref, code, sCode(code)) : str(ref, CODES[code].short, sCode(code)); });
