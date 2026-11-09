@@ -434,6 +434,17 @@ async function api(r, body) {
   if (!res.ok || !j || j.hata) throw new Error((j && j.hata) || `Sunucu hatası (${res.status})`);
   return j;
 }
+// büyük dosya (fotoğraf/video/PDF) yüklemesi: multipart, 100 MB'a kadar; ilerleme bildirir
+function apiUpload(r, formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest(); xhr.open('POST', (API_URL || 'api.php') + '?r=' + r);
+    if (auth && auth.token) xhr.setRequestHeader('X-Ccn-Token', auth.token);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+    xhr.onload = () => { let j = null; try { j = JSON.parse(xhr.responseText); } catch (e) { /* */ } if (xhr.status >= 200 && xhr.status < 300 && j && !j.hata) resolve(j); else reject(new Error((j && j.hata) || `Yükleme hatası (${xhr.status})`)); };
+    xhr.onerror = () => reject(new Error('Dosya yüklenemedi. Bağlantınızı kontrol edin.'));
+    xhr.send(formData);
+  });
+}
 function signOut(msg) {
   auth = null; saveAuth(); clearInterval(pollT);
   store = defaultStore(); try { localStorage.removeItem(STORE_KEY); } catch (e) { /* yoksay */ }
@@ -2033,13 +2044,17 @@ function taskSheet(g) {
 }
 
 // ---------- Dosya ekleri (eğitim, şikayet): tek tek yüklenir ----------
-const fileLinks = (list) => (list || []).length ? `<div class="annfiles">${list.map((e) => e.tip.startsWith('image/') ? `<a href="${esc(ekUrl(e.url))}" target="_blank" rel="noopener" class="annimg"><img src="${esc(ekUrl(e.url))}" alt="${esc(e.ad)}" loading="lazy"></a>` : `<a class="btn small" href="${esc(ekUrl(e.url))}" target="_blank" rel="noopener">📄 ${esc(e.ad)} <span class="muted">(${fmtSize(e.boyut)})</span></a>`).join('')}</div>` : '';
-async function uploadFiles(tur, id, files, imagesOnly) {
+const fileLinks = (list) => (list || []).length ? `<div class="annfiles">${list.map((e) => e.tip.startsWith('image/') ? `<a href="${esc(ekUrl(e.url))}" target="_blank" rel="noopener" class="annimg"><img src="${esc(ekUrl(e.url))}" alt="${esc(e.ad)}" loading="lazy"></a>` : e.tip.startsWith('video/') ? `<video class="annvid" controls preload="metadata" src="${esc(ekUrl(e.url))}"></video>` : `<a class="btn small" href="${esc(ekUrl(e.url))}" target="_blank" rel="noopener">📄 ${esc(e.ad)} <span class="muted">(${fmtSize(e.boyut)})</span></a>`).join('')}</div>` : '';
+const UPLOAD_LIMIT = 100 * 1024 * 1024;
+async function uploadFiles(tur, id, files) {
   let n = 0;
   for (const f of files) {
-    if (imagesOnly && !/^image\//.test(f.type)) throw new Error(`${f.name}: yalnızca fotoğraf eklenebilir`);
-    toast(`Dosya yükleniyor ${++n}/${files.length}…`);
-    const a = await prepAttachment(f, tur === 'sikayet'); await api('dosya-yukle', { tur, sahip_id: id, ad: a.ad, tip: a.tip, veri: a.veri });
+    const img = /^image\//.test(f.type), vid = /^video\//.test(f.type), pdf = f.type === 'application/pdf';
+    if (!img && !vid && !pdf) throw new Error(`${f.name}: yalnızca fotoğraf, video ya da PDF`);
+    if (f.size > UPLOAD_LIMIT) throw new Error(`${f.name} çok büyük (en fazla 100 MB)`);
+    n++;
+    const fd = new FormData(); fd.append('dosya', f, f.name); fd.append('ad', f.name); fd.append('tur', tur); fd.append('sahip_id', id);
+    await apiUpload('dosya-yukle', fd, (p) => toast(`Yükleniyor ${n}/${files.length} · %${Math.round(p * 100)}`));
   }
 }
 
@@ -2074,7 +2089,7 @@ function trainingSheet(e) {
     <label class="field">Kategori (isteğe bağlı)<input id="eg-k" maxlength="60" list="eg-cats" value="${esc(e ? e.kategori : '')}" placeholder="Örn. Eğitim, Talimat, Not"><datalist id="eg-cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
     <label class="field">Metin<textarea id="eg-m" rows="8" maxlength="60000" placeholder="Notlar, açıklamalar…">${esc(e ? e.metin : '')}</textarea></label>
     ${e && e.ekler.length ? `<div class="stack" style="gap:6px"><b class="small">Ekli dosyalar</b>${e.ekler.map((f) => `<div class="row" style="flex-wrap:nowrap"><span class="small" style="flex:1;min-width:0">${f.tip.startsWith('image/') ? '🖼️' : '📄'} ${esc(f.ad)} (${fmtSize(f.boyut)})</span><button class="btn small" data-delf="${f.id}">Kaldır</button></div>`).join('')}</div>` : ''}
-    <label class="field">Fotoğraf ya da PDF ekle (en fazla 10, her biri 2,5 MB)<input type="file" id="eg-f" multiple accept="image/*,application/pdf"></label>
+    <label class="field">Fotoğraf, video ya da PDF ekle (en fazla 10 · 100 MB)<input type="file" id="eg-f" multiple accept="image/*,video/*,application/pdf"></label>
     <div class="row"><button class="btn primary" id="eg-ok">${ICON_CHECK}Kaydet</button><button class="btn" data-x="1">Vazgeç</button></div>`, (bg) => {
     bg.querySelectorAll('[data-delf]').forEach((b) => b.addEventListener('click', async () => { b.disabled = true; try { await api('dosya-sil', { id: +b.dataset.delf }); b.closest('.row').remove(); srv.egitim = null; } catch (err) { b.disabled = false; toast(err.message); } }));
     bg.querySelector('#eg-ok').addEventListener('click', async (ev) => {
@@ -2104,7 +2119,7 @@ function viewComplaints() {
   const form = `<div class="card stack"><h2 style="font-size:22px;margin:0">Şikayet bildir</h2>
     <p class="small muted" style="margin:0">Şikayetiniz şef, müdür ve yöneticilere iletilir. Çözülünce size bildirim gelir.</p>
     <textarea id="sk-m" rows="4" maxlength="5000" placeholder="Şikayetinizi yazın…"></textarea>
-    <label class="field">Fotoğraf ekle (isteğe bağlı, en fazla 3)<input type="file" id="sk-f" multiple accept="image/*"></label>
+    <label class="field">Fotoğraf ya da video ekle (isteğe bağlı, en fazla 3 · 100 MB)<input type="file" id="sk-f" multiple accept="image/*,video/*"></label>
     <div><button class="btn primary" data-act="sk-send">Şikayeti gönder</button></div></div>`;
   const mine = L.filter((c) => c.benim);
   const mineHtml = `<h2 class="sect">Şikayetlerim</h2>${mine.length ? mine.map((c) => complaintCard(c, false)).join('') : '<div class="card"><p class="empty" style="margin:0">Henüz şikayet bildirmediniz.</p></div>'}`;

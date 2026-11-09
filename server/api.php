@@ -398,9 +398,10 @@ switch ($r) {
   case 'ek': {
     $id = (int)($_GET['id'] ?? 0); $e = (int)($_GET['e'] ?? 0); $k = (string)($_GET['k'] ?? '');
     if ($e < time() || !hash_equals(hmac("ek:$id:$e"), $k)) fail(403, 'Bağlantının süresi doldu. Duyurular sayfasını yenileyin.');
-    $st = db()->prepare('SELECT ad, tip, veri FROM duyuru_ek WHERE id = ?'); $st->execute([$id]); $f = $st->fetch();
+    $st = db()->prepare('SELECT ad, tip, veri, yol FROM duyuru_ek WHERE id = ?'); $st->execute([$id]); $f = $st->fetch();
     if (!$f) fail(404, 'Dosya bulunamadı.');
-    header('Content-Type: ' . $f['tip']); header('Content-Length: ' . strlen($f['veri']));
+    if ($f['yol']) serve_file($f['yol'], $f['tip'], $f['ad']);
+    header('Content-Type: ' . $f['tip']); header('Content-Length: ' . strlen((string)$f['veri']));
     header("Content-Disposition: inline; filename*=UTF-8''" . rawurlencode($f['ad']));
     header('Cache-Control: private, max-age=3600'); header('X-Content-Type-Options: nosniff');
     echo $f['veri']; exit;
@@ -448,14 +449,21 @@ switch ($r) {
   }
   // dosya yükleme (tek tek: istek boyutu sınırı için): eğitim (yazan/yönetici) ya da şikayet (şikayet eden, açıkken)
   case 'dosya-yukle': {
-    $u = current_user(); $tur = (string)(body()['tur'] ?? ''); $sid = (int)(body()['sahip_id'] ?? 0);
+    $u = current_user(); $tur = (string)(body()['tur'] ?? $_POST['tur'] ?? $_GET['tur'] ?? ''); $sid = (int)(body()['sahip_id'] ?? $_POST['sahip_id'] ?? $_GET['sahip_id'] ?? 0);
     if ($tur === 'egitim') { require_level(2); egitim_can($u, $sid); $max = 10; }
     elseif ($tur === 'sikayet') { $st = db()->prepare('SELECT personnel_id, durum FROM sikayetler WHERE id = ?'); $st->execute([$sid]); $sk = $st->fetch(); if (!$sk || (int)$sk['personnel_id'] !== $u['id'] || $sk['durum'] !== 'acik') fail(403, 'Bu şikayete dosya eklenemez.'); $max = 3; }
     else fail(400, 'Geçersiz dosya türü.');
     $st = db()->prepare('SELECT COUNT(*) FROM dosyalar WHERE tur = ? AND sahip_id = ?'); $st->execute([$tur, $sid]); if ((int)$st->fetchColumn() >= $max) fail(400, "En fazla $max dosya eklenebilir.");
-    // şikayet fotoğrafları kanıt için küçültülmeden, tam çözünürlükte saklanır (8 MB'a kadar)
-    [$ad, $tip, $bin] = read_upload(body(), $tur === 'sikayet', $tur === 'sikayet' ? 8600000 : 2600000);
-    db()->prepare('INSERT INTO dosyalar (tur, sahip_id, uploader_id, ad, tip, boyut, veri, ip, ua, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$tur, $sid, $u['id'], $ad, $tip, strlen($bin), $bin, client_ip(), mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 200), now()]);
+    $ip = client_ip(); $ua = mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 200);
+    if (!empty($_FILES['dosya']['tmp_name'])) { // büyük dosya (multipart): fotoğraf, video, PDF — 100 MB'a kadar diske
+      $fi = $_FILES['dosya']; if ($fi['error'] !== UPLOAD_ERR_OK) fail($fi['error'] === UPLOAD_ERR_INI_SIZE || $fi['error'] === UPLOAD_ERR_FORM_SIZE ? 413 : 400, $fi['error'] === UPLOAD_ERR_INI_SIZE ? 'Dosya çok büyük (en fazla 100 MB).' : 'Dosya yüklenemedi.');
+      $tip = mime_tip($fi['tmp_name'], (string)$fi['type']);
+      $f = store_upload($fi['tmp_name'], $tip, (string)($_POST['ad'] ?? $fi['name']));
+      db()->prepare('INSERT INTO dosyalar (tur, sahip_id, uploader_id, ad, tip, boyut, yol, ip, ua, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$tur, $sid, $u['id'], $f['ad'], $f['tip'], $f['boyut'], $f['yol'], $ip, $ua, now()]);
+    } else { // küçük görsel (base64 JSON, eski yol)
+      [$ad, $tip, $bin] = read_upload(body(), false, 8600000);
+      db()->prepare('INSERT INTO dosyalar (tur, sahip_id, uploader_id, ad, tip, boyut, veri, ip, ua, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$tur, $sid, $u['id'], $ad, $tip, strlen($bin), $bin, $ip, $ua, now()]);
+    }
     ok(['id' => (int)db()->lastInsertId()]);
   }
   case 'dosya-sil': {
@@ -467,9 +475,10 @@ switch ($r) {
   case 'dosya': {
     $id = (int)($_GET['id'] ?? 0); $e = (int)($_GET['e'] ?? 0); $k = (string)($_GET['k'] ?? '');
     if ($e < time() || !hash_equals(hmac("dosya:$id:$e"), $k)) fail(403, 'Bağlantının süresi doldu. Sayfayı yenileyin.');
-    $st = db()->prepare('SELECT ad, tip, veri FROM dosyalar WHERE id = ?'); $st->execute([$id]); $f = $st->fetch();
+    $st = db()->prepare('SELECT ad, tip, veri, yol FROM dosyalar WHERE id = ?'); $st->execute([$id]); $f = $st->fetch();
     if (!$f) fail(404, 'Dosya bulunamadı.');
-    header('Content-Type: ' . $f['tip']); header('Content-Length: ' . strlen($f['veri']));
+    if ($f['yol']) serve_file($f['yol'], $f['tip'], $f['ad']);
+    header('Content-Type: ' . $f['tip']); header('Content-Length: ' . strlen((string)$f['veri']));
     header("Content-Disposition: inline; filename*=UTF-8''" . rawurlencode($f['ad'])); header('Cache-Control: private, max-age=3600'); header('X-Content-Type-Options: nosniff');
     echo $f['veri']; exit;
   }
@@ -768,13 +777,13 @@ switch ($r) {
       CASE d.tur WHEN 'sikayet' THEN (SELECT durum FROM sikayetler WHERE id = d.sahip_id) ELSE NULL END sik_durum
       FROM dosyalar d LEFT JOIN personnel p ON p.id = d.uploader_id ORDER BY d.id DESC");
     foreach ($st as $r) $all[] = ['kaynak' => 'dosya', 'id' => (int)$r['id'], 'bolum' => $r['tur'] === 'sikayet' ? 'Şikayet' : 'Eğitim/Not', 'tur' => $r['tur'],
-      'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'tarih' => utc($r['created_at']), 'ip' => $r['ip'], 'cihaz' => ua_text((string)$r['ua']),
+      'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'video' => strncmp($r['tip'], 'video/', 6) === 0, 'tarih' => utc($r['created_at']), 'ip' => $r['ip'], 'cihaz' => ua_text((string)$r['ua']),
       'yukleyenId' => $r['uploader_id'] ? (int)$r['uploader_id'] : null, 'yukleyen' => $r['uploader_ad'], 'unvan' => $r['uploader_unvan'], 'askida' => (bool)$r['banned'], 'uyari' => (int)$r['strike'],
       'durum' => $r['sik_durum'], 'url' => dosya_url('dosya', (int)$r['id'], '../')];
     $st = db()->query("SELECT e.id, e.duyuru_id, e.ad, e.tip, e.boyut, a.created_at, a.created_by, a.title, p.name, p.title ptitle, p.banned
       FROM duyuru_ek e JOIN announcements a ON a.id = e.duyuru_id LEFT JOIN personnel p ON p.id = a.created_by ORDER BY e.id DESC");
     foreach ($st as $r) $all[] = ['kaynak' => 'ek', 'id' => (int)$r['id'], 'bolum' => 'Duyuru', 'tur' => 'duyuru',
-      'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'tarih' => utc($r['created_at']),
+      'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'video' => strncmp($r['tip'], 'video/', 6) === 0, 'tarih' => utc($r['created_at']),
       'yukleyenId' => $r['created_by'] ? (int)$r['created_by'] : null, 'yukleyen' => $r['name'], 'unvan' => $r['ptitle'], 'askida' => (bool)$r['banned'], 'uyari' => 0, 'ip' => null, 'cihaz' => '',
       'durum' => null, 'url' => dosya_url('ek', (int)$r['id'], '../')];
     usort($all, fn($x, $y) => strcmp($y['tarih'], $x['tarih']));
@@ -790,8 +799,9 @@ switch ($r) {
     $uploader = null; $uad = '';
     if ($kaynak === 'ek') { db()->prepare('DELETE FROM duyuru_ek WHERE id = ?')->execute([$id]); }
     else {
-      $st = db()->prepare('SELECT d.uploader_id, p.name, p.title FROM dosyalar d LEFT JOIN personnel p ON p.id = d.uploader_id WHERE d.id = ?'); $st->execute([$id]); $r = $st->fetch();
+      $st = db()->prepare('SELECT d.uploader_id, d.yol, p.name, p.title FROM dosyalar d LEFT JOIN personnel p ON p.id = d.uploader_id WHERE d.id = ?'); $st->execute([$id]); $r = $st->fetch();
       $uploader = $r && $r['uploader_id'] ? (int)$r['uploader_id'] : null; $uad = $r['name'] ?? ''; $utitle = $r['title'] ?? '';
+      if (isset($r) && !empty($r['yol'])) @unlink(uploads_dir() . '/' . $r['yol']);
       db()->prepare('DELETE FROM dosyalar WHERE id = ?')->execute([$id]);
     }
     $asildi = false; $n = 0;
@@ -1057,6 +1067,13 @@ function visible_logs(array $u, ?int $pid, int $max): array {
 function tr_date(?string $d): string { return $d && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $d, $m) ? "$m[3].$m[2].$m[1]" : (string)$d; }
 
 // DEV paneli yalnızca DEV hesabıyla ve web'den (uygulamadan değil) açılır
+function mime_tip(string $path, string $given): string {
+  $m = ''; if (function_exists('finfo_open')) { $fi = finfo_open(FILEINFO_MIME_TYPE); $m = (string)finfo_file($fi, $path); finfo_close($fi); }
+  // heic'i finfo bazen tanımaz; istemcinin verdiğini de kabul et
+  if (isset(UPLOAD_TYPES[$m])) return $m;
+  if (isset(UPLOAD_TYPES[$given])) return $given;
+  fail(400, 'Bu dosya türü yüklenemez (yalnızca fotoğraf, video ve PDF).');
+}
 function dosya_url(string $r, int $id, string $pfx = ''): string { $exp = time() + 86400; return "${pfx}api.php?r=$r&id=$id&e=$exp&k=" . hmac(($r === 'ek' ? 'ek:' : 'dosya:') . "$id:$exp"); }
 function dev_only(): array {
   $origin = (string)($_SERVER['HTTP_ORIGIN'] ?? '');

@@ -35,7 +35,7 @@ main { margin-left: 220px; padding: 20px 24px 60px; max-width: 1500px; }
 .fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
 .fcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
 .fcard .thumb { height: 150px; background: #0d1117 center/cover no-repeat; display: grid; place-items: center; position: relative; }
-.fcard .thumb a.full { position: absolute; inset: 0; } .fcard .thumb .pdf { font-size: 40px; }
+.fcard .thumb a.full { position: absolute; inset: 0; z-index: 1; } .fcard .thumb .pdf { font-size: 40px; color: #fff; text-shadow: 0 1px 6px #000; } .fcard .thumb video { width: 100%; height: 100%; object-fit: cover; }
 .fcard .meta { padding: 8px 10px; font-size: 12px; display: grid; gap: 3px; }
 .fcard .meta b { font-size: 13px; } .fcard .who { color: var(--muted); }
 .fcard .acts { display: flex; gap: 6px; padding: 0 10px 10px; } .fcard .acts .btn { flex: 1; padding: 6px; font-size: 12px; }
@@ -280,8 +280,8 @@ async function dos() {
     $('#fdt').textContent = `${j.toplam} dosya · ${j.foto} fotoğraf`;
     $('#fn').textContent = `Sayfa ${j.sayfa} / ${j.sayfaSayisi}`; $('#fp').disabled = j.sayfa <= 1; $('#fnx').disabled = j.sayfa >= j.sayfaSayisi; sayfa = j.sayfa;
     $('#fgrid').innerHTML = j.dosyalar.map((f) => {
-      const img = f.tip.indexOf('image/') === 0;
-      const thumb = img ? `<div class="thumb" style="background-image:url('${esc(f.url)}')"><a class="full" href="${esc(f.url)}" target="_blank" rel="noopener" title="Büyük aç"></a></div>` : `<div class="thumb"><a class="full" href="${esc(f.url)}" target="_blank" rel="noopener"></a><span class="pdf">📄</span></div>`;
+      const img = f.tip.indexOf('image/') === 0, vid = f.video || f.tip.indexOf('video/') === 0;
+      const thumb = img ? `<div class="thumb" style="background-image:url('${esc(f.url)}')"><a class="full" href="${esc(f.url)}" target="_blank" rel="noopener" title="Büyük aç"></a></div>` : vid ? `<div class="thumb"><video src="${esc(f.url)}#t=0.1" preload="metadata" muted></video><a class="full" href="${esc(f.url)}" target="_blank" rel="noopener" title="Videoyu aç"></a><span class="pdf" style="position:absolute">▶</span></div>` : `<div class="thumb"><a class="full" href="${esc(f.url)}" target="_blank" rel="noopener"></a><span class="pdf">📄</span></div>`;
       const who = f.yukleyenId ? `${esc(f.yukleyen || '—')} ${tag(f.unvan)}${f.askida ? ' <span class="badge-ban">askıda</span>' : f.uyari ? ` <span class="badge-uyari">${f.uyari} uyarı</span>` : ''}` : '<span class="mut">bilinmiyor</span>';
       const net = (f.ip ? f.ip : '') + (f.cihaz ? (f.ip ? ' · ' : '') + f.cihaz : '');
       return `<div class="fcard"><div data-full="${esc(f.url)}">${thumb}</div><div class="meta"><b>${esc(f.bolum)}</b><span class="who">${who}</span><span class="mut">${when(f.tarih)} · ${(f.boyut / 1024 | 0)} KB</span>${net ? `<span class="mut mono" style="font-size:11px">${esc(net)}</span>` : ''}</div>

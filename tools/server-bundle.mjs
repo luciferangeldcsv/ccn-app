@@ -18,6 +18,8 @@ for (const f of readdirSync(root + 'server/pwa/')) cpSync(root + 'server/pwa/' +
   writeFileSync(out + 'index.html', html);
   writeFileSync(out + 'sw.js', readFileSync(out + 'sw.js', 'utf8').replace('__SW_VERSION__', ver));
 }
+// yüklenen dosya klasörü (git'e girmez; sunucuda kalıcı olmalı)
+mkdirSync(out + 'ccn-veri', { recursive: true });
 // DEV paneli: /livadmin (yalnızca web)
 cpSync(root + 'server/livadmin/', out + 'livadmin/', { recursive: true });
 console.log('dist-server hazır:', readdirSync(out).join(' '));
