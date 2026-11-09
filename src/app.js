@@ -350,7 +350,7 @@ function devicePlatform() {
 }
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; if (typeof render === 'function' && document.getElementById('app')) try { render(); } catch (err) { /* açılış sürüyor */ } });
 window.addEventListener('appinstalled', () => { installEvt = null; try { toast('Uygulama eklendi'); render(); } catch (err) { /* yoksay */ } });
-// ---------- Web bildirimleri (isteğe bağlı, cihaz başına) ----------
+// ---------- Web bildirimleri (zorunlu; OFF, rapor ve izin günlerinde sunucu göndermez) ----------
 const pushSupported = () => SERVER && !NATIVE && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 const b64uToU8 = (s) => { const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)); return Uint8Array.from(b, (c) => c.charCodeAt(0)); };
 async function pushSub() { try { const reg = await navigator.serviceWorker.getRegistration(); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; } }
@@ -375,26 +375,25 @@ async function pushDisable(silent) {
   try { await sub.unsubscribe(); } catch (e) { /* yoksay */ }
 }
 // açılışta: izin ve abonelik varsa sunucudaki kaydı tazele (başka hesapla girilmiş olabilir)
-async function pushResync() { try { if (pushSupported() && Notification.permission === 'granted') { const sub = await pushSub(); if (sub) await api('bildirim-kaydet', { abonelik: sub.toJSON() }); } } catch (e) { /* sessiz */ } }
+// bildirimler zorunlu: izin varsa abonelik kendiliğinden kurulur/tazelenir; izin yoksa üstte uyarı şeridi kalır
+async function pushResync() {
+  try { if (pushSupported() && Notification.permission === 'granted') { await pushEnable(); } } catch (e) { /* sessiz */ }
+  srv.pushState = await pushStateNow(); if (auth) render();
+}
 async function renderPushCard() {
   const el = document.getElementById('push-card'); if (!el) return;
   const st = await pushStateNow(); if (!document.body.contains(el)) return;
-  const info = `<ul class="small muted" style="margin:0;padding-left:18px"><li><b>Duyurular</b> ve <b>yeni vardiya listesi</b>: herkese anında.</li><li><b>Vardiya hatırlatması</b>: vardiyanızdan 1 saat önce, yalnızca çalıştığınız günlerde. OFF, izin ve rapor günlerinde gönderilmez.</li></ul>`;
+  const info = `<ul class="small muted" style="margin:0;padding-left:18px"><li>Bildirimler <b>zorunludur</b>: duyurular, yeni vardiya listesi, vardiya hatırlatması, şikayet ve güncellemeler herkese gelir.</li><li><b>OFF, rapor ve izin günlerinizde</b> bildirim gönderilmez (yalnızca hesap güvenliği uyarıları gelir).</li></ul>`;
   const body = {
     yok: '<p class="small muted" style="margin:0">Bu tarayıcı bildirimleri desteklemiyor. Android’de Chrome, bilgisayarda Chrome ya da Edge kullanın.</p>',
     ios: `<p class="small muted" style="margin:0">iPhone ve iPad’de bildirim için önce siteyi ana ekrana ekleyin, sonra ana ekrandaki <b>CCN Vardiya</b> simgesinden açıp buradan bildirimi açın.</p><div><button class="btn" data-act="install-app">${ICON_DOWNLOAD}Ana ekrana ekle</button></div>`,
     red: '<p class="small muted" style="margin:0">Bildirim izni kapalı. Tarayıcının ya da telefonun ayarlarından bu site için bildirimlere izin verin, sonra sayfayı yenileyin.</p>',
     acik: '', kapali: '',
   }[st];
-  el.innerHTML = `<div class="setrow" style="padding:0"><span><b>Bildirimler</b><small>İsteğe bağlı. Bu cihaz için açılır.</small></span>${st === 'acik' || st === 'kapali' ? `<span class="switch"><input type="checkbox" id="push-on" ${st === 'acik' ? 'checked' : ''}><i></i></span>` : ''}</div>${info}${body}${st === 'acik' ? '<div><button class="btn small" id="push-test">Deneme bildirimi gönder</button></div>' : ''}`;
+  el.innerHTML = `<div class="setrow" style="padding:0"><span><b>Bildirimler</b><small>Zorunlu · bu cihaz</small></span>${st === 'acik' ? '<span class="pill ok">Açık ✓</span>' : '<span class="pill bad">Kapalı</span>'}</div>${info}${body}${st === 'kapali' ? `<div><button class="btn primary" id="push-allow">🔔 Bildirimlere izin ver</button></div>` : ''}${st === 'acik' ? '<div><button class="btn small" id="push-test">Deneme bildirimi gönder</button></div>' : ''}`;
   bindIn(el);
-  const sw = el.querySelector('#push-on');
-  sw && sw.addEventListener('change', async () => {
-    sw.disabled = true;
-    try { if (sw.checked) { await pushEnable(); toast('Bildirimler açıldı'); } else { await pushDisable(); toast('Bildirimler kapatıldı'); } }
-    catch (e) { toast(e.message || 'Bildirim açılamadı'); }
-    renderPushCard();
-  });
+  const al = el.querySelector('#push-allow');
+  al && al.addEventListener('click', async () => { al.disabled = true; try { await pushEnable(); toast('Bildirimler açıldı'); } catch (e) { toast(e.message || 'Bildirim açılamadı'); } renderPushCard(); render(); });
   const tb = el.querySelector('#push-test');
   tb && tb.addEventListener('click', async () => { tb.disabled = true; try { await api('bildirim-test', {}); toast('Deneme bildirimi gönderildi'); } catch (e) { toast(e.message); } tb.disabled = false; });
 }
@@ -716,7 +715,9 @@ function render() {
   let lastSync = null; try { lastSync = localStorage.getItem('ccn-son-veri'); } catch (e) { /* yoksay */ }
   const offline = SERVER && auth && srv.offline ? `<div class="banner offline"><p><b>Çevrimdışı</b> · son güncelleme ${lastSync ? fmtWhen(lastSync) : 'bilinmiyor'}. İnternet gelince liste kendiliğinden yenilenir.</p></div>` : '';
   const inst = canOfferInstall() && auth && !prefs.installHide ? `<div class="banner install"><p><b>CCN Vardiya’yı uygulama olarak ekleyin.</b> ${devicePlatform() === 'ios' || devicePlatform() === 'android' ? 'Ana ekranınızdan' : 'Masaüstünüzden'} tek dokunuşla açılır.</p><button class="btn primary" data-act="install-app">${ICON_DOWNLOAD}Ekle</button><button class="btn" data-act="install-hide">Kapat</button></div>` : '';
-  let banner = offline + inst + (store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '');
+  const pst = srv.pushState;
+  const pushBan = SERVER && auth && !NATIVE && pst && pst !== 'acik' && pst !== 'yok' ? `<div class="banner pushban"><p><b>🔔 Bildirimler zorunludur.</b> ${pst === 'kapali' ? 'Duyuru, liste ve vardiya bildirimlerini almak için izin verin.' : pst === 'red' ? 'Bildirim izni kapalı. Tarayıcının ya da telefonun ayarlarından bu siteye bildirim izni verin.' : 'iPhone/iPad’de bildirim için siteyi ana ekrana ekleyin ve oradan açın.'}</p>${pst === 'kapali' ? '<button class="btn primary" data-act="push-allow">İzin ver</button>' : pst === 'ios' ? `<button class="btn primary" data-act="install-app">${ICON_DOWNLOAD}Ana ekrana ekle</button>` : ''}</div>` : '';
+  let banner = offline + pushBan + inst + (store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '');
   if (isDirty() && ui.view !== 'yukle') banner += canPublish()
     ? `<div class="banner pub"><p><b>Hazırlanan liste henüz yayında değil.</b> Personel siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button>${ui.view !== 'cizelge' ? '<button class="btn" data-act="goto" data-view="cizelge">Çizelgeye git</button>' : ''}</div>`
     : `<div class="banner pub"><p><b>Hazırladığınız liste henüz yayında değil.</b> “Onaya gönder” deyince müdür ya da yönetici kontrol edip yayınlar.${srv.taslak && auth && srv.taslak.kimId === auth.ben.id && srv.taslak.onay ? ' <b>Onaya gönderildi</b> (' + fmtWhen(srv.taslak.tarih) + ').' : ''}</p><button class="btn primary" data-act="send-approval">${ICON_UPLOAD}Onaya gönder</button>${ui.view !== 'cizelge' ? '<button class="btn" data-act="goto" data-view="cizelge">Çizelgeye git</button>' : ''}</div>`;
@@ -1681,6 +1682,7 @@ const actions = {
   'day-shift': (el) => { ui.dayShift = el.dataset.g; render(); },
   'toggle-unk': (el) => { ui.collapsed['unk-' + el.dataset.g] = !ui.collapsed['unk-' + el.dataset.g]; render(); },
   'add-person': () => personSheet(null),
+  'push-allow': async (el) => { el.disabled = true; try { await pushEnable(); toast('Bildirimler açıldı'); } catch (e) { toast(e.message || 'Bildirim açılamadı'); } srv.pushState = await pushStateNow(); render(); },
   'eg-new': () => trainingSheet(null),
   'eg-edit': (el) => { const e = (srv.egitim || []).find((x) => x.id === +el.dataset.id); if (e) trainingSheet(e); },
   'eg-del': (el) => { const e = (srv.egitim || []).find((x) => x.id === +el.dataset.id); if (!e) return; confirmSheet('Silinsin mi?', `“${e.baslik}” ve ekleri silinir.`, 'Sil', async () => { try { await api('egitim-sil', { id: e.id }); srv.egitim = null; await loadTraining(); toast('Silindi'); } catch (err) { toast(err.message); } }); },

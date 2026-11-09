@@ -115,7 +115,7 @@ switch ($r) {
       $ch = hash('sha256', $cihaz); $st = db()->prepare('SELECT COUNT(*) FROM cihazlar WHERE personnel_id = ?'); $st->execute([$p['id']]); $known = (int)$st->fetchColumn();
       $st = db()->prepare('INSERT IGNORE INTO cihazlar (personnel_id, cihaz, ilk) VALUES (?,?,?)'); $st->execute([$p['id'], $ch, now()]);
       if ($st->rowCount() && $known) {
-        try { notify([(int)$p['id']], ['baslik' => 'Yeni cihazdan giriş', 'metin' => 'Hesabınıza ' . (ua_text((string)($_SERVER['HTTP_USER_AGENT'] ?? '')) ?: 'yeni bir cihaz') . ' ile giriş yapıldı (' . gmdate('d.m.Y H:i', time() + 10800) . '). Siz değilseniz şifrenizi değiştirin ve yöneticinize haber verin.', 'url' => './#ayarlar', 'acil' => true], 'guvenlik'); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
+        try { notify([(int)$p['id']], ['baslik' => 'Yeni cihazdan giriş', 'metin' => 'Hesabınıza ' . (ua_text((string)($_SERVER['HTTP_USER_AGENT'] ?? '')) ?: 'yeni bir cihaz') . ' ile giriş yapıldı (' . gmdate('d.m.Y H:i', time() + 10800) . '). Siz değilseniz şifrenizi değiştirin ve yöneticinize haber verin.', 'url' => './#ayarlar', 'acil' => true, 'guvenlik' => true], 'guvenlik'); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
         audit(['id' => $p['id'], 'name' => $p['name']], 'yeni-cihaz', ua_text((string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
       }
     }
@@ -157,7 +157,7 @@ switch ($r) {
   }
   case 'bildirim-test': {
     $u = current_user();
-    $n = push_to_people([$u['id']], ['baslik' => 'CCN Vardiya', 'metin' => 'Bildirimler açık. Duyurular, yeni liste ve vardiya hatırlatmaları bu cihaza gelecek.', 'url' => './']);
+    $n = push_to_people([$u['id']], ['guvenlik' => true, 'baslik' => 'CCN Vardiya', 'metin' => 'Bildirimler açık. Duyurular, yeni liste ve vardiya hatırlatmaları bu cihaza gelecek.', 'url' => './']);
     if (!$n) fail(502, 'Deneme bildirimi gönderilemedi. Bildirimi kapatıp yeniden açmayı deneyin.');
     ok(['gonderildi' => $n]);
   }
