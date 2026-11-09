@@ -1,7 +1,7 @@
 // CCN Vardiya — çevrimdışı açılış ve "ana ekrana ekle" için hizmet çalışanı.
 // Uygulama kabuğu (sayfa, kod, yazı tipleri, ikonlar) önce ağdan istenir; ağ yoksa son kopya kullanılır.
 // api.php hiç önbelleğe alınmaz (oturuma özel veri): çevrimdışıyken son liste uygulamanın kendi kaydından gösterilir.
-const CACHE = 'ccn-kabuk-42d8e73419';
+const CACHE = 'ccn-kabuk-52ed04cfca';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
@@ -50,6 +50,7 @@ self.addEventListener('fetch', (e) => {
 // bildirimler: sunucudan gelen şifreli mesaj (başlık, metin, adres) gösterilir; dokununca uygulama açılır
 self.addEventListener('push', (e) => {
   let m = {}; try { m = e.data ? e.data.json() : {}; } catch (err) { m = { metin: e.data ? e.data.text() : '' }; }
+  if (m.rozet && self.navigator && self.navigator.setAppBadge) self.navigator.setAppBadge().catch(() => {});
   e.waitUntil(self.registration.showNotification(m.baslik || 'CCN Vardiya', { body: m.metin || '', icon: './icon-192.png', badge: './icon-192.png', tag: m.etiket || undefined, data: { url: m.url || './' } }));
 });
 self.addEventListener('notificationclick', (e) => {

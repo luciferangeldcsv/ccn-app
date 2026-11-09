@@ -232,6 +232,18 @@ table.grid th.we small { color: var(--off); }
 .warnbox li { margin: 3px 0; }
 .banner.offline { border-color: #8a96a3; background: color-mix(in srgb, #8a96a3 16%, var(--surface)); }
 .gtag.all { background: var(--line); color: var(--fg); }
+.nextsh { font-size: 14px; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.mystats { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mystats span:not(.small) { font-size: 13px; padding: 3px 10px; border-radius: 99px; background: var(--kb, var(--surface-2)); color: var(--k, var(--fg)); }
+.annfiles { display: flex; flex-wrap: wrap; gap: 8px; }
+.annimg img { max-width: 220px; max-height: 220px; border-radius: 10px; border: 1px solid var(--line); display: block; }
+.rdl { margin: 6px 0 0; padding-left: 18px; max-height: 280px; overflow: auto; font-size: 14px; }
+.rdl small { color: var(--muted); }
+html[data-fs="2"] { zoom: 1.1; } html[data-fs="3"] { zoom: 1.22; }
+/* renk körlüğüne uygun palet (Okabe–Ito'dan): kırmızı-yeşil ayrımı gerektirmez */
+:root.cb { --s1: #b06a00; --s1-bg: #fdebd0; --s2: #0068a8; --s2-bg: #dcebf6; --s3: #a3477a; --s3-bg: #f6e1ee; --off: #1f1f1f; --off-bg: #dedede; --rap: #7d6f00; --rap-bg: #f6f0c4; --yi: #00785a; --yi-bg: #d4efe4; }
+:root.cb[data-theme="dark"] { --s1: #f2b551; --s1-bg: #3a2a10; --s2: #63b6ef; --s2-bg: #10283a; --s3: #e391c2; --s3-bg: #3a1f30; --off: #ececec; --off-bg: #3a3a3a; --rap: #e8da55; --rap-bg: #36330f; --yi: #43d1a4; --yi-bg: #10362a; }
+@media (prefers-color-scheme: dark) { :root.cb:not([data-theme="light"]) { --s1: #f2b551; --s1-bg: #3a2a10; --s2: #63b6ef; --s2-bg: #10283a; --s3: #e391c2; --s3-bg: #3a1f30; --off: #ececec; --off-bg: #3a3a3a; --rap: #e8da55; --rap-bg: #36330f; --yi: #43d1a4; --yi-bg: #10362a; } }
 .segtabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .segtabs .chip { font-weight: 600; }
 .steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
@@ -591,7 +603,7 @@ h4.ph { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color
   setTimeout(off, 6000);
 })();
 </script>
-<script src="app.js?v=42d8e73419"></script>
+<script src="app.js?v=52ed04cfca"></script>
 
 </body>
 </html>

@@ -17,10 +17,11 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
+const ANN_TARGETS = ['' => 'Herkes', 'v1' => '1. vardiya ekibi', 'v2' => '2. vardiya ekibi', 'v3' => '3. vardiya ekibi', 'sef' => 'Şefler', 'mudur' => 'Müdürler'];
 
 function versions(): array {
   $l = (int)(db()->query('SELECT MAX(id) FROM rosters')->fetchColumn() ?: 0);
@@ -108,6 +109,16 @@ switch ($r) {
     }
     db()->prepare('UPDATE personnel SET failed = 0, locked_until = NULL, last_login = ? WHERE id = ?')->execute([now(), $p['id']]);
     $tok = new_session((int)$p['id'], $hatirla); stat_inc('giris');
+    // yeni cihazdan giriş: kişinin bildirim açık diğer cihazlarına uyarı
+    $cihaz = preg_replace('/[^a-zA-Z0-9-]/', '', str_in('cihaz', 64));
+    if ($cihaz !== '') {
+      $ch = hash('sha256', $cihaz); $st = db()->prepare('SELECT COUNT(*) FROM cihazlar WHERE personnel_id = ?'); $st->execute([$p['id']]); $known = (int)$st->fetchColumn();
+      $st = db()->prepare('INSERT IGNORE INTO cihazlar (personnel_id, cihaz, ilk) VALUES (?,?,?)'); $st->execute([$p['id'], $ch, now()]);
+      if ($st->rowCount() && $known) {
+        try { push_to_people([(int)$p['id']], ['baslik' => 'Yeni cihazdan giriş', 'metin' => 'Hesabınıza ' . (ua_text((string)($_SERVER['HTTP_USER_AGENT'] ?? '')) ?: 'yeni bir cihaz') . ' ile giriş yapıldı (' . gmdate('d.m.Y H:i', time() + 10800) . '). Siz değilseniz şifrenizi değiştirin ve yöneticinize haber verin.', 'url' => './#ayarlar', 'acil' => true]); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
+        audit(['id' => $p['id'], 'name' => $p['name']], 'yeni-cihaz', ua_text((string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
+      }
+    }
     audit(['id' => $p['id'], 'name' => $p['name']], 'giris');
     ok(['token' => $tok, 'ben' => me_out(['id' => (int)$p['id'], 'name' => $p['name'], 'role' => $p['role'], 'title' => $p['title'] ?? null, 'prefs' => $p['prefs'] ?? null, 'sicil' => $p['sicil']]), 'hatirla' => $hatirla]);
   }
@@ -172,14 +183,14 @@ switch ($r) {
   case 'veri': {
     $u = current_user();
     $l = db()->query('SELECT id, data, published_at, published_name FROM rosters ORDER BY id DESC LIMIT 1')->fetch();
-    $d = db()->query('SELECT id, title, body, pinned, created_by, created_name, created_at FROM announcements ORDER BY pinned DESC, id DESC LIMIT 100')->fetchAll();
+    $d = array_values(array_filter(db()->query('SELECT id, title, body, pinned, hedef, created_by, created_name, created_at FROM announcements ORDER BY pinned DESC, id DESC LIMIT 100')->fetchAll(), fn($a) => ann_visible($u, $a)));
     $taslak = level_of($u['title'] ?? '') >= 2 ? (json_decode((string)(meta_get('taslak') ?? ''), true) ?: null) : null;
     stat_inc('goruntuleme');
     // kişi son yayınlanan listeyi gördü (yöneticiler "kim görmedi" diye bakar)
     if ($l) db()->prepare('UPDATE personnel SET seen_roster = ?, seen_at = ? WHERE id = ? AND (seen_roster IS NULL OR seen_roster <> ?)')->execute([(int)$l['id'], now(), $u['id'], (int)$l['id']]);
     ok(['ben' => me_out($u), 'surum' => versions(), 'ayarlar' => json_decode((string)(meta_get('ayarlar') ?? ''), true) ?: null, 'taslak' => $taslak,
       'liste' => $l ? ['id' => (int)$l['id'], 'veri' => json_decode($l['data'], true), 'tarih' => utc($l['published_at']), 'yayinlayan' => $l['published_name']] : null,
-      'duyurular' => array_map(fn($a) => ['id' => (int)$a['id'], 'baslik' => $a['title'], 'metin' => $a['body'], 'sabit' => (bool)$a['pinned'], 'yazan' => $a['created_name'], 'yazanId' => (int)$a['created_by'], 'tarih' => utc($a['created_at'])], $d)]);
+      'duyurular' => ann_out($u, $d)]);
   }
 
   case 'yayinla': {
@@ -318,11 +329,27 @@ switch ($r) {
     $u = require_level(2, 'Duyuru yayınlama yetkiniz yok.');
     $t = str_in('baslik', 160); $m = str_in('metin', 5000);
     if ($t === '' || $m === '') fail(400, 'Başlık ve metin gerekli.');
-    db()->prepare('INSERT INTO announcements (title, body, pinned, created_by, created_name, created_at) VALUES (?,?,?,?,?,?)')
-      ->execute([$t, $m, !empty(body()['sabit']) ? 1 : 0, $u['id'], shown_name($u), now()]);
+    $hedef = in_array(body()['hedef'] ?? '', array_keys(ANN_TARGETS), true) ? body()['hedef'] : '';
+    // ekler: en fazla 3 dosya; fotoğraf (jpeg/png/webp) ya da PDF, her biri en fazla 2,5 MB
+    $ekler = [];
+    foreach (array_slice(is_array(body()['ekler'] ?? null) ? body()['ekler'] : [], 0, 3) as $e) {
+      $tip = (string)($e['tip'] ?? ''); if (!in_array($tip, ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'], true)) fail(400, 'Yalnızca fotoğraf (JPG, PNG) ve PDF eklenebilir.');
+      $bin = base64_decode((string)($e['veri'] ?? ''), true); if ($bin === false || $bin === '') fail(400, 'Ek dosya okunamadı.');
+      if (strlen($bin) > 2600000) fail(413, 'Ek dosya en fazla 2,5 MB olabilir.');
+      $sig = $tip === 'application/pdf' ? '%PDF' : ($tip === 'image/png' ? "\x89PNG" : ($tip === 'image/webp' ? 'RIFF' : "\xFF\xD8"));
+      if (strncmp($bin, $sig, strlen($sig)) !== 0) fail(400, 'Ek dosyanın türü tanınmadı.');
+      $ekler[] = [mb_substr(preg_replace('/[^\p{L}\p{N} ._()-]/u', '', (string)($e['ad'] ?? 'dosya')) ?: 'dosya', 0, 160), $tip, $bin];
+    }
+    db()->prepare('INSERT INTO announcements (title, body, pinned, hedef, created_by, created_name, created_at) VALUES (?,?,?,?,?,?,?)')
+      ->execute([$t, $m, !empty(body()['sabit']) ? 1 : 0, $hedef, $u['id'], shown_name($u), now()]);
     $id = (int)db()->lastInsertId();
-    audit($u, 'duyuru', $t);
-    try { push_to_all(['baslik' => 'Duyuru: ' . $t, 'metin' => mb_substr($m, 0, 180), 'url' => './#duyuru', 'etiket' => "duyuru-$id"], $u['id']); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
+    foreach ($ekler as [$ad, $tip, $bin]) db()->prepare('INSERT INTO duyuru_ek (duyuru_id, ad, tip, boyut, veri) VALUES (?,?,?,?,?)')->execute([$id, $ad, $tip, strlen($bin), $bin]);
+    db()->prepare('INSERT IGNORE INTO duyuru_okundu (duyuru_id, personnel_id, at) VALUES (?,?,?)')->execute([$id, $u['id'], now()]);
+    audit($u, 'duyuru', $t . ($hedef ? ' → ' . ANN_TARGETS[$hedef] : '') . ($ekler ? ' (' . count($ekler) . ' ek)' : ''));
+    try {
+      $msg = ['baslik' => 'Duyuru: ' . $t, 'metin' => mb_substr($m, 0, 180), 'url' => './#duyuru', 'etiket' => "duyuru-$id", 'rozet' => 1];
+      if ($hedef === '') push_to_all($msg, $u['id']); else push_to_people(array_values(array_diff(ann_audience($hedef), [$u['id']])), $msg);
+    } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
     ok(['id' => $id]);
   }
 
@@ -331,7 +358,58 @@ switch ($r) {
     $id = (int)(body()['id'] ?? 0);
     if (level_of($u['title'] ?? '') < 3) { $st = db()->prepare('SELECT created_by FROM announcements WHERE id = ?'); $st->execute([$id]); if ((int)$st->fetchColumn() !== $u['id']) fail(403, 'Yalnızca kendi duyurunuzu silebilirsiniz.'); }
     db()->prepare('DELETE FROM announcements WHERE id = ?')->execute([$id]);
+    db()->prepare('DELETE FROM duyuru_ek WHERE duyuru_id = ?')->execute([$id]); db()->prepare('DELETE FROM duyuru_okundu WHERE duyuru_id = ?')->execute([$id]);
     audit($u, 'duyuru-silindi', "#$id");
+    ok();
+  }
+
+  // duyurular görüntülendi: kişi okudu olarak işaretlenir
+  case 'duyuru-okundu': {
+    $u = current_user(); $ids = array_slice(array_map('intval', (array)(body()['ids'] ?? [])), 0, 200);
+    if ($ids) {
+      $st = db()->prepare('SELECT id, hedef, created_by FROM announcements WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')'); $st->execute($ids);
+      foreach ($st->fetchAll() as $a) if (ann_visible($u, $a)) db()->prepare('INSERT IGNORE INTO duyuru_okundu (duyuru_id, personnel_id, at) VALUES (?,?,?)')->execute([(int)$a['id'], $u['id'], now()]);
+    }
+    ok();
+  }
+  // kimler okudu / okumadı: müdür, yönetici ve duyuruyu yazan görür
+  case 'duyuru-okuyanlar': {
+    $u = current_user(); $id = (int)($_GET['id'] ?? 0);
+    $st = db()->prepare('SELECT id, hedef, created_by FROM announcements WHERE id = ?'); $st->execute([$id]); $a = $st->fetch();
+    if (!$a) fail(404, 'Duyuru bulunamadı.');
+    if (level_of($u['title'] ?? '') < 3 && (int)$a['created_by'] !== $u['id']) fail(403, 'Bu bilgiyi göremezsiniz.');
+    $aud = array_flip(ann_audience((string)$a['hedef']));
+    $st = db()->prepare('SELECT personnel_id, at FROM duyuru_okundu WHERE duyuru_id = ?'); $st->execute([$id]); $read = [];
+    foreach ($st->fetchAll() as $r) $read[(int)$r['personnel_id']] = $r['at'];
+    $okuyan = []; $okumayan = [];
+    foreach (db()->query('SELECT id, name FROM personnel WHERE banned = 0 ORDER BY name') as $p) {
+      $pid = (int)$p['id']; if ($pid === (int)$a['created_by'] || !isset($aud[$pid])) continue;
+      if (isset($read[$pid])) $okuyan[] = ['ad' => $p['name'], 'zaman' => utc($read[$pid])]; else $okumayan[] = $p['name'];
+    }
+    usort($okuyan, fn($x, $y) => strcmp($y['zaman'], $x['zaman']));
+    ok(['okuyan' => $okuyan, 'okumayan' => $okumayan]);
+  }
+  // duyuru eki: imzalı, süreli bağlantı (resim etiketleri başlık gönderemediği için)
+  case 'ek': {
+    $id = (int)($_GET['id'] ?? 0); $e = (int)($_GET['e'] ?? 0); $k = (string)($_GET['k'] ?? '');
+    if ($e < time() || !hash_equals(hmac("ek:$id:$e"), $k)) fail(403, 'Bağlantının süresi doldu. Duyurular sayfasını yenileyin.');
+    $st = db()->prepare('SELECT ad, tip, veri FROM duyuru_ek WHERE id = ?'); $st->execute([$id]); $f = $st->fetch();
+    if (!$f) fail(404, 'Dosya bulunamadı.');
+    header('Content-Type: ' . $f['tip']); header('Content-Length: ' . strlen($f['veri']));
+    header("Content-Disposition: inline; filename*=UTF-8''" . rawurlencode($f['ad']));
+    header('Cache-Control: private, max-age=3600'); header('X-Content-Type-Options: nosniff');
+    echo $f['veri']; exit;
+  }
+  // kişi kendi şifresini değiştirir (diğer cihazlardaki oturumlar kapanır)
+  case 'sifre-degistir': {
+    $u = current_user(); $eski = str_in('eski', 64); $yeni = str_in('yeni', 64);
+    $st = db()->prepare('SELECT pin_hash, title FROM personnel WHERE id = ?'); $st->execute([$u['id']]); $p = $st->fetch();
+    if (!$p || !$p['pin_hash'] || !password_verify($eski, $p['pin_hash'])) fail(400, 'Mevcut şifre yanlış.');
+    if ($e = pw_error($yeni, $p['title'] ?? 'personel')) fail(400, $e);
+    if (password_verify($yeni, $p['pin_hash'])) fail(400, 'Yeni şifre eskisiyle aynı olamaz.');
+    db()->prepare('UPDATE personnel SET pin_hash = ? WHERE id = ?')->execute([password_hash($yeni, PASSWORD_DEFAULT), $u['id']]);
+    db()->prepare('DELETE FROM sessions WHERE personnel_id = ? AND id <> ?')->execute([$u['id'], $u['sid'] ?? 0]);
+    audit($u, 'sifre-degisti', 'kendi şifresini değiştirdi');
     ok();
   }
 
@@ -664,6 +742,43 @@ function clean_roster(): array {
     }
     $data = ['people' => $people, 'rules' => $rules, 'settings' => ['company' => mb_substr((string)($s['company'] ?? ''), 0, 80), 'hours' => $hours, 'offRule' => ($s['offRule'] ?? '') === 'team' ? 'team' : 'return']];
     return [$data, count($people), $min, $max];
+}
+
+// Hedefli duyuru: '' herkes, v1/v2/v3 o vardiya ekibi (yayındaki listedeki ekip), sef / mudur unvan
+function roster_groups(): array {
+  static $g = null; if ($g !== null) return $g;
+  $j = db()->query('SELECT data FROM rosters ORDER BY id DESC LIMIT 1')->fetchColumn(); $g = [];
+  foreach (($j ? (json_decode((string)$j, true)['people'] ?? []) : []) as $p) if (!empty($p['group'])) $g[name_key((string)$p['name'])] = (string)$p['group'];
+  return $g;
+}
+function ann_audience(string $h): array {
+  static $c = []; if (isset($c[$h])) return $c[$h];
+  $out = []; $grp = roster_groups();
+  foreach (db()->query('SELECT id, name, title FROM personnel WHERE banned = 0') as $p) {
+    $ok = $h === '' || ($h === 'sef' && $p['title'] === 'sef') || ($h === 'mudur' && $p['title'] === 'mudur') || (in_array($h, ['v1', 'v2', 'v3'], true) && ($grp[name_key((string)$p['name'])] ?? '') === $h[1]);
+    if ($ok) $out[] = (int)$p['id'];
+  }
+  return $c[$h] = $out;
+}
+function ann_visible(array $u, array $a): bool {
+  $h = (string)($a['hedef'] ?? ''); if ($h === '' || level_of($u['title'] ?? '') >= 3 || (int)$a['created_by'] === $u['id']) return true;
+  return in_array($u['id'], ann_audience($h), true);
+}
+function ann_out(array $u, array $list): array {
+  if (!$list) return [];
+  $ids = array_map(fn($a) => (int)$a['id'], $list); $in = implode(',', $ids);
+  $ek = []; foreach (db()->query("SELECT id, duyuru_id, ad, tip, boyut FROM duyuru_ek WHERE duyuru_id IN ($in) ORDER BY id") as $e) {
+    $exp = time() + 86400; $ek[(int)$e['duyuru_id']][] = ['id' => (int)$e['id'], 'ad' => $e['ad'], 'tip' => $e['tip'], 'boyut' => (int)$e['boyut'], 'url' => 'api.php?r=ek&id=' . $e['id'] . '&e=' . $exp . '&k=' . hmac('ek:' . $e['id'] . ':' . $exp)];
+  }
+  $read = []; foreach (db()->query("SELECT duyuru_id, personnel_id FROM duyuru_okundu WHERE duyuru_id IN ($in)") as $r) $read[(int)$r['duyuru_id']][(int)$r['personnel_id']] = true;
+  $mine = []; $st = db()->prepare("SELECT duyuru_id FROM duyuru_okundu WHERE personnel_id = ? AND duyuru_id IN ($in)"); $st->execute([$u['id']]); foreach ($st->fetchAll() as $r) $mine[(int)$r['duyuru_id']] = true;
+  $lv = level_of($u['title'] ?? '');
+  return array_map(function ($a) use ($u, $ek, $read, $mine, $lv) {
+    $id = (int)$a['id']; $own = (int)$a['created_by'] === $u['id']; $h = (string)($a['hedef'] ?? '');
+    return ['id' => $id, 'baslik' => $a['title'], 'metin' => $a['body'], 'sabit' => (bool)$a['pinned'], 'yazan' => $a['created_name'], 'yazanId' => (int)$a['created_by'], 'tarih' => utc($a['created_at']),
+      'hedef' => $h, 'hedefAd' => ANN_TARGETS[$h] ?? 'Herkes', 'ekler' => $ek[$id] ?? [], 'okudum' => isset($mine[$id]),
+      'okuma' => ($lv >= 3 || $own) ? (function () use ($a, $h, $read, $id) { $aud = array_values(array_diff(ann_audience($h), [(int)$a['created_by']])); $r = $read[$id] ?? []; return ['okuyan' => count(array_filter($aud, fn($p) => isset($r[$p]))), 'toplam' => count($aud)]; })() : null];
+  }, $list);
 }
 
 // Kişinin son yayınlanan listede o günkü kodları (aynı isim birden çok satırda olabilir)

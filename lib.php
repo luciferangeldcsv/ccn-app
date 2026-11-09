@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 11;
+const SCHEMA_V = 12;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -155,6 +155,11 @@ function upgrades(PDO $pdo): void {
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
+    // 11 → 12: hedefli duyuru, duyuru okundu bilgisi, duyuru ekleri, bilinen cihazlar (yeni cihazdan giriş uyarısı)
+    if (!$pdo->query("SHOW COLUMNS FROM announcements LIKE 'hedef'")->fetch()) $pdo->exec("ALTER TABLE announcements ADD COLUMN hedef VARCHAR(10) NOT NULL DEFAULT ''");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS duyuru_okundu (duyuru_id INT NOT NULL, personnel_id INT NOT NULL, at DATETIME NOT NULL, PRIMARY KEY (duyuru_id, personnel_id)) $T");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS duyuru_ek (id INT AUTO_INCREMENT PRIMARY KEY, duyuru_id INT NOT NULL, ad VARCHAR(160) NOT NULL, tip VARCHAR(60) NOT NULL, boyut INT NOT NULL, veri MEDIUMBLOB NOT NULL, INDEX (duyuru_id)) $T");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS cihazlar (personnel_id INT NOT NULL, cihaz CHAR(64) NOT NULL, ilk DATETIME NOT NULL, PRIMARY KEY (personnel_id, cihaz)) $T");
     // 10 → 11: vardiya saatleri güncellendi (bir kez uygulanır; sonra yönetici Ayarlar'dan değiştirebilir)
     if (!$pdo->query("SELECT COUNT(*) FROM meta WHERE k = 'saat_2026_11'")->fetchColumn()) {
       $a = json_decode((string)($pdo->query("SELECT v FROM meta WHERE k = 'ayarlar'")->fetchColumn() ?: ''), true); if (!is_array($a)) $a = [];
