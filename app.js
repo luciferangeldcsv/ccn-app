@@ -448,7 +448,7 @@ function apiUpload(r, formData, onProgress) {
 function signOut(msg) {
   auth = null; saveAuth(); clearInterval(pollT);
   store = defaultStore(); try { localStorage.removeItem(STORE_KEY); } catch (e) { /* yoksay */ }
-  srv.bildirimler = []; srv.bildirimSon = 0; srv.v = null; srv.duyurular = []; srv.personel = null; srv.kayitlar = null; srv.gorev = null; srv.egitim = null; srv.sikayet = null; srv.sikayetAcik = 0;
+  srv.bildirimler = []; srv.bildirimSon = 0; if (ui.skFiles) { ui.skFiles.forEach((x) => { try { URL.revokeObjectURL(x.url); } catch (e) {} }); ui.skFiles = []; } srv.v = null; srv.duyurular = []; srv.personel = null; srv.kayitlar = null; srv.gorev = null; srv.egitim = null; srv.sikayet = null; srv.sikayetAcik = 0;
   ui.login = { step: 'giris', hatirla: true, err: msg || '' }; ui.review = null; ui.view = 'gunluk';
   closeSheet(); render();
 }
@@ -1635,6 +1635,7 @@ function bindView() {
   if (ui.view === 'ayarlar') { bindSettings(); renderPushCard(); }
   if (ui.view === 'gorev') bindTasks();
   if (ui.view === 'egitim') bindTraining();
+  if (ui.view === 'sikayet') bindComplaints();
   if (SERVER && auth && ui.view === 'duyuru') { const ids = srv.duyurular.filter((a) => !a.okudum).map((a) => a.id); if (ids.length) { srv.duyurular.forEach((a) => { a.okudum = true; }); api('duyuru-okundu', { ids }).catch(() => {}); } }
 
 }
@@ -1706,12 +1707,13 @@ const actions = {
   'eg-cat': (el) => { ui.ekat = el.dataset.k; render(); },
   'sk-tab': (el) => { ui.skTab = el.dataset.t; render(); },
   'sk-send': async (el) => {
-    const m = (document.getElementById('sk-m') || {}).value || ''; const files = [...((document.getElementById('sk-f') || {}).files || [])];
-    if (m.trim().length < 5) { toast('Şikayetinizi birkaç kelimeyle yazın'); return; } if (files.length > 3) { toast('En fazla 3 fotoğraf'); return; }
+    const m = (document.getElementById('sk-m') || {}).value || ''; const files = (ui.skFiles || []).map((x) => x.file);
+    if (m.trim().length < 5) { toast('Şikayetinizi birkaç kelimeyle yazın'); return; } if (files.length > 3) { toast('En fazla 3 dosya'); return; }
     el.disabled = true;
-    try { const j = await api('sikayet-gonder', { metin: m.trim() }); await uploadFiles('sikayet', j.id, files, true); srv.sikayet = null; ui.skTab = 'acik'; await loadComplaints(); toast('Şikayetiniz iletildi'); }
+    try { const j = await api('sikayet-gonder', { metin: m.trim() }); await uploadFiles('sikayet', j.id, files); clearSelFiles(); srv.sikayet = null; ui.skTab = 'acik'; await loadComplaints(); toast('Şikayetiniz iletildi'); }
     catch (e) { el.disabled = false; toast(e.message); srv.sikayet = null; loadComplaints(); }
   },
+  'sk-rm': (el) => { const i = +el.dataset.i; const a = ui.skFiles || []; if (a[i]) { try { URL.revokeObjectURL(a[i].url); } catch (e) {} a.splice(i, 1); renderSelPreview(); } },
   'sk-solve': async (el) => {
     const id = +el.dataset.id; const c = (document.getElementById('sk-c-' + id) || {}).value || '';
     if (c.trim().length < 3) { toast('Çözüm yazısını yazın'); return; }
@@ -2120,6 +2122,31 @@ function complaintCard(c, manager) {
     ${!open ? `<div class="cozum"><b>Çözüm</b> · ${esc(c.cozen || '')} · ${fmtWhen(c.cozulduTarih)}<p style="margin:4px 0 0;white-space:pre-wrap">${esc(c.cozum || '')}</p></div>` : manager ? `<div class="stack" style="gap:6px"><textarea id="sk-c-${c.id}" rows="2" maxlength="5000" placeholder="Çözüm yazısı (şikayet edene iletilir)"></textarea><div><button class="btn primary small" data-act="sk-solve" data-id="${c.id}">${ICON_CHECK}Çözüldü olarak işaretle</button></div></div>` : '<p class="small muted" style="margin:0">Şef, müdür ve yöneticilere iletildi. Çözülünce bildirim alacaksınız.</p>'}
   </article>`;
 }
+function clearSelFiles() { (ui.skFiles || []).forEach((x) => { try { URL.revokeObjectURL(x.url); } catch (e) {} }); ui.skFiles = []; }
+function renderSelPreview() {
+  const box = document.getElementById('sk-prev'); if (!box) return; const a = ui.skFiles || [];
+  box.innerHTML = a.map((x, i) => {
+    const vid = /^video\//.test(x.file.type);
+    const thumb = vid ? `<video src="${x.url}" muted preload="metadata"></video>` : `<img src="${x.url}" alt="">`;
+    return `<div class="selitem">${thumb}<button type="button" class="selx" data-act="sk-rm" data-i="${i}" aria-label="Çıkar">×</button><span class="selnm">${esc(x.file.name)}</span></div>`;
+  }).join('') + (a.length ? `<span class="small muted" style="align-self:center">${a.length}/3 seçildi · göndermeden yüklenmez</span>` : '');
+  bindIn(box);
+}
+function bindComplaints() {
+  const inp = document.getElementById('sk-f'); if (!inp || inp.dataset.bound) return; inp.dataset.bound = '1';
+  if (!ui.skFiles) ui.skFiles = [];
+  inp.addEventListener('change', () => {
+    for (const f of [...inp.files]) {
+      if ((ui.skFiles.length) >= 3) { toast('En fazla 3 dosya'); break; }
+      if (!/^(image|video)\//.test(f.type)) { toast(`${f.name}: yalnızca fotoğraf ya da video`); continue; }
+      if (f.size > UPLOAD_LIMIT) { toast(`${f.name} çok büyük (en fazla 100 MB)`); continue; }
+      ui.skFiles.push({ file: f, url: URL.createObjectURL(f) });
+    }
+    inp.value = ''; renderSelPreview();
+  });
+  renderSelPreview();
+}
+
 function viewComplaints() {
   if (!srv.sikayet) { loadComplaints(); return '<div class="card"><p class="muted" style="margin:0">Şikayetler yükleniyor…</p></div>'; }
   const L = srv.sikayet.sikayetler; const mgr = srv.sikayet.yonetici;
@@ -2127,6 +2154,7 @@ function viewComplaints() {
     <p class="small muted" style="margin:0">Şikayetiniz şef, müdür ve yöneticilere iletilir. Çözülünce size bildirim gelir.</p>
     <textarea id="sk-m" rows="4" maxlength="5000" placeholder="Şikayetinizi yazın…"></textarea>
     <label class="field">Fotoğraf ya da video ekle (isteğe bağlı, en fazla 3 · 100 MB)<input type="file" id="sk-f" multiple accept="image/*,video/*"></label>
+    <div id="sk-prev" class="selprev"></div>
     <div><button class="btn primary" data-act="sk-send">Şikayeti gönder</button></div></div>`;
   const mine = L.filter((c) => c.benim);
   const mineHtml = `<h2 class="sect">Şikayetlerim</h2>${mine.length ? mine.map((c) => complaintCard(c, false)).join('') : '<div class="card"><p class="empty" style="margin:0">Henüz şikayet bildirmediniz.</p></div>'}`;
