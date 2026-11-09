@@ -17,7 +17,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -454,7 +454,7 @@ switch ($r) {
     else fail(400, 'Geçersiz dosya türü.');
     $st = db()->prepare('SELECT COUNT(*) FROM dosyalar WHERE tur = ? AND sahip_id = ?'); $st->execute([$tur, $sid]); if ((int)$st->fetchColumn() >= $max) fail(400, "En fazla $max dosya eklenebilir.");
     [$ad, $tip, $bin] = read_upload(body(), $tur === 'sikayet');
-    db()->prepare('INSERT INTO dosyalar (tur, sahip_id, ad, tip, boyut, veri, created_at) VALUES (?,?,?,?,?,?,?)')->execute([$tur, $sid, $ad, $tip, strlen($bin), $bin, now()]);
+    db()->prepare('INSERT INTO dosyalar (tur, sahip_id, uploader_id, ad, tip, boyut, veri, created_at) VALUES (?,?,?,?,?,?,?,?)')->execute([$tur, $sid, $u['id'], $ad, $tip, strlen($bin), $bin, now()]);
     ok(['id' => (int)db()->lastInsertId()]);
   }
   case 'dosya-sil': {
@@ -756,6 +756,42 @@ switch ($r) {
     ok(['duyurular' => array_map(fn($r) => ['id' => (int)$r['id'], 'baslik' => $r['title'], 'metin' => $r['body'], 'sabit' => (bool)$r['pinned'], 'kim' => $r['real_name'] ?: $r['created_name'], 'tarih' => utc($r['created_at'])], $rows)]);
   }
 
+  // Yüklenen dosyalar: şikayet fotoğrafları, eğitim ekleri, duyuru ekleri — kim yükledi, hangi bölüm, önizleme; uygunsuz yükleyen askıya alınır
+  case 'dev-dosyalar': {
+    dev_only();
+    $tur = preg_replace('/[^a-z]/', '', (string)($_GET['tur'] ?? '')); $tip = (string)($_GET['tip'] ?? '');
+    $sayfa = max(1, (int)($_GET['sayfa'] ?? 1)); $adet = 48;
+    // tüm yüklemeleri tek listede birleştir (dosyalar: şikayet/eğitim, duyuru_ek: duyuru)
+    $all = [];
+    $st = db()->query("SELECT d.id, d.tur, d.sahip_id, d.uploader_id, d.ad, d.tip, d.boyut, d.created_at, p.name uploader_ad, p.title uploader_unvan, p.banned,
+      CASE d.tur WHEN 'sikayet' THEN (SELECT durum FROM sikayetler WHERE id = d.sahip_id) ELSE NULL END sik_durum
+      FROM dosyalar d LEFT JOIN personnel p ON p.id = d.uploader_id ORDER BY d.id DESC");
+    foreach ($st as $r) $all[] = ['kaynak' => 'dosya', 'id' => (int)$r['id'], 'bolum' => $r['tur'] === 'sikayet' ? 'Şikayet' : 'Eğitim/Not', 'tur' => $r['tur'],
+      'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'tarih' => utc($r['created_at']),
+      'yukleyenId' => $r['uploader_id'] ? (int)$r['uploader_id'] : null, 'yukleyen' => $r['uploader_ad'], 'unvan' => $r['uploader_unvan'], 'askida' => (bool)$r['banned'],
+      'durum' => $r['sik_durum'], 'url' => dosya_url('dosya', (int)$r['id'], '../')];
+    $st = db()->query("SELECT e.id, e.duyuru_id, e.ad, e.tip, e.boyut, a.created_at, a.created_by, a.title, p.name, p.title ptitle, p.banned
+      FROM duyuru_ek e JOIN announcements a ON a.id = e.duyuru_id LEFT JOIN personnel p ON p.id = a.created_by ORDER BY e.id DESC");
+    foreach ($st as $r) $all[] = ['kaynak' => 'ek', 'id' => (int)$r['id'], 'bolum' => 'Duyuru', 'tur' => 'duyuru',
+      'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'tarih' => utc($r['created_at']),
+      'yukleyenId' => $r['created_by'] ? (int)$r['created_by'] : null, 'yukleyen' => $r['name'], 'unvan' => $r['ptitle'], 'askida' => (bool)$r['banned'],
+      'durum' => null, 'url' => dosya_url('ek', (int)$r['id'], '../')];
+    usort($all, fn($x, $y) => strcmp($y['tarih'], $x['tarih']));
+    if ($tur !== '' && in_array($tur, ['sikayet', 'egitim', 'duyuru'], true)) $all = array_values(array_filter($all, fn($f) => $f['tur'] === $tur));
+    if ($tip === 'foto') $all = array_values(array_filter($all, fn($f) => strncmp($f['tip'], 'image/', 6) === 0));
+    elseif ($tip === 'pdf') $all = array_values(array_filter($all, fn($f) => $f['tip'] === 'application/pdf'));
+    $toplam = count($all);
+    ok(['toplam' => $toplam, 'sayfa' => $sayfa, 'sayfaSayisi' => max(1, (int)ceil($toplam / $adet)), 'foto' => count(array_filter($all, fn($f) => strncmp($f['tip'], 'image/', 6) === 0)),
+      'dosyalar' => array_slice($all, ($sayfa - 1) * $adet, $adet)]);
+  }
+  case 'dev-dosya-sil': {
+    $u = dev_only(); $kaynak = (string)(body()['kaynak'] ?? ''); $id = (int)(body()['id'] ?? 0);
+    if ($kaynak === 'ek') db()->prepare('DELETE FROM duyuru_ek WHERE id = ?')->execute([$id]);
+    else db()->prepare('DELETE FROM dosyalar WHERE id = ?')->execute([$id]);
+    audit($u, 'dosya-silindi', "$kaynak #$id");
+    ok();
+  }
+
   case 'dev-guvenlik': {
     dev_only();
     $h24 = gmdate('Y-m-d H:i:s', time() - 86400); $h1 = gmdate('Y-m-d H:i:s', time() - 3600);
@@ -1006,6 +1042,7 @@ function visible_logs(array $u, ?int $pid, int $max): array {
 function tr_date(?string $d): string { return $d && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $d, $m) ? "$m[3].$m[2].$m[1]" : (string)$d; }
 
 // DEV paneli yalnızca DEV hesabıyla ve web'den (uygulamadan değil) açılır
+function dosya_url(string $r, int $id, string $pfx = ''): string { $exp = time() + 86400; return "${pfx}api.php?r=$r&id=$id&e=$exp&k=" . hmac(($r === 'ek' ? 'ek:' : 'dosya:') . "$id:$exp"); }
 function dev_only(): array {
   $origin = (string)($_SERVER['HTTP_ORIGIN'] ?? '');
   if (in_array($origin, ['https://localhost', 'capacitor://localhost', 'http://localhost'], true)) fail(403, 'Bu panel yalnızca web üzerinden açılır.');

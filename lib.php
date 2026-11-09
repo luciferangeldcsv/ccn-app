@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 14;
+const SCHEMA_V = 15;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -155,6 +155,13 @@ function upgrades(PDO $pdo): void {
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
+    // 14 → 15: yüklenen dosyalarda yükleyen kişi (denetim: uygunsuz içerik yükleyeni DEV panelinden bulup askıya alma)
+    if (!$pdo->query("SHOW COLUMNS FROM dosyalar LIKE 'uploader_id'")->fetch()) {
+      $pdo->exec('ALTER TABLE dosyalar ADD COLUMN uploader_id INT NULL AFTER sahip_id');
+      // eski kayıtlar: şikayet dosyalarını şikayet edene, eğitim dosyalarını ekleyene bağla
+      $pdo->exec("UPDATE dosyalar d JOIN sikayetler s ON s.id = d.sahip_id SET d.uploader_id = s.personnel_id WHERE d.tur = 'sikayet' AND d.uploader_id IS NULL");
+      $pdo->exec("UPDATE dosyalar d JOIN egitimler e ON e.id = d.sahip_id SET d.uploader_id = e.created_by WHERE d.tur = 'egitim' AND d.uploader_id IS NULL");
+    }
     // 13 → 14: bildirim merkezi (sağ üstteki zil): herkese (personnel_id NULL) ya da kişiye özel kayıtlar; kişinin en son okuduğu
     $pdo->exec("CREATE TABLE IF NOT EXISTS bildirimler (id INT AUTO_INCREMENT PRIMARY KEY, personnel_id INT NULL, haric_id INT NULL, tur VARCHAR(20) NOT NULL, baslik VARCHAR(200) NOT NULL, metin VARCHAR(600) NOT NULL DEFAULT '', url VARCHAR(200) NOT NULL DEFAULT '', created_at DATETIME NOT NULL, INDEX (personnel_id), INDEX (created_at)) $T");
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'bildirim_son'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN bildirim_son INT NOT NULL DEFAULT 0');
