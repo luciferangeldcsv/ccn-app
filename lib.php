@@ -229,7 +229,7 @@ function store_upload(string $tmp, string $tip, string $ad, bool $isUploaded = t
   if (!is_dir($dir)) @mkdir($dir, 0770, true);
   $name = bin2hex(random_bytes(16)) . '.' . UPLOAD_TYPES[$tip]; $dest = "$dir/$name";
   $okMove = $isUploaded ? @move_uploaded_file($tmp, $dest) : @rename($tmp, $dest);
-  if (!$okMove) fail(500, 'Dosya kaydedilemedi.');
+  if (!$okMove) return []; // yazılamadı: çağıran veritabanına düşürür
   @chmod($dest, 0640);
   $ad = mb_substr(preg_replace('/[^\p{L}\p{N} ._()-]/u', '', $ad) ?: 'dosya', 0, 160);
   return ['yol' => "$sub/$name", 'tip' => $tip, 'boyut' => $boyut, 'ad' => $ad];

@@ -455,11 +455,19 @@ switch ($r) {
     else fail(400, 'Geçersiz dosya türü.');
     $st = db()->prepare('SELECT COUNT(*) FROM dosyalar WHERE tur = ? AND sahip_id = ?'); $st->execute([$tur, $sid]); if ((int)$st->fetchColumn() >= $max) fail(400, "En fazla $max dosya eklenebilir.");
     $ip = client_ip(); $ua = mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 200);
-    if (!empty($_FILES['dosya']['tmp_name'])) { // büyük dosya (multipart): fotoğraf, video, PDF — 100 MB'a kadar diske
+    if (!empty($_FILES['dosya']['tmp_name'])) { // büyük dosya (multipart): fotoğraf, video, PDF — 100 MB'a kadar
       $fi = $_FILES['dosya']; if ($fi['error'] !== UPLOAD_ERR_OK) fail($fi['error'] === UPLOAD_ERR_INI_SIZE || $fi['error'] === UPLOAD_ERR_FORM_SIZE ? 413 : 400, $fi['error'] === UPLOAD_ERR_INI_SIZE ? 'Dosya çok büyük (en fazla 100 MB).' : 'Dosya yüklenemedi.');
-      $tip = mime_tip($fi['tmp_name'], (string)$fi['type']);
-      $f = store_upload($fi['tmp_name'], $tip, (string)($_POST['ad'] ?? $fi['name']));
-      db()->prepare('INSERT INTO dosyalar (tur, sahip_id, uploader_id, ad, tip, boyut, yol, ip, ua, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$tur, $sid, $u['id'], $f['ad'], $f['tip'], $f['boyut'], $f['yol'], $ip, $ua, now()]);
+      $tip = mime_tip($fi['tmp_name'], (string)$fi['type']); $ad = mb_substr(preg_replace('/[^\p{L}\p{N} ._()-]/u', '', (string)($_POST['ad'] ?? $fi['name'])) ?: 'dosya', 0, 160);
+      $boyut = (int)$fi['size']; if ($boyut > UPLOAD_MAX) fail(413, 'Dosya en fazla 100 MB olabilir.');
+      $dir = uploads_dir(); $diskOk = is_dir($dir) && is_writable($dir);
+      $f = $diskOk ? store_upload($fi['tmp_name'], $tip, $ad) : [];
+      if ($f) { // diske kaydedildi
+        db()->prepare('INSERT INTO dosyalar (tur, sahip_id, uploader_id, ad, tip, boyut, yol, ip, ua, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$tur, $sid, $u['id'], $f['ad'], $f['tip'], $f['boyut'], $f['yol'], $ip, $ua, now()]);
+      } else { // diske yazılamadı / kalıcı depolama açık değil: küçük dosyalar veritabanına, büyükler reddedilir
+        if ($boyut > 8600000) fail(507, 'Sunucuda büyük dosya depolama henüz açık değil. Şimdilik en fazla 8 MB fotoğraf/video yükleyebilirsiniz; yöneticinize bildirin.');
+        $bin = file_get_contents($fi['tmp_name']); if ($bin === false) fail(400, 'Dosya okunamadı.');
+        db()->prepare('INSERT INTO dosyalar (tur, sahip_id, uploader_id, ad, tip, boyut, veri, ip, ua, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$tur, $sid, $u['id'], $ad, $tip, strlen($bin), $bin, $ip, $ua, now()]);
+      }
     } else { // küçük görsel (base64 JSON, eski yol)
       [$ad, $tip, $bin] = read_upload(body(), false, 8600000);
       db()->prepare('INSERT INTO dosyalar (tur, sahip_id, uploader_id, ad, tip, boyut, veri, ip, ua, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$tur, $sid, $u['id'], $ad, $tip, strlen($bin), $bin, $ip, $ua, now()]);
