@@ -2053,8 +2053,15 @@ async function uploadFiles(tur, id, files) {
     if (!img && !vid && !pdf) throw new Error(`${f.name}: yalnızca fotoğraf, video ya da PDF`);
     if (f.size > UPLOAD_LIMIT) throw new Error(`${f.name} çok büyük (en fazla 100 MB)`);
     n++;
-    const fd = new FormData(); fd.append('dosya', f, f.name); fd.append('ad', f.name); fd.append('tur', tur); fd.append('sahip_id', id);
-    await apiUpload('dosya-yukle', fd, (p) => toast(`Yükleniyor ${n}/${files.length} · %${Math.round(p * 100)}`));
+    if (img) {
+      // fotoğraf: yüksek kalitede ama güvenle saklanacak boyuta getirilip gönderilir (her sunucuda çalışır)
+      const a = await prepAttachment(f, true);
+      await api('dosya-yukle', { tur, sahip_id: id, ad: a.ad, tip: a.tip, veri: a.veri });
+    } else {
+      // video / PDF: olduğu gibi (multipart) — büyük video için sunucuda kalıcı depolama gerekir
+      const fd = new FormData(); fd.append('dosya', f, f.name); fd.append('ad', f.name); fd.append('tur', tur); fd.append('sahip_id', id);
+      await apiUpload('dosya-yukle', fd, (p) => toast(`Yükleniyor ${n}/${files.length} · %${Math.round(p * 100)}`));
+    }
   }
 }
 
