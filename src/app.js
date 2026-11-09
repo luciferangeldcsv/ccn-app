@@ -105,6 +105,9 @@ const HOST_THEME = document.documentElement.getAttribute('data-theme');
 function applyTheme() {
   const t = prefs.theme === 'auto' ? HOST_THEME : prefs.theme;
   if (t) document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
+  // cihaz tercihleri: yazı boyutu ve renk körlüğüne uygun renkler
+  document.documentElement.setAttribute('data-fs', prefs.fontScale || '1');
+  document.documentElement.classList.toggle('cb', !!prefs.colorSafe);
   const dark = t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
   const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.content = dark ? '#11161c' : '#1f5f8b';
   // APK: durum çubuğu simgeleri temaya uysun
@@ -623,7 +626,9 @@ TAB_ICON.gorev = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 TAB_ICON.personel = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 20a6.5 6.5 0 0 0-3-5.5"/></svg>';
 const TAB_LABEL = { gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', gorev: 'Görevler', duyuru: 'Duyurular', personel: 'Personel', ayarlar: 'Ayarlar' };
 $tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) go(b.dataset.view); });
-function unreadCount() { const seen = prefs.seenAnn || 0; return srv.duyurular.filter((a) => a.id > seen).length; }
+function unreadCount() { const seen = prefs.seenAnn || 0; const n = srv.duyurular.filter((a) => a.id > seen).length; setBadge(n); return n; }
+let lastBadge = -1;
+function setBadge(n) { if (n === lastBadge || NATIVE || !('setAppBadge' in navigator)) return; lastBadge = n; try { (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch (e) { /* desteklenmiyor */ } }
 const $side = document.createElement('aside'); $side.id = 'side'; $side.setAttribute('aria-label', 'Yönetim menüsü'); document.body.prepend($side);
 $side.addEventListener('input', (e) => { if (e.target.id !== 'side-q') return; ui.sideQ = e.target.value; const r = document.getElementById('side-res'); if (r) r.innerHTML = sideResults(); });
 $side.addEventListener('keydown', (e) => { if (e.target.id === 'side-q' && e.key === 'Enter') { const b = $side.querySelector('[data-cal]'); if (b) b.click(); } if (e.target.id === 'side-q' && e.key === 'Escape') { ui.sideQ = ''; e.target.value = ''; document.getElementById('side-res').innerHTML = ''; } });
@@ -736,6 +741,7 @@ function viewDaily() {
   const mine = me ? `<section class="card stack mine">
       <div class="row"><h3 style="flex:1;font-size:18px;margin:0">Benim vardiyam</h3><span class="small muted">${esc(me.name)}</span></div>
       <div class="pdays">${Array.from({ length: 7 }, (_, i) => addDays(t, i)).map((x) => { const c = me.days[x] || ''; return `<button class="pday k-${c} ${x === d ? 'sel' : ''}" data-act="set-date" data-date="${x}"><span>${i0(x, t)}</span><b>${CODES[c] ? CODES[c].short : '–'}</b></button>`; }).join('')}</div>
+      ${SERVER ? mineExtras(me) : ''}
     </section>` : '';
   const pubInfo = SERVER && store.pub ? `<p class="small muted" style="margin:0">Liste ${fmtWhen(store.pub.tarih)} tarihinde${store.pub.yayinlayan ? ' ' + esc(store.pub.yayinlayan) + ' tarafından' : ''} yayınlandı.</p>` : '';
   const pinned = SERVER ? srv.duyurular.filter((a) => a.sabit).slice(0, 2).map((a) => `<button class="banner ann-mini" data-act="goto" data-view="duyuru"><b>📌 ${esc(a.baslik)}</b><span class="small">${esc(a.metin.slice(0, 120))}${a.metin.length > 120 ? '…' : ''}</span></button>`).join('') : '';
@@ -820,6 +826,103 @@ function searchResults() {
       <div class="pdays">${days.map((d) => { const c = p.days[d]; return `<button class="pday k-${c} ${d === ui.date ? 'sel' : ''}" data-act="set-date" data-date="${d}"><span>${fmtShort(d).slice(0, 5)}</span><b>${CODES[c] ? CODES[c].short : c}</b></button>`; }).join('')}</div>
     </section>`;
   }).join('');
+}
+
+// ---------- Benim vardiyam: sonraki vardiya, bugünkü ekip, ay istatistiği, kendi listemi paylaş ----------
+function nextShift(me) {
+  const now = Date.now(); const t = todayIso();
+  for (let i = -1; i <= 45; i++) {
+    const d = addDays(t, i); const c = me.days[d]; if (!['1', '2', '3'].includes(c)) continue;
+    const sp = shiftSpan(c); if (!sp) continue;
+    const st = parseIso(d).getTime() + sp[0] * 60000, en = parseIso(d).getTime() + sp[1] * 60000;
+    if (en <= now) continue;
+    return { d, c, st, en, now: st <= now };
+  }
+  return null;
+}
+function untilText(ms) { const m = Math.max(0, Math.round(ms / 60000)); const g = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60; return g ? `${g} gün ${h} saat` : h ? `${h} saat ${mm} dk` : `${mm} dk`; }
+function myMonthStats(me, ym) {
+  const cnt = { '1': 0, '2': 0, '3': 0, OFF: 0, IZ: 0 }; let min = 0;
+  for (const [d, c] of Object.entries(me.days)) { if (d.slice(0, 7) !== ym) continue; if (cnt[c] != null) cnt[c]++; else if (['R', 'YI', 'UI', 'MI'].includes(c)) cnt.IZ++; if (['1', '2', '3'].includes(c)) { const sp = shiftSpan(c); if (sp) min += sp[1] - sp[0]; } }
+  return { ...cnt, work: cnt['1'] + cnt['2'] + cnt['3'], hours: Math.round(min / 6) / 10 };
+}
+function mineExtras(me) {
+  const t = todayIso(); const n = nextShift(me); const c = me.days[t] || '';
+  const next = n ? (n.now ? `<b>Şu an ${n.c}. vardiyadasınız</b> · ${untilText(n.en - Date.now())} sonra biter` : `<b>Sonraki vardiya:</b> ${n.d === t ? 'Bugün' : n.d === addDays(t, 1) ? 'Yarın' : `${fmtShort(n.d)} ${DAY_NAMES[parseIso(n.d).getDay()]}`} ${esc((store.settings.hours[n.c] || '').split(/[–-]/)[0])} · ${n.c}. vardiya · <b>${untilText(n.st - Date.now())}</b> sonra`) : 'Listede yaklaşan vardiyanız yok.';
+  // bugün aynı vardiyadaki ekip
+  let team = '';
+  if (['1', '2', '3'].includes(c)) {
+    const L = dayLists(t)[c]; const mates = (L ? L.working : []).filter((p) => nameKey(p.name) !== nameKey(me.name)).map((p) => p.name).sort((a, b) => a.localeCompare(b, 'tr'));
+    team = `<div class="small"><b>Bugün ${c}. vardiyada sizinle:</b> ${mates.length ? mates.map(esc).join(', ') : '<span class="muted">başka kimse yok</span>'}</div>`;
+  }
+  const S = myMonthStats(me, t.slice(0, 7));
+  return `<div class="nextsh">${next}</div>${team}
+    <div class="mystats"><span><b>${S.work}</b> gün çalışma</span><span><b>${S.hours}</b> saat</span><span class="k-3"><b>${S['3']}</b> gece</span><span class="k-OFF"><b>${S.OFF}</b> OFF</span>${S.IZ ? `<span class="k-R"><b>${S.IZ}</b> izin/rapor</span>` : ''}<span class="small muted">${MONTHS[parseIso(t).getMonth()]} ayı</span></div>
+    <div class="row"><button class="btn small" data-act="my-share">${ICON_SHARE}Günlerimi paylaş</button><button class="btn small" data-act="cal" data-key="${esc(me.key)}">Takvimim</button></div>`;
+}
+function myShareText(me) {
+  const t = todayIso(); const days = Object.keys(me.days).filter((d) => d >= t).sort().slice(0, 31);
+  const L = { OFF: 'OFF', R: 'Rapor', YI: 'Yıllık izin', UI: 'Ücretsiz izin', MI: 'İzin' };
+  return `*${me.name} · vardiya günleri*\n` + days.map((d) => { const c = me.days[d]; return `${fmtShort(d).slice(0, 5)} ${DAY_SHORT[parseIso(d).getDay()]}: ${['1', '2', '3'].includes(c) ? `${c}. vardiya (${store.settings.hours[c] || ''})` : (L[c] || c)}`; }).join('\n');
+}
+
+async function changePassword(btn) {
+  const v = (id) => (document.getElementById(id) || {}).value || '';
+  const a = v('pw-old'), b = v('pw-new'), c = v('pw-new2');
+  if (!a || !b) { toast('Mevcut ve yeni şifreyi yazın'); return; }
+  const pe = pwCheck(b, myLevel() >= 2 ? 'guclu' : 'pin6'); if (pe) { toast(pe); return; }
+  if (b !== c) { toast('İki yeni şifre aynı değil'); return; }
+  btn.disabled = true;
+  try { await api('sifre-degistir', { eski: a, yeni: b }); ['pw-old', 'pw-new', 'pw-new2'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; }); toast('Şifreniz değiştirildi'); }
+  catch (e) { toast(e.message); }
+  btn.disabled = false;
+}
+// Çizelgenin yazdırılabilir / PDF olarak kaydedilebilir görünümü (A4 yatay, renkli)
+function printGrid() {
+  const days = gridDays(); const people = gridPeople(); if (!people.length) { toast('Çizelgede kimse yok'); return; }
+  const hex = (c) => (XL_FILL[c] ? ['#' + XL_FILL[c][0], '#' + XL_FILL[c][1]] : ['#fff', '#000']);
+  const head = days.map((d) => { const dt = parseIso(d); const we = [0, 6].includes(dt.getDay()); return `<th class="${we ? 'we' : ''}"><div>${DAY_SHORT[dt.getDay()]} ${pad(dt.getDate())}.${pad(dt.getMonth() + 1)}</div></th>`; }).join('');
+  const rows = people.map((p, i) => `<tr><td class="no">${i + 1}</td><td class="nm">${esc(p.name)}</td><td class="g">${p.group || ''}</td>${days.map((d) => { const c = p.days[d] || ''; if (!c) return '<td></td>'; const [bg, fg] = hex(c); return `<td style="background:${bg};color:${fg}">${CODES[c] ? CODES[c].short : c}</td>`; }).join('')}</tr>`).join('');
+  const sums = [['1', '1. vardiya'], ['2', '2. vardiya'], ['3', '3. vardiya'], ['OFF', 'OFF']].map(([c, l]) => `<tr class="sum"><td></td><td class="nm">${l}</td><td></td>${days.map((d) => `<td>${people.filter((p) => p.days[d] === c).length || ''}</td>`).join('')}</tr>`).join('');
+  const title = `${store.settings.company ? esc(store.settings.company) + ' · ' : ''}Vardiya listesi ${fmtShort(days[0])} – ${fmtShort(days[days.length - 1])}`;
+  const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>${title}</title><style>
+    @page { size: ${days.length > 16 ? 'A3' : 'A4'} landscape; margin: 8mm; }
+    body { font: 10px/1.2 Calibri, Arial, sans-serif; color: #000; margin: 0; } h1 { font-size: 14px; margin: 0 0 6px; }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; } th, td { border: 1px solid #999; text-align: center; padding: 2px 1px; font-weight: 700; }
+    th { background: #fff2cc; height: 54px; vertical-align: bottom; } th.we { background: #fde2e2; } th div { writing-mode: vertical-rl; transform: rotate(180deg); margin: 0 auto; white-space: nowrap; }
+    td.nm { text-align: left; padding-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } col.nm { width: 150px; } col.no, col.g { width: 22px; }
+    tr.sum td { background: #f3f3f3; font-weight: 600; } .foot { margin-top: 6px; font-size: 9px; color: #555; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  </style></head><body><h1>${title}</h1><table><colgroup><col class="no"><col class="nm"><col class="g">${days.map(() => '<col>').join('')}</colgroup>
+    <thead><tr><th>No</th><th>Ad Soyad</th><th>Ekip</th>${head}</tr></thead><tbody>${rows}${sums}</tbody></table>
+    <div class="foot">Saatler: ${['1', '2', '3'].map((g) => `${g}. vardiya ${esc(store.settings.hours[g] || '')}`).join(' · ')} · Yazdırma: ${fmtWhen(new Date().toISOString())}</div>
+    <script>window.onload = () => setTimeout(() => window.print(), 300);<\/script></body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { toast('Açılır pencere engellendi; tarayıcıda izin verin'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+async function annReaders(id) {
+  try {
+    const j = await api('duyuru-okuyanlar&id=' + id);
+    sheet(`<h3>Okuma durumu</h3><p class="small muted" style="margin:0">${j.okuyan.length} kişi okudu · ${j.okumayan.length} kişi henüz okumadı</p>
+      <div class="settings-grid"><div><b>Okudu</b><ul class="rdl">${j.okuyan.map((x) => `<li>${esc(x.ad)} <small>${fmtWhen(x.zaman)}</small></li>`).join('') || '<li class="muted">Kimse</li>'}</ul></div>
+      <div><b>Okumadı</b><ul class="rdl">${j.okumayan.map((x) => `<li>${esc(x)}</li>`).join('') || '<li class="muted">Herkes okudu</li>'}</ul></div></div>
+      <div class="row"><button class="btn" data-x="1">Kapat</button></div>`);
+  } catch (e) { toast(e.message); }
+}
+const ekUrl = (u) => { try { return new URL(u, new URL(API_URL || 'api.php', location.href)).href; } catch (e) { return u; } };
+const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+// duyuru eki hazırlığı: fotoğraflar 1600 px'e küçültülüp JPEG yapılır, PDF olduğu gibi (en fazla 2,5 MB)
+async function prepAttachment(file) {
+  const toB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+  if (file.type === 'application/pdf') { if (file.size > 2.5e6) throw new Error(`${file.name}: PDF en fazla 2,5 MB olabilir`); return { ad: file.name, tip: 'application/pdf', veri: await toB64(file), boyut: file.size }; }
+  if (!/^image\//.test(file.type)) throw new Error(`${file.name}: yalnızca fotoğraf ya da PDF eklenebilir`);
+  const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error(`${file.name} açılamadı`)); im.src = URL.createObjectURL(file); });
+  const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)); const cv = document.createElement('canvas');
+  cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+  const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.82)); URL.revokeObjectURL(img.src);
+  if (blob.size > 2.5e6) throw new Error(`${file.name}: fotoğraf çok büyük`);
+  return { ad: file.name.replace(/\.[^.]+$/, '') + '.jpg', tip: 'image/jpeg', veri: await toB64(blob), boyut: blob.size };
 }
 
 // ---------- Genel kişi arama (sol menü) ve kişi takvimi ----------
@@ -992,7 +1095,7 @@ function viewGridInner(range, admin, ro) {
       <button class="iconbtn" aria-label="İleri" data-act="grid-move" data-n="1">${ICON_RIGHT}</button>
     </div>
     <div class="row"><div class="chips">${span}</div><div class="chips">${filt}</div><span style="flex:1"></span>
-      <button class="btn" data-act="xl-export">${ICON_DOWNLOAD}Excel indir</button>${admin ? `<button class="btn" data-act="add-person">${ICON_PLUS}Kişi ekle</button>` : ''}${canEdit() && SERVER && !NATIVE ? `<button class="btn" data-act="xl-import">${ICON_UPLOAD}Excel’den yapıştır</button>` : ''}</div>
+      <button class="btn" data-act="xl-export">${ICON_DOWNLOAD}Excel indir</button>${!NATIVE ? '<button class="btn" data-act="print-grid">PDF / Yazdır</button>' : ''}${admin ? `<button class="btn" data-act="add-person">${ICON_PLUS}Kişi ekle</button>` : ''}${canEdit() && SERVER && !NATIVE ? `<button class="btn" data-act="xl-import">${ICON_UPLOAD}Excel’den yapıştır</button>` : ''}</div>
     ${rangeBar}
     ${tools}
     <div class="legend">${CODE_ORDER.filter((c) => c).map((c) => `<span><span class="code xl xl-${c} mini">${CODES[c].short}</span>${CODES[c].label}</span>`).join('')}</div>
@@ -1295,6 +1398,9 @@ function viewSettings() {
   const personal = `<h2 class="sect">${SERVER ? 'Görünüm ve paylaşım<span class="sect-note">Yalnızca sizin için · hesabınıza kaydedilir, her cihazda aynı</span>' : 'Kişisel ayarlar'}</h2>
   <div class="card setlist">
     ${sw('data-pref="dark"', dark, 'Koyu tema', 'Kapalıyken açık (krem) tema')}
+    <div class="setrow"><span><b>Yazı boyutu</b><small>Bu cihazda</small></span>
+      <div class="seg seg3 mini" role="radiogroup" aria-label="Yazı boyutu">${[['1', 'Normal'], ['2', 'Büyük'], ['3', 'Çok büyük']].map(([v, l]) => `<button role="radio" data-act="fs" data-v="${v}" aria-checked="${(prefs.fontScale || '1') === v}">${l}</button>`).join('')}</div></div>
+    ${sw('data-pref="cb"', !!prefs.colorSafe, 'Renk körlüğüne uygun renkler', 'Vardiya renkleri kırmızı-yeşil ayrımı gerektirmeyen bir paletle gösterilir (bu cihazda)')}
     ${sw('data-pref="bold"', S.share.bold, 'Paylaşımda başlıklar kalın', 'WhatsApp’ta *kalın* görünür')}
     <div class="setrow"><span><b>İsim listesi biçimi</b><small>Paylaşılan listede isimlerin başı</small></span>
       <div class="seg seg3 mini" role="radiogroup" aria-label="İsim listesi">${[['num', '1. 2. 3.'], ['bullet', '• Madde'], ['plain', 'Düz']].map(([v, l]) => `<button role="radio" data-act="set-sh-style" data-v="${v}" aria-selected="${S.share.style === v}" aria-checked="${S.share.style === v}">${l}</button>`).join('')}</div></div>
@@ -1337,7 +1443,10 @@ function viewSettings() {
   const pushPart = SERVER && auth && !NATIVE ? '<div class="card stack" id="push-card"><p class="small muted" style="margin:0">Bildirim ayarı yükleniyor…</p></div>' : '';
   if (!SERVER) return account + installPart + pushPart + personal + adminPart + photoPart + appPart + dataPart;
   // sunucu modu: kullanıcı ayarları (herkes, kendine özel) ve yönetici ayarları (müdür/yönetici, herkese uygulanır) ayrı sekmelerde
-  const userPart = account + installPart + pushPart + personal + photoPart + appPart;
+  const pwPart = SERVER && auth ? `<div class="card stack"><div class="setrow" style="padding:0"><span><b>Şifre değiştir</b><small>${myLevel() >= 2 ? 'En az 7 karakter; büyük harf, küçük harf ve rakam' : '6 haneli sayı'} · diğer cihazlardaki oturumlarınız kapanır</small></span></div>
+    <div class="settings-grid"><label class="field">Mevcut şifre<input type="password" id="pw-old" autocomplete="current-password" maxlength="64"></label><label class="field">Yeni şifre<input type="password" id="pw-new" autocomplete="new-password" maxlength="64" ${myLevel() >= 2 ? '' : 'inputmode="numeric"'}></label><label class="field">Yeni şifre (tekrar)<input type="password" id="pw-new2" autocomplete="new-password" maxlength="64" ${myLevel() >= 2 ? '' : 'inputmode="numeric"'}></label></div>
+    <div><button class="btn" data-act="pw-change">Şifreyi değiştir</button></div></div>` : '';
+  const userPart = account + installPart + pushPart + personal + pwPart + photoPart + appPart;
   if (!isAdmin()) return userPart;
   const tab = ui.setTab === 'yonetici' ? 'yonetici' : 'kullanici';
   const tabs = `<div class="segtabs"><button class="chip" data-act="set-tab" data-t="kullanici" aria-pressed="${tab === 'kullanici'}">Kullanıcı ayarları</button><button class="chip" data-act="set-tab" data-t="yonetici" aria-pressed="${tab === 'yonetici'}">Yönetici ayarları</button></div>`;
@@ -1359,6 +1468,7 @@ function bindSettings() {
     const k = el.dataset.pref;
     if (k === 'dark') { prefs.theme = el.checked ? 'dark' : 'light'; applyTheme(); }
     if (k === 'bold') store.settings.share.bold = el.checked;
+    if (k === 'cb') { prefs.colorSafe = el.checked; savePrefs(); applyTheme(); return; }
     if (k === 'photo') { if (el.checked) { el.checked = false; askPhotoAccess(() => render()); return; } prefs.photoOk = false; savePrefs(); render(); return; }
     syncPrefs(); render();
   }));
@@ -1439,6 +1549,7 @@ function bindView() {
   }
   if (ui.view === 'ayarlar') { bindSettings(); renderPushCard(); }
   if (ui.view === 'gorev') bindTasks();
+  if (SERVER && auth && ui.view === 'duyuru') { const ids = srv.duyurular.filter((a) => !a.okudum).map((a) => a.id); if (ids.length) { srv.duyurular.forEach((a) => { a.okudum = true; }); api('duyuru-okundu', { ids }).catch(() => {}); } }
 
 }
 
@@ -1502,6 +1613,11 @@ const actions = {
   'toggle-unk': (el) => { ui.collapsed['unk-' + el.dataset.g] = !ui.collapsed['unk-' + el.dataset.g]; render(); },
   'add-person': () => personSheet(null),
   'cal': (el) => personCalendar(el.dataset.key),
+  'my-share': () => { const me = myRecord(); if (me) doShare(myShareText(me), 'Vardiya günlerim'); },
+  'print-grid': () => printGrid(),
+  'ann-readers': (el) => annReaders(+el.dataset.id),
+  'pw-change': (el) => changePassword(el),
+  'fs': (el) => { prefs.fontScale = el.dataset.v; savePrefs(); applyTheme(); render(); },
   'set-tab': (el) => { ui.setTab = el.dataset.t; render(); },
   'grid-mode': (el) => {
     ui.gridMode = el.dataset.m; ui.sel = null; ui.gridStart = null;
@@ -1559,9 +1675,14 @@ const actions = {
   'ann-post': async (el) => {
     const t = document.getElementById('an-title').value.trim(), b = document.getElementById('an-body').value.trim();
     if (!t || !b) { toast('Başlık ve metin yazın'); return; }
+    const files = [...((document.getElementById('an-files') || {}).files || [])];
+    if (files.length > 3) { toast('En fazla 3 dosya eklenebilir'); return; }
     el.disabled = true;
-    try { await api('duyuru', { baslik: t, metin: b, sabit: document.getElementById('an-pin').checked }); await syncData(); toast('Duyuru yayınlandı'); render(); }
-    catch (e) { el.disabled = false; toast(e.message); }
+    try {
+      const ekler = []; for (const f of files) ekler.push(await prepAttachment(f));
+      await api('duyuru', { baslik: t, metin: b, sabit: document.getElementById('an-pin').checked, hedef: (document.getElementById('an-to') || {}).value || '', ekler: ekler.map(({ ad, tip, veri }) => ({ ad, tip, veri })) });
+      await syncData(); toast('Duyuru yayınlandı'); render();
+    } catch (e) { el.disabled = false; toast(e.message); }
   },
   'ann-del': (el) => confirmSheet('Duyuru silinsin mi?', 'Duyuru herkesten kaldırılır.', 'Sil', async () => { try { await api('duyuru-sil', { id: +el.dataset.id }); await syncData(); render(); toast('Duyuru silindi'); } catch (e) { toast(e.message); } }),
   'per-add': () => personnelSheet(0),
@@ -1689,7 +1810,8 @@ function bindLogin() {
   const ib = document.getElementById('lg-install'); ib && ib.addEventListener('click', installApp);
   f.addEventListener('submit', async (e) => {
     e.preventDefault(); const L = ui.login; if (L.busy) return;
-    const body = { istemci: 3, kimlik: L.kimlik, hatirla: L.hatirla };
+    let cihaz = ''; try { cihaz = localStorage.getItem('ccn-cihaz') || ''; if (!cihaz) { cihaz = Array.from(crypto.getRandomValues(new Uint8Array(16)), (x) => x.toString(16).padStart(2, '0')).join(''); localStorage.setItem('ccn-cihaz', cihaz); } } catch (e) { /* yoksay */ }
+    const body = { istemci: 3, kimlik: L.kimlik, hatirla: L.hatirla, cihaz };
     if (L.step === 'giris') {
       L.kimlik = f.querySelector('#lg-kimlik').value.trim(); L.hatirla = f.querySelector('#lg-remember').checked; L.pin = f.querySelector('#lg-pin').value;
       if (!L.kimlik) { L.err = 'Personel ID girin.'; render(); return; }
@@ -1820,14 +1942,18 @@ function viewAnnouncements() {
     <h2 style="font-size:22px">Yeni duyuru</h2>
     <label class="field">Başlık<input id="an-title" maxlength="160" placeholder="Örn. Cuma toplantısı"></label>
     <label class="field">Metin<textarea id="an-body" rows="4" maxlength="5000" placeholder="Duyuru metni"></textarea></label>
+    <div class="settings-grid"><label class="field">Kime<select id="an-to">${[['', 'Herkes'], ['v1', '1. vardiya ekibi'], ['v2', '2. vardiya ekibi'], ['v3', '3. vardiya ekibi'], ['sef', 'Şefler'], ['mudur', 'Müdürler']].map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
+      <label class="field">Dosya ekle (fotoğraf ya da PDF, en fazla 3)<input type="file" id="an-files" multiple accept="image/*,application/pdf"></label></div>
     <label class="row" style="gap:8px"><input type="checkbox" id="an-pin"> <span>Üstte sabitle</span></label>
     <div><button class="btn primary" data-act="ann-post">Duyuruyu yayınla</button></div>
-    <p class="small muted" style="margin:0">Yayınlanan duyuruyu uygulamayı kullanan herkes görür.</p>
+    <p class="small muted" style="margin:0">Duyuruyu seçtiğiniz kişiler görür; bildirimi açık olanlara anında bildirim gider. Vardiya ekibi, yayındaki listedeki ekibe göre belirlenir.</p>
   </div>` : '';
   const items = list.length ? list.map((a) => `<article class="card stack ann ${a.sabit ? 'pinned' : ''}">
       <div class="row" style="flex-wrap:nowrap;align-items:flex-start"><h3 style="flex:1;min-width:0;font-size:18px;margin:0">${a.sabit ? '📌 ' : ''}${esc(a.baslik)}</h3>${isAdmin() || (canEdit() && auth && a.yazanId === auth.ben.id) ? `<button class="iconbtn" data-act="ann-del" data-id="${a.id}" aria-label="Duyuruyu sil">${ICON_TRASH}</button>` : ''}</div>
+      ${a.hedef ? `<span class="gtag all" style="margin:0;align-self:flex-start">Kime: ${esc(a.hedefAd || '')}</span>` : ''}
       <p style="margin:0;white-space:pre-wrap">${esc(a.metin)}</p>
-      <span class="small muted">${esc(a.yazan || '')} · ${fmtWhen(a.tarih)}</span>
+      ${(a.ekler || []).length ? `<div class="annfiles">${a.ekler.map((e) => e.tip.startsWith('image/') ? `<a href="${esc(ekUrl(e.url))}" target="_blank" rel="noopener" class="annimg"><img src="${esc(ekUrl(e.url))}" alt="${esc(e.ad)}" loading="lazy"></a>` : `<a class="btn small" href="${esc(ekUrl(e.url))}" target="_blank" rel="noopener">📄 ${esc(e.ad)} <span class="muted">(${fmtSize(e.boyut)})</span></a>`).join('')}</div>` : ''}
+      <div class="row" style="align-items:center"><span class="small muted" style="flex:1">${esc(a.yazan || '')} · ${fmtWhen(a.tarih)}</span>${a.okuma ? `<button class="btn small" data-act="ann-readers" data-id="${a.id}">👁 ${a.okuma.okuyan}/${a.okuma.toplam} okudu</button>` : ''}</div>
     </article>`).join('') : `<div class="card"><p class="empty" style="margin:0">Henüz duyuru yok.</p></div>`;
   return compose + `<div class="stack">${items}</div>`;
 }
