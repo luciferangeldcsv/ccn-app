@@ -5,7 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<title>Panel</title>
+<title>CCN DEV Paneli</title>
+<meta name="theme-color" content="#0d1117">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CCN DEV">
 <style>
 :root { --bg: #0d1117; --panel: #151b23; --panel2: #1c242e; --line: #2a3441; --fg: #e6edf3; --muted: #8b98a7; --acc: #58a6ff; --ok: #3fb950; --bad: #f85149; --warn: #d29922; --vio: #a371f7; }
 * { box-sizing: border-box; }
@@ -62,7 +68,23 @@ td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; padding: 20px; z-index: 9; } .modal > div { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; max-width: 95vw; max-height: 90vh; overflow: auto; }
 .c-1 { background: #1f4a2a; color: #9be3ad; } .c-2 { background: #5a3420; color: #f7bf98; } .c-3 { background: #4d4114; color: #f3d877; } .c-OFF { background: #d32f2f; color: #fff; } .c-YI, .c-UI, .c-R, .c-MI { background: #1e3a57; color: #a9d0f5; }
 td.c { text-align: center; font-weight: 700; padding: 3px; min-width: 30px; }
-@media (max-width: 800px) { aside { position: static; width: auto; flex-direction: row; overflow-x: auto; } aside .brand, aside .sp { display: none; } main { margin-left: 0; padding: 14px; } .grid2 { grid-template-columns: 1fr; } }
+#topbar { display: none; }
+#drawer-bg { display: none; }
+aside #install { color: var(--ok); } aside #install[hidden] { display: none; }
+@media (max-width: 860px) {
+  #topbar { display: flex; position: sticky; top: 0; z-index: 8; align-items: center; gap: 10px; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 14px; }
+  #topbar .mb { font-size: 22px; background: none; border: 0; color: var(--fg); cursor: pointer; padding: 2px 6px; line-height: 1; }
+  #topbar b { font-size: 15px; } #topbar small { color: var(--vio); font-size: 10px; letter-spacing: .1em; margin-left: 4px; }
+  aside { transform: translateX(-100%); transition: transform .22s ease; width: 260px; z-index: 20; box-shadow: 4px 0 24px #0008; }
+  body.nav-open aside { transform: none; }
+  body.nav-open #drawer-bg { display: block; position: fixed; inset: 0; background: #0009; z-index: 15; }
+  main { margin-left: 0; padding: 14px; }
+  .grid2 { grid-template-columns: 1fr; }
+  .tiles { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  .fgrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .hb { grid-template-columns: 90px 1fr 32px; }
+  .top h2 { font-size: 18px; }
+}
 </style>
 </head>
 <body>
@@ -74,6 +96,8 @@ td.c { text-align: center; font-weight: 700; padding: 3px; min-width: 30px; }
   <button class="btn pri">Giriş</button>
 </form>
 <div id="app">
+  <div id="topbar"><button class="mb" id="mbtn" aria-label="Menü">☰</button><b>CCN Vardiya</b><small>DEV</small></div>
+  <div id="drawer-bg"></div>
   <aside>
     <div class="brand">CCN Vardiya<small>DEV PANELİ</small></div>
     <button data-v="ozet">📊 Genel bakış</button>
@@ -86,6 +110,7 @@ td.c { text-align: center; font-weight: 700; padding: 3px; min-width: 30px; }
     <button data-v="dos">🖼️ Dosyalar</button>
     <button data-v="guv">🛡️ Güvenlik</button>
     <div class="sp"></div>
+    <button id="install" hidden>⬇️ Ana ekrana ekle</button>
     <button id="out">⎋ Çıkış</button>
   </aside>
   <main id="m"></main>
@@ -119,7 +144,23 @@ $('#login').addEventListener('submit', async (e) => {
   } catch (err) { $('#le').textContent = err.message; }
 });
 $('#out').addEventListener('click', logout);
-document.querySelectorAll('aside [data-v]').forEach((b) => b.addEventListener('click', () => show(b.dataset.v)));
+// mobil kayar menü
+const closeNav = () => document.body.classList.remove('nav-open');
+$('#mbtn') && $('#mbtn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
+$('#drawer-bg') && $('#drawer-bg').addEventListener('click', closeNav);
+document.querySelectorAll('aside [data-v]').forEach((b) => b.addEventListener('click', () => { show(b.dataset.v); closeNav(); }));
+// ana ekrana ekle (PWA)
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; const el = $('#install'); if (el) el.hidden = false; });
+window.addEventListener('appinstalled', () => { const el = $('#install'); if (el) el.hidden = true; });
+const standalone = () => { try { return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch (e) { return false; } };
+const iOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+$('#install') && $('#install').addEventListener('click', async () => {
+  if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {} installEvt = null; $('#install').hidden = true; return; }
+  alert(iOS() ? 'iPhone/iPad: Safari’de alttaki Paylaş düğmesine dokunun → “Ana Ekrana Ekle”.' : 'Tarayıcının menüsünden (⋮) “Uygulamayı yükle / Ana ekrana ekle” seçin.');
+});
+if (!standalone() && (iOS() || window.matchMedia('(max-width: 860px)').matches)) { const el = $('#install'); if (el) el.hidden = false; }
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 let view = 'ozet', timer = null, lastLog = 0, logs = [], fsek = 'tumu';
 async function start() {
   try { const j = await api('ben'); if (j.ben.unvan !== 'dev') { logout(); return; } } catch (e) { logout(); return; }
