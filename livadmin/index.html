@@ -28,6 +28,10 @@ main { margin-left: 220px; padding: 20px 24px 60px; max-width: 1500px; }
 .top { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; } .top h2 { margin: 0; font-size: 20px; flex: 1; }
 .live { display: inline-flex; align-items: center; gap: 6px; color: var(--ok); font-size: 12px; } .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: p 1.6s infinite; }
 @keyframes p { 50% { opacity: .3; } }
+.ftabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.ftab { background: var(--panel); border: 1px solid var(--line); color: var(--mut, #9aa7b4); border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.ftab:hover { color: #fff; }
+.ftab.on { background: var(--acc); border-color: var(--acc); color: #fff; }
 .fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
 .fcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
 .fcard .thumb { height: 150px; background: #0d1117 center/cover no-repeat; display: grid; place-items: center; position: relative; }
@@ -114,7 +118,7 @@ $('#login').addEventListener('submit', async (e) => {
 });
 $('#out').addEventListener('click', logout);
 document.querySelectorAll('aside [data-v]').forEach((b) => b.addEventListener('click', () => show(b.dataset.v)));
-let view = 'ozet', timer = null, lastLog = 0, logs = [];
+let view = 'ozet', timer = null, lastLog = 0, logs = [], fsek = 'tumu';
 async function start() {
   try { const j = await api('ben'); if (j.ben.unvan !== 'dev') { logout(); return; } } catch (e) { logout(); return; }
   $('#login').style.display = 'none'; $('#app').style.display = 'block'; show(location.hash.slice(1) || 'ozet');
@@ -259,15 +263,17 @@ async function duy() {
 }
 async function dos() {
   let sayfa = 1;
+  // üst sekmeler: her biri gönderilen (yüklenen) dosyalar üzerinde bir filtredir
+  const SEK = [['tumu', 'Tümü', '', ''], ['secilen', 'Seçilenler (resimler)', '', 'foto'], ['gonderilen', 'Gönderilenler (eğitim/not)', 'egitim', ''], ['atilan', 'Atılanlar (duyuru)', 'duyuru', ''], ['sikayet', 'Şikayete atılanlar', 'sikayet', '']];
+  let sek = fsek || 'tumu';
   M(`<div class="top"><h2>Yüklenen dosyalar</h2><span class="mut" id="fdt"></span></div>
-    <div class="filters"><select id="fi"><option value="">Tüm bölümler</option><option value="sikayet">Şikayet</option><option value="egitim">Eğitim/Not</option><option value="duyuru">Duyuru</option></select>
-      <select id="ft"><option value="">Fotoğraf + PDF</option><option value="foto">Yalnızca fotoğraf</option><option value="pdf">Yalnızca PDF</option></select>
-      <button class="btn" id="fr">Yenile</button></div>
-    <p class="mut" style="margin:6px 0 12px">Kullanıcıların şikayet, eğitim ve duyurulara yüklediği tüm görsel ve PDF'ler. Uygunsuz içerik yükleyeni buradan askıya alabilirsiniz.</p>
+    <div class="ftabs" id="ftabs">${SEK.map(([k, l]) => `<button class="ftab${k === sek ? ' on' : ''}" data-sek="${k}">${l}</button>`).join('')}</div>
+    <p class="mut" style="margin:6px 0 12px">Kullanıcıların sisteme gönderdiği tüm görsel ve PDF'ler. Uygunsuz içerik yükleyeni buradan askıya alabilirsiniz.</p>
     <div class="fgrid" id="fgrid"><p class="mut">Yükleniyor…</p></div>
     <div class="filters" style="justify-content:center;margin-top:12px"><button class="btn" id="fp">‹ Önceki</button><span id="fn" class="mut"></span><button class="btn" id="fnx">Sonraki ›</button></div>`);
+  const curFilt = () => { const r = SEK.find(([k]) => k === sek) || SEK[0]; return { tur: r[2], tip: r[3] }; };
   const load = async () => {
-    let j; try { j = await api(`dev-dosyalar&sayfa=${sayfa}&tur=${$('#fi').value}&tip=${$('#ft').value}`); } catch (e) { return fail(e); }
+    const f = curFilt(); let j; try { j = await api(`dev-dosyalar&sayfa=${sayfa}&tur=${f.tur}&tip=${f.tip}`); } catch (e) { return fail(e); }
     if (view !== 'dos') return;
     $('#fdt').textContent = `${j.toplam} dosya · ${j.foto} fotoğraf`;
     $('#fn').textContent = `Sayfa ${j.sayfa} / ${j.sayfaSayisi}`; $('#fp').disabled = j.sayfa <= 1; $('#fnx').disabled = j.sayfa >= j.sayfaSayisi; sayfa = j.sayfa;
@@ -285,8 +291,7 @@ async function dos() {
     const fd = e.target.closest('[data-fdel]');
     if (fd) { if (!confirm('Dosya silinsin mi?')) return; const [k, id] = fd.dataset.fdel.split(':'); try { await api('dev-dosya-sil', { kaynak: k, id: +id }); load(); } catch (err) { alert(err.message); } }
   });
-  const apply = () => { sayfa = 1; load(); };
-  $('#fr').addEventListener('click', apply); $('#fi').addEventListener('change', apply); $('#ft').addEventListener('change', apply);
+  $('#ftabs').addEventListener('click', (e) => { const b = e.target.closest('[data-sek]'); if (!b) return; sek = fsek = b.dataset.sek; document.querySelectorAll('.ftab').forEach((x) => x.classList.toggle('on', x.dataset.sek === sek)); sayfa = 1; load(); });
   $('#fp').addEventListener('click', () => { if (sayfa > 1) { sayfa--; load(); } });
   $('#fnx').addEventListener('click', () => { sayfa++; load(); });
   await load();
