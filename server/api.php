@@ -17,7 +17,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -27,7 +27,7 @@ function versions(): array {
   $l = (int)(db()->query('SELECT MAX(id) FROM rosters')->fetchColumn() ?: 0);
   $d = (int)(db()->query('SELECT MAX(id) FROM announcements')->fetchColumn() ?: 0);
   $dc = (int)(db()->query('SELECT COUNT(*) FROM announcements')->fetchColumn() ?: 0);
-  return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc, 'ayar' => (int)(meta_get('ayar_surum') ?? 0), 'taslak' => (int)(meta_get('taslak_surum') ?? 0)];
+  return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc, 'ayar' => (int)(meta_get('ayar_surum') ?? 0), 'taslak' => (int)(meta_get('taslak_surum') ?? 0), 'bildirim' => (int)(db()->query('SELECT MAX(id) FROM bildirimler')->fetchColumn() ?: 0)];
 }
 function utc(string $t): string { return str_replace(' ', 'T', $t) . 'Z'; }
 function me_out(array $u): array {
@@ -39,7 +39,7 @@ function me_out(array $u): array {
 const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'];
 
 // vardiya hatırlatmaları: sık gelen isteklerle (en fazla 5 dk'da bir) kontrol edilir
-if (in_array($r, ['surum', 'veri', 'zamanla'], true)) { try { run_reminders($r === 'zamanla'); } catch (Throwable $e) { error_log('ccn hatirlat: ' . $e->getMessage()); } }
+if (in_array($r, ['surum', 'veri', 'zamanla'], true)) { try { check_release(); run_reminders($r === 'zamanla'); } catch (Throwable $e) { error_log('ccn hatirlat: ' . $e->getMessage()); } }
 
 switch ($r) {
   case 'durum':
@@ -115,7 +115,7 @@ switch ($r) {
       $ch = hash('sha256', $cihaz); $st = db()->prepare('SELECT COUNT(*) FROM cihazlar WHERE personnel_id = ?'); $st->execute([$p['id']]); $known = (int)$st->fetchColumn();
       $st = db()->prepare('INSERT IGNORE INTO cihazlar (personnel_id, cihaz, ilk) VALUES (?,?,?)'); $st->execute([$p['id'], $ch, now()]);
       if ($st->rowCount() && $known) {
-        try { push_to_people([(int)$p['id']], ['baslik' => 'Yeni cihazdan giriş', 'metin' => 'Hesabınıza ' . (ua_text((string)($_SERVER['HTTP_USER_AGENT'] ?? '')) ?: 'yeni bir cihaz') . ' ile giriş yapıldı (' . gmdate('d.m.Y H:i', time() + 10800) . '). Siz değilseniz şifrenizi değiştirin ve yöneticinize haber verin.', 'url' => './#ayarlar', 'acil' => true]); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
+        try { notify([(int)$p['id']], ['baslik' => 'Yeni cihazdan giriş', 'metin' => 'Hesabınıza ' . (ua_text((string)($_SERVER['HTTP_USER_AGENT'] ?? '')) ?: 'yeni bir cihaz') . ' ile giriş yapıldı (' . gmdate('d.m.Y H:i', time() + 10800) . '). Siz değilseniz şifrenizi değiştirin ve yöneticinize haber verin.', 'url' => './#ayarlar', 'acil' => true], 'guvenlik'); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
         audit(['id' => $p['id'], 'name' => $p['name']], 'yeni-cihaz', ua_text((string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
       }
     }
@@ -190,6 +190,7 @@ switch ($r) {
     if ($l) db()->prepare('UPDATE personnel SET seen_roster = ?, seen_at = ? WHERE id = ? AND (seen_roster IS NULL OR seen_roster <> ?)')->execute([(int)$l['id'], now(), $u['id'], (int)$l['id']]);
     ok(['ben' => me_out($u), 'surum' => versions(), 'ayarlar' => json_decode((string)(meta_get('ayarlar') ?? ''), true) ?: null, 'taslak' => $taslak,
       'liste' => $l ? ['id' => (int)$l['id'], 'veri' => json_decode($l['data'], true), 'tarih' => utc($l['published_at']), 'yayinlayan' => $l['published_name']] : null,
+      'bildirimler' => my_notifications($u), 'bildirimSon' => (int)(db()->query('SELECT bildirim_son FROM personnel WHERE id = ' . (int)$u['id'])->fetchColumn() ?: 0), 'yenilikler' => release_info(),
       'duyurular' => ann_out($u, $d), 'sikayetAcik' => level_of($u['title'] ?? '') >= 2 ? (int)db()->query("SELECT COUNT(*) FROM sikayetler WHERE durum = 'acik'")->fetchColumn() : null]);
   }
 
@@ -206,7 +207,7 @@ switch ($r) {
     db()->prepare("DELETE FROM meta WHERE k = 'taslak'")->execute();
     meta_set('taslak_surum', (string)((int)(meta_get('taslak_surum') ?? 0) + 1));
     audit($u, 'liste-yayinlandi', "$cnt kişi, " . tr_date($min) . ' – ' . tr_date($max));
-    if (empty(body()['sessiz'])) { try { push_to_all(['baslik' => 'Vardiya listesi güncellendi', 'metin' => tr_date($min) . ' – ' . tr_date($max) . ' listesi yayınlandı. Kendi günlerinize bakın.', 'url' => './', 'etiket' => 'liste'], $u['id']); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); } }
+    if (empty(body()['sessiz'])) { try { notify(null, ['baslik' => 'Vardiya listesi güncellendi', 'metin' => tr_date($min) . ' – ' . tr_date($max) . ' listesi yayınlandı. Kendi günlerinize bakın.', 'url' => './', 'etiket' => 'liste'], 'liste', $u['id']); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); } }
     ok(['id' => $id, 'kisi' => $cnt]);
   }
 
@@ -329,7 +330,7 @@ switch ($r) {
     $u = require_level(2, 'Duyuru yayınlama yetkiniz yok.');
     $t = str_in('baslik', 160); $m = str_in('metin', 5000);
     if ($t === '' || $m === '') fail(400, 'Başlık ve metin gerekli.');
-    $hedef = in_array(body()['hedef'] ?? '', array_keys(ANN_TARGETS), true) ? body()['hedef'] : '';
+    $hedef = (string)(body()['hedef'] ?? ''); if (!isset(ANN_TARGETS[$hedef])) $hedef = '';
     // ekler: en fazla 3 dosya; fotoğraf (jpeg/png/webp) ya da PDF, her biri en fazla 2,5 MB
     $ekler = [];
     foreach (array_slice(is_array(body()['ekler'] ?? null) ? body()['ekler'] : [], 0, 3) as $e) {
@@ -348,7 +349,7 @@ switch ($r) {
     audit($u, 'duyuru', $t . ($hedef ? ' → ' . ANN_TARGETS[$hedef] : '') . ($ekler ? ' (' . count($ekler) . ' ek)' : ''));
     try {
       $msg = ['baslik' => 'Duyuru: ' . $t, 'metin' => mb_substr($m, 0, 180), 'url' => './#duyuru', 'etiket' => "duyuru-$id", 'rozet' => 1];
-      if ($hedef === '') push_to_all($msg, $u['id']); else push_to_people(array_values(array_diff(ann_audience($hedef), [$u['id']])), $msg);
+      if ($hedef === '') notify(null, $msg, 'duyuru', $u['id']); else notify(array_values(array_diff(ann_audience($hedef), [$u['id']])), $msg, 'duyuru');
     } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
     ok(['id' => $id]);
   }
@@ -363,6 +364,10 @@ switch ($r) {
     ok();
   }
 
+  case 'bildirim-okundu': {
+    $u = current_user(); $son = (int)(body()['son'] ?? 0);
+    db()->prepare('UPDATE personnel SET bildirim_son = GREATEST(bildirim_son, ?) WHERE id = ?')->execute([$son, $u['id']]); ok();
+  }
   // duyurular görüntülendi: kişi okudu olarak işaretlenir
   case 'duyuru-okundu': {
     $u = current_user(); $ids = array_slice(array_map('intval', (array)(body()['ids'] ?? [])), 0, 200);
@@ -485,7 +490,7 @@ switch ($r) {
     db()->prepare('INSERT INTO sikayetler (personnel_id, ad, metin, created_at) VALUES (?,?,?,?)')->execute([$u['id'], (string)$u['name'], $m, now()]);
     $id = (int)db()->lastInsertId(); audit($u, 'sikayet-acildi', "#$id");
     try { $ids = []; foreach (db()->query("SELECT id, title FROM personnel WHERE banned = 0") as $p) if (level_of((string)$p['title']) >= 2 && (int)$p['id'] !== $u['id']) $ids[] = (int)$p['id'];
-      push_to_people($ids, ['baslik' => 'Yeni şikayet', 'metin' => $u['name'] . ': ' . mb_substr($m, 0, 140), 'url' => './#sikayet', 'etiket' => "sikayet-$id"]); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
+      notify($ids, ['baslik' => 'Yeni şikayet', 'metin' => $u['name'] . ': ' . mb_substr($m, 0, 140), 'url' => './#sikayet', 'etiket' => "sikayet-$id"], 'sikayet'); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
     ok(['id' => $id]);
   }
   case 'sikayet-coz': {
@@ -495,7 +500,7 @@ switch ($r) {
     if (!$sk) fail(404, 'Şikayet bulunamadı.'); if ($sk['durum'] !== 'acik') fail(409, 'Bu şikayet zaten çözülmüş.');
     db()->prepare("UPDATE sikayetler SET durum = 'cozuldu', cozum = ?, cozen_id = ?, cozen_ad = ?, cozuldu_at = ? WHERE id = ?")->execute([$c, $u['id'], shown_name($u), now(), $id]);
     audit($u, 'sikayet-cozuldu', "#$id");
-    try { push_to_people([(int)$sk['personnel_id']], ['baslik' => 'Şikayetiniz çözüldü', 'metin' => mb_substr($c, 0, 160), 'url' => './#sikayet', 'etiket' => "sikayet-$id", 'acil' => true]); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
+    try { notify([(int)$sk['personnel_id']], ['baslik' => 'Şikayetiniz çözüldü', 'metin' => mb_substr($c, 0, 160), 'url' => './#sikayet', 'etiket' => "sikayet-$id", 'acil' => true], 'sikayet'); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
     ok();
   }
 
@@ -830,6 +835,11 @@ function clean_roster(): array {
     return [$data, count($people), $min, $max];
 }
 
+function my_notifications(array $u): array {
+  $st = db()->prepare('SELECT id, tur, baslik, metin, url, created_at FROM bildirimler WHERE (personnel_id IS NULL AND (haric_id IS NULL OR haric_id <> ?)) OR personnel_id = ? ORDER BY id DESC LIMIT 50');
+  $st->execute([$u['id'], $u['id']]);
+  return array_map(fn($r) => ['id' => (int)$r['id'], 'tur' => $r['tur'], 'baslik' => $r['baslik'], 'metin' => $r['metin'], 'url' => $r['url'], 'tarih' => utc($r['created_at'])], $st->fetchAll());
+}
 // Dosyalar (eğitim, şikayet): imzalı süreli bağlantı
 function files_of(string $tur, array $ids): array {
   if (!$ids) return []; $out = [];

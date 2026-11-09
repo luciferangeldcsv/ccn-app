@@ -438,7 +438,7 @@ async function api(r, body) {
 function signOut(msg) {
   auth = null; saveAuth(); clearInterval(pollT);
   store = defaultStore(); try { localStorage.removeItem(STORE_KEY); } catch (e) { /* yoksay */ }
-  srv.v = null; srv.duyurular = []; srv.personel = null; srv.kayitlar = null; srv.gorev = null; srv.egitim = null; srv.sikayet = null; srv.sikayetAcik = 0;
+  srv.bildirimler = []; srv.bildirimSon = 0; srv.v = null; srv.duyurular = []; srv.personel = null; srv.kayitlar = null; srv.gorev = null; srv.egitim = null; srv.sikayet = null; srv.sikayetAcik = 0;
   ui.login = { step: 'giris', hatirla: true, err: msg || '' }; ui.review = null; ui.view = 'gunluk';
   closeSheet(); render();
 }
@@ -494,6 +494,7 @@ async function syncData(force) {
   srv.v = j.surum; srv.duyurular = j.duyurular || [];
   const L = j.liste;
   srv.ayarlar = j.ayarlar || null; srv.taslak = j.taslak || null; srv.sikayetAcik = j.sikayetAcik || 0;
+  srv.bildirimler = j.bildirimler || []; srv.bildirimSon = Math.max(srv.bildirimSon || 0, j.bildirimSon || 0); srv.yenilikler = j.yenilikler || null;
   // yöneticinin yayınlamadığı değişiklikler korunur; başka biri yeni liste yayınladıysa uyarılır
   if (!force && isDirty() && L && store.pub && L.id !== store.pub.id) srv.conflict = true;
   if (force) srv.conflict = false;
@@ -590,11 +591,12 @@ async function checkServer() {
   if (!SERVER || !auth || document.visibilityState !== 'visible' || !navigator.onLine || srv.loading) return;
   try {
     const old = srv.v; const j = await api('surum'); const v = j.surum;
-    if (old && v.liste === old.liste && v.duyuru === old.duyuru && v.duyuruSayi === old.duyuruSayi && v.ayar === old.ayar && v.taslak === old.taslak) return;
+    if (old && v.liste === old.liste && v.duyuru === old.duyuru && v.duyuruSayi === old.duyuruSayi && v.ayar === old.ayar && v.taslak === old.taslak && v.bildirim === old.bildirim) return;
     srv.loading = true;
     try { await syncData(); } finally { srv.loading = false; }
     if (old && v.liste !== old.liste && !isAdmin()) toast('Yeni vardiya listesi yayınlandı');
     if (old && v.duyuru > old.duyuru) toast('Yeni duyuru var');
+    else if (old && v.bildirim > old.bildirim && bellUnread()) toast('🔔 Yeni bildirim');
     const a = document.activeElement;
     // yazı yazılırken ekran yenilenmez
     if (!$overlay.innerHTML && !ui.busy && !ui.review && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) render(); else renderTabs();
@@ -607,7 +609,7 @@ async function bootServer() {
   if (canEdit() && store.yeni === undefined && store.pub && Object.keys(store.people).length && store.pub.sig !== pubHash()) { store.yeni = { mod: 'duzenle' }; save(); }
   srv.loading = true;
   try { await syncData(); } catch (e) { if (auth && !srv.offline) toast(e.message); } finally { srv.loading = false; }
-  if (auth) { startPoll(); render(); if (!NATIVE) pushResync(); }
+  if (auth) { startPoll(); render(); if (!NATIVE) pushResync(); setTimeout(() => { if (!$overlay.innerHTML && !document.getElementById('intro')) showWhatsNew(!!srv.openNotes); srv.openNotes = false; }, 4200); }
 }
 
 // ---------- Uygulama durumu ----------
@@ -671,6 +673,9 @@ $menuBtn.addEventListener('click', () => document.body.classList.toggle('side-op
 $sideBack.addEventListener('click', () => document.body.classList.remove('side-open'));
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.body.classList.remove('side-open'); });
 const $prof = document.createElement('button'); $prof.id = 'prof'; $prof.type = 'button'; $prof.hidden = true; $tabs.after($prof);
+// bildirim zili (sağ üst): duyurular, liste, şikayet, güvenlik ve uygulama güncellemeleri
+const $bell = document.createElement('button'); $bell.id = 'bell'; $bell.type = 'button'; $bell.hidden = true; $bell.setAttribute('aria-label', 'Bildirimler'); $prof.before($bell);
+$bell.addEventListener('click', () => openBell());
 $prof.addEventListener('click', () => go('ayarlar'));
 function renderTabs() {
   const show = !SERVER || !!auth; $tabs.hidden = !show; document.body.classList.toggle('no-tabs', !show);
@@ -679,6 +684,8 @@ function renderTabs() {
   const side = SERVER && !!auth && canEdit() && !NATIVE;
   document.body.classList.toggle('has-side', side);
   $prof.hidden = !(SERVER && auth);
+  $bell.hidden = !(SERVER && auth);
+  if (SERVER && auth) { const n = bellUnread(); $bell.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>${n ? `<span class="badge">${n > 99 ? '99+' : n}</span>` : ''}`; $bell.setAttribute('aria-label', n ? `Bildirimler, ${n} okunmamış` : 'Bildirimler'); }
   if (SERVER && auth) $prof.innerHTML = `<span class="av">${esc(initials(auth.ben.ad))}</span><span class="pn"><b>${esc(auth.ben.ad)}</b><small>${esc(titleOf(auth.ben))}</small></span>`;
   if (side) {
     const un = unreadCount();
@@ -954,6 +961,36 @@ async function prepAttachment(file) {
   const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.82)); URL.revokeObjectURL(img.src);
   if (blob.size > 2.5e6) throw new Error(`${file.name}: fotoğraf çok büyük`);
   return { ad: file.name.replace(/\.[^.]+$/, '') + '.jpg', tip: 'image/jpeg', veri: await toB64(blob), boyut: blob.size };
+}
+
+// ---------- Bildirim merkezi ve yenilikler ----------
+const bellUnread = () => (srv.bildirimler || []).filter((b) => b.id > (srv.bildirimSon || 0)).length;
+const BELL_ICON = { duyuru: '📣', liste: '🗓️', vardiya: '⏰', sikayet: '💬', guvenlik: '🔐', guncelleme: '✨' };
+function agoText(t) { const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? 'şimdi' : m < 60 ? `${m} dk önce` : m < 1440 ? `${Math.round(m / 60)} sa önce` : m < 2880 ? 'dün' : fmtWhen(t); }
+function openBell() {
+  const L = srv.bildirimler || []; const seen = srv.bildirimSon || 0; const top = L.length ? L[0].id : 0;
+  sheet(`<div class="row" style="flex-wrap:nowrap"><h3 style="flex:1;margin:0">Bildirimler</h3>${srv.yenilikler ? '<button class="btn small" data-bn="yenilikler">✨ Yenilikler</button>' : ''}</div>
+    ${L.length ? `<ul class="bell-list">${L.map((b) => `<li class="${b.id > seen ? 'new' : ''}"><button type="button" data-bu="${esc(b.url || '')}" data-bt="${esc(b.tur)}"><span class="bi">${BELL_ICON[b.tur] || '🔔'}</span><span class="bt"><b>${esc(b.baslik)}</b>${b.metin ? `<small>${esc(b.metin)}</small>` : ''}<em>${agoText(b.tarih)}</em></span></button></li>`).join('')}</ul>` : '<p class="muted" style="margin:0">Henüz bildirim yok.</p>'}
+    <p class="small muted" style="margin:0">Telefonunuza da gelmesi için Ayarlar → Bildirimler'i açın.</p>
+    <div class="row"><button class="btn" data-x="1">Kapat</button></div>`, (bg) => {
+    bg.querySelectorAll('[data-bu]').forEach((el) => el.addEventListener('click', () => { closeSheet(); openTarget(el.dataset.bu); }));
+    const yb = bg.querySelector('[data-bn="yenilikler"]'); yb && yb.addEventListener('click', () => { closeSheet(); showWhatsNew(true); });
+  });
+  if (top > seen) { srv.bildirimSon = top; renderTabs(); api('bildirim-okundu', { son: top }).catch(() => {}); }
+}
+function openTarget(url) {
+  const h = String(url || '').split('#')[1] || '';
+  if (h === 'yenilikler') { showWhatsNew(true); return; }
+  if (h && allowedView(h)) { if (h === 'gorev') ui.gDate = todayIso(); go(h); } else go('gunluk');
+}
+// yeni sürüm notları: her sürümde bir kez kendiliğinden açılır
+function showWhatsNew(force) {
+  const r = srv.yenilikler; if (!r || !r.surum) return;
+  if (!force && prefs.seenNotes === r.surum) return;
+  prefs.seenNotes = r.surum; savePrefs();
+  sheet(`<div class="eyebrow">Yenilikler</div><h3 style="margin:0;font-size:22px">CCN Vardiya ${esc(r.surum)}</h3>
+    <ul class="whatsnew">${(r.maddeler || []).map((m) => `<li>${esc(m)}</li>`).join('')}</ul>
+    <div class="row"><button class="btn primary" data-x="1">Tamam</button></div>`);
 }
 
 // ---------- Genel kişi arama (sol menü) ve kişi takvimi ----------
@@ -3672,7 +3709,7 @@ const ICON_LIST = svg('<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12
 const ICON_DOWNLOAD = svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/>');
 const ICON_TRASH = svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>');
 
-{ const h = location.hash.replace('#', ''); ui.view = allowedView(h) ? h : 'gunluk'; render(); }
+{ const h = location.hash.replace('#', ''); ui.view = allowedView(h) ? h : 'gunluk'; if (h === 'yenilikler') { srv.openNotes = true; } render(); }
 window.__ccnReady = true; // açılış başarılı: güvenlik ağı devre dışı
 // web: ana ekrana eklenebilir uygulama (PWA) — çevrimdışı açılış için kabuk önbelleği; telefon uygulamasında gerekmez
 if (SERVER && !NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
