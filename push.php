@@ -113,9 +113,34 @@ function run_reminders(bool $force = false): int {
       if (!$keys) continue;
       $pids = []; foreach (db()->query('SELECT id, name FROM personnel WHERE banned = 0') as $r) if (isset($keys[name_key((string)$r['name'])])) $pids[] = (int)$r['id'];
       $st = db()->prepare("SELECT COUNT(*) FROM gorevler WHERE tarih = ? AND (vardiya = '' OR vardiya = ?)"); $st->execute([$date, $g]); $nGorev = (int)$st->fetchColumn();
-      $sent += push_to_people($pids, ['baslik' => "$g. vardiya · " . ($hours[$g] ?? ''), 'metin' => 'Vardiyanız saat ' . sprintf('%02d:%02d', (int)$m[1] % 24, (int)$m[2]) . "'de başlıyor." . ($nGorev ? " Bu vardiya için $nGorev görev listesi var." : ''), 'url' => $nGorev ? './#gorev' : './', 'etiket' => "vardiya-$date-$g"]);
+      $sent += notify($pids, ['baslik' => "$g. vardiya · " . ($hours[$g] ?? ''), 'metin' => 'Vardiyanız saat ' . sprintf('%02d:%02d', (int)$m[1] % 24, (int)$m[2]) . "'de başlıyor." . ($nGorev ? " Bu vardiya için $nGorev görev listesi var." : ''), 'url' => $nGorev ? './#gorev' : './', 'etiket' => "vardiya-$date-$g"], 'vardiya');
     }
   }
   if (random_int(1, 20) === 1) db()->prepare("DELETE FROM meta WHERE k LIKE 'hatirlat:%' AND k < ?")->execute(['hatirlat:' . gmdate('Y-m-d', $tr - 3 * 86400)]);
   return $sent;
+}
+
+// Bildirim merkezi: kayıt (zilde görünür) + anlık bildirim (bildirimi açık cihazlara). $pids null = herkes.
+function notify(?array $pids, array $msg, string $tur, ?int $except = null): int {
+  $b = mb_substr((string)($msg['baslik'] ?? ''), 0, 200); $m = mb_substr((string)($msg['metin'] ?? ''), 0, 600); $url = mb_substr((string)($msg['url'] ?? ''), 0, 200);
+  if ($pids === null) {
+    db()->prepare('INSERT INTO bildirimler (personnel_id, haric_id, tur, baslik, metin, url, created_at) VALUES (NULL,?,?,?,?,?,?)')->execute([$except, $tur, $b, $m, $url, now()]);
+    try { return push_to_all($msg, $except); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); return 0; }
+  }
+  $pids = array_values(array_unique(array_map('intval', $pids)));
+  $st = db()->prepare('INSERT INTO bildirimler (personnel_id, tur, baslik, metin, url, created_at) VALUES (?,?,?,?,?,?)');
+  foreach ($pids as $pid) $st->execute([$pid, $tur, $b, $m, $url, now()]);
+  try { return push_to_people($pids, $msg); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); return 0; }
+}
+// Uygulama güncellemesi: yenilikler.json'daki en yeni sürüm ilk kez görüldüğünde herkese bildirilir
+function release_info(): ?array {
+  static $r = false; if ($r !== false) return $r;
+  $j = @json_decode((string)@file_get_contents(__DIR__ . '/yenilikler.json'), true);
+  return $r = (is_array($j) && !empty($j[0]['surum'])) ? $j[0] : null;
+}
+function check_release(): void {
+  $r = release_info(); if (!$r || meta_get('son_surum') === (string)$r['surum']) return;
+  meta_set('son_surum', (string)$r['surum']);
+  $items = array_slice((array)($r['maddeler'] ?? []), 0, 3);
+  notify(null, ['baslik' => 'CCN Vardiya ' . $r['surum'] . ' yayında', 'metin' => 'Yenilikler: ' . implode(' · ', $items) . (count((array)($r['maddeler'] ?? [])) > 3 ? ' ve daha fazlası' : ''), 'url' => './#yenilikler', 'etiket' => 'surum-' . $r['surum']], 'guncelleme');
 }
