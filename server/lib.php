@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 15;
+const SCHEMA_V = 16;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -155,6 +155,9 @@ function upgrades(PDO $pdo): void {
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
+    // 15 → 16: yüklenen dosyada IP ve cihaz; kişide uygunsuz içerik sayacı (otomatik askıya alma)
+    if (!$pdo->query("SHOW COLUMNS FROM dosyalar LIKE 'ip'")->fetch()) $pdo->exec("ALTER TABLE dosyalar ADD COLUMN ip VARCHAR(45) NULL, ADD COLUMN ua VARCHAR(200) NULL");
+    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'strike'")->fetch()) $pdo->exec("ALTER TABLE personnel ADD COLUMN strike INT NOT NULL DEFAULT 0");
     // 14 → 15: yüklenen dosyalarda yükleyen kişi (denetim: uygunsuz içerik yükleyeni DEV panelinden bulup askıya alma)
     if (!$pdo->query("SHOW COLUMNS FROM dosyalar LIKE 'uploader_id'")->fetch()) {
       $pdo->exec('ALTER TABLE dosyalar ADD COLUMN uploader_id INT NULL AFTER sahip_id');
@@ -250,8 +253,8 @@ function rate_limit(int $perMin = 300): void {
 function body(): array {
   static $b = null;
   if ($b !== null) return $b;
-  $raw = file_get_contents('php://input', false, null, 0, 4 * 1024 * 1024 + 1);
-  if ($raw !== false && strlen($raw) > 4 * 1024 * 1024) fail(413, 'İstek çok büyük.');
+  $raw = file_get_contents('php://input', false, null, 0, 12 * 1024 * 1024 + 1); // şikayet kanıt fotoğrafları tam çözünürlükte gelebilir
+  if ($raw !== false && strlen($raw) > 12 * 1024 * 1024) fail(413, 'İstek çok büyük.');
   $b = $raw ? json_decode($raw, true) : [];
   if (!is_array($b)) fail(400, 'Geçersiz istek.');
   return $b;
