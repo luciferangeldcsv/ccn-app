@@ -287,6 +287,11 @@ table.grid th.we small { color: var(--off); }
 .annfiles { display: flex; flex-wrap: wrap; gap: 8px; }
 .annimg img { max-width: 220px; max-height: 220px; border-radius: 10px; border: 1px solid var(--line); display: block; }
 .annvid { max-width: 300px; max-height: 240px; border-radius: 10px; border: 1px solid var(--line); background: #000; display: block; }
+.selprev { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.selitem { position: relative; width: 84px; }
+.selitem img, .selitem video { width: 84px; height: 84px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); background: #000; display: block; }
+.selitem .selx { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--off); color: #fff; font-size: 15px; line-height: 20px; cursor: pointer; box-shadow: 0 1px 4px #0006; }
+.selitem .selnm { display: block; font-size: 10px; color: var(--muted); max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
 .rdl { margin: 6px 0 0; padding-left: 18px; max-height: 280px; overflow: auto; font-size: 14px; }
 .rdl small { color: var(--muted); }
 html[data-fs="2"] { zoom: 1.1; } html[data-fs="3"] { zoom: 1.22; }
