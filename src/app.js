@@ -117,7 +117,7 @@ function applyTheme() {
 applyTheme();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
-// Açılış animasyonu: yaklaşık 2,4 sn; dokununca hemen geçer
+// Açılış animasyonu: yaklaşık 3,2 sn; harfler üç yönden gelir, renk çizgileri hapa dönüşür, yükleme çubuğu dolar; dokununca hemen geçer
 (function intro() {
   const el = document.getElementById('intro'); if (!el) return;
   const sb = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SystemBars;
@@ -129,7 +129,19 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
     el.classList.add('out'); document.body.classList.remove('intro-run'); document.body.classList.add('intro-done'); applyTheme();
     setTimeout(() => { el.remove(); document.body.classList.remove('intro-done'); setTimeout(() => checkForUpdate(false), 300); }, 700);
   };
-  setTimeout(done, reduce ? 500 : 2400);
+  // yükleme çubuğu ve yüzde sayacı: 0,9 sn'de başlar, 2,8 sn'de %100 olur; adım adım mesaj değişir
+  const bar = el.querySelector('.intro-bar'), pct = document.getElementById('intro-pct'), msg = document.getElementById('intro-msg');
+  const MSG = [[0, 'Başlatılıyor…'], [0.25, 'Vardiya listesi hazırlanıyor…'], [0.55, 'Ekipler yerleşiyor…'], [0.85, 'Son dokunuşlar…'], [1, 'Hazır']];
+  const t0 = performance.now() + (reduce ? 0 : 900), dur = reduce ? 300 : 1900;
+  const tick = (now) => {
+    if (!document.body.contains(el)) return;
+    const x = Math.max(0, Math.min(1, (now - t0) / dur)); const e = x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+    if (bar) bar.style.setProperty('--p', e.toFixed(3)); if (pct) pct.textContent = '%' + Math.round(e * 100);
+    if (msg) msg.textContent = MSG.filter(([k]) => e >= k).pop()[1];
+    if (x < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  setTimeout(done, reduce ? 500 : 3250);
   el.addEventListener('click', done);
 })();
 ['online', 'offline'].forEach((ev) => window.addEventListener(ev, () => { if (ui.view === 'ayarlar' && !$overlay.innerHTML) render(); }));
