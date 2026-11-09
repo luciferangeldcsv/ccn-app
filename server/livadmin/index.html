@@ -28,6 +28,14 @@ main { margin-left: 220px; padding: 20px 24px 60px; max-width: 1500px; }
 .top { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; } .top h2 { margin: 0; font-size: 20px; flex: 1; }
 .live { display: inline-flex; align-items: center; gap: 6px; color: var(--ok); font-size: 12px; } .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: p 1.6s infinite; }
 @keyframes p { 50% { opacity: .3; } }
+.fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.fcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.fcard .thumb { height: 150px; background: #0d1117 center/cover no-repeat; display: grid; place-items: center; position: relative; }
+.fcard .thumb a.full { position: absolute; inset: 0; } .fcard .thumb .pdf { font-size: 40px; }
+.fcard .meta { padding: 8px 10px; font-size: 12px; display: grid; gap: 3px; }
+.fcard .meta b { font-size: 13px; } .fcard .who { color: var(--muted); }
+.fcard .acts { display: flex; gap: 6px; padding: 0 10px 10px; } .fcard .acts .btn { flex: 1; padding: 6px; font-size: 12px; }
+.badge-ban { background: #7f1d1d; color: #fff; border-radius: 6px; padding: 1px 6px; font-size: 11px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; } .tile b { display: block; font-size: 26px; } .tile span { color: var(--muted); font-size: 12px; }
 .tile.bad b { color: var(--bad); } .tile.ok b { color: var(--ok); } .tile.warn b { color: var(--warn); }
@@ -69,6 +77,7 @@ td.c { text-align: center; font-weight: 700; padding: 3px; min-width: 30px; }
     <button data-v="ot">💻 Oturumlar</button>
     <button data-v="yay">🗂️ Yayın geçmişi</button>
     <button data-v="duy">📣 Duyurular</button>
+    <button data-v="dos">🖼️ Dosyalar</button>
     <button data-v="guv">🛡️ Güvenlik</button>
     <div class="sp"></div>
     <button id="out">⎋ Çıkış</button>
@@ -83,7 +92,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const when = (t) => { if (!t) return '–'; const d = new Date(t); const p = (n) => String(n).padStart(2, '0'); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
 const TITLE = { dev: 'DEV', yonetici: 'Yönetici', mudur: 'Müdür', sef: 'Şef', personel: 'Personel' };
-const ACT = { 'egitim-eklendi': 'eğitim/not ekledi', 'egitim-guncellendi': 'eğitim/not güncelledi', 'egitim-silindi': 'eğitim/not sildi', 'sikayet-acildi': 'şikayet bildirdi', 'sikayet-cozuldu': 'şikayeti çözdü', 'yeni-cihaz': 'yeni cihazdan giriş', 'sifre-degisti': 'şifresini değiştirdi', 'gorev-eklendi': 'görev ekledi', 'gorev-guncellendi': 'görev güncelledi', 'gorev-silindi': 'görev sildi', giris: 'giriş yaptı', cikis: 'çıkış yaptı', 'giris-hatali': 'hatalı giriş', 'giris-bilinmeyen': 'bilinmeyen hesapla giriş denemesi', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', 'personel-eklendi': 'kişi ekledi', 'personel-guncellendi': 'kişi güncelledi', 'personel-silindi': 'kişi sildi', 'personel-toplu': 'toplu kişi ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', ayar: 'ayarları değiştirdi', kurulum: 'kurulum', 'yonetici-cli': 'sunucudan hesap işlemi', 'ip-engellendi': 'IP engelledi', 'ip-engeli-kalkti': 'IP engelini kaldırdı', 'hesap-askiya': 'hesabı askıya aldı', 'hesap-acildi': 'hesabı açtı', 'giris-askida': 'askıdaki hesapla giriş denedi' };
+const ACT = { 'dosya-silindi': 'dosya sildi', 'egitim-eklendi': 'eğitim/not ekledi', 'egitim-guncellendi': 'eğitim/not güncelledi', 'egitim-silindi': 'eğitim/not sildi', 'sikayet-acildi': 'şikayet bildirdi', 'sikayet-cozuldu': 'şikayeti çözdü', 'yeni-cihaz': 'yeni cihazdan giriş', 'sifre-degisti': 'şifresini değiştirdi', 'gorev-eklendi': 'görev ekledi', 'gorev-guncellendi': 'görev güncelledi', 'gorev-silindi': 'görev sildi', giris: 'giriş yaptı', cikis: 'çıkış yaptı', 'giris-hatali': 'hatalı giriş', 'giris-bilinmeyen': 'bilinmeyen hesapla giriş denemesi', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', 'personel-eklendi': 'kişi ekledi', 'personel-guncellendi': 'kişi güncelledi', 'personel-silindi': 'kişi sildi', 'personel-toplu': 'toplu kişi ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', ayar: 'ayarları değiştirdi', kurulum: 'kurulum', 'yonetici-cli': 'sunucudan hesap işlemi', 'ip-engellendi': 'IP engelledi', 'ip-engeli-kalkti': 'IP engelini kaldırdı', 'hesap-askiya': 'hesabı askıya aldı', 'hesap-acildi': 'hesabı açtı', 'giris-askida': 'askıdaki hesapla giriş denedi' };
 const tag = (t) => t ? `<span class="tag t-${esc(t)}">${esc(TITLE[t] || t)}</span>` : '';
 async function api(r, body) {
   const res = await fetch(API + r, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(tok ? { 'X-Ccn-Token': tok } : {}) }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
@@ -113,7 +122,7 @@ async function start() {
 function show(v) {
   view = v; location.hash = v; clearInterval(timer); $('#m').onclick = null; $('#m').onchange = null;
   document.querySelectorAll('aside [data-v]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.v === v)));
-  ({ ozet, log: logView, den, kul, ot, yay, duy, guv }[v] || ozet)();
+  ({ ozet, log: logView, den, kul, dos, ot, yay, duy, guv }[v] || ozet)();
 }
 const M = (h) => { $('#m').innerHTML = h; };
 const fail = (e) => M(`<div class="card err">${esc(e.message)}</div>`);
@@ -248,6 +257,41 @@ async function duy() {
   M('<p class="mut">Yükleniyor…</p>'); let d; try { d = await api('dev-duyurular'); } catch (e) { return fail(e); }
   M(`<div class="top"><h2>Duyurular · ${d.duyurular.length}</h2></div><div class="grid2">${d.duyurular.map((a) => `<div class="card"><h3 style="text-transform:none;color:var(--fg);font-size:15px">${a.sabit ? '📌 ' : ''}${esc(a.baslik)}</h3><p style="white-space:pre-wrap;margin:0 0 8px">${esc(a.metin)}</p><span class="mut">${esc(a.kim || '')} · ${when(a.tarih)}</span></div>`).join('') || '<div class="card mut">Duyuru yok</div>'}</div>`);
 }
+async function dos() {
+  let sayfa = 1;
+  M(`<div class="top"><h2>Yüklenen dosyalar</h2><span class="mut" id="fdt"></span></div>
+    <div class="filters"><select id="fi"><option value="">Tüm bölümler</option><option value="sikayet">Şikayet</option><option value="egitim">Eğitim/Not</option><option value="duyuru">Duyuru</option></select>
+      <select id="ft"><option value="">Fotoğraf + PDF</option><option value="foto">Yalnızca fotoğraf</option><option value="pdf">Yalnızca PDF</option></select>
+      <button class="btn" id="fr">Yenile</button></div>
+    <p class="mut" style="margin:6px 0 12px">Kullanıcıların şikayet, eğitim ve duyurulara yüklediği tüm görsel ve PDF'ler. Uygunsuz içerik yükleyeni buradan askıya alabilirsiniz.</p>
+    <div class="fgrid" id="fgrid"><p class="mut">Yükleniyor…</p></div>
+    <div class="filters" style="justify-content:center;margin-top:12px"><button class="btn" id="fp">‹ Önceki</button><span id="fn" class="mut"></span><button class="btn" id="fnx">Sonraki ›</button></div>`);
+  const load = async () => {
+    let j; try { j = await api(`dev-dosyalar&sayfa=${sayfa}&tur=${$('#fi').value}&tip=${$('#ft').value}`); } catch (e) { return fail(e); }
+    if (view !== 'dos') return;
+    $('#fdt').textContent = `${j.toplam} dosya · ${j.foto} fotoğraf`;
+    $('#fn').textContent = `Sayfa ${j.sayfa} / ${j.sayfaSayisi}`; $('#fp').disabled = j.sayfa <= 1; $('#fnx').disabled = j.sayfa >= j.sayfaSayisi; sayfa = j.sayfa;
+    $('#fgrid').innerHTML = j.dosyalar.map((f) => {
+      const img = f.tip.indexOf('image/') === 0;
+      const thumb = img ? `<div class="thumb" style="background-image:url('${esc(f.url)}')"><a class="full" href="${esc(f.url)}" target="_blank" rel="noopener" title="Büyük aç"></a></div>` : `<div class="thumb"><a class="full" href="${esc(f.url)}" target="_blank" rel="noopener"></a><span class="pdf">📄</span></div>`;
+      const who = f.yukleyenId ? `${esc(f.yukleyen || '—')} ${tag(f.unvan)}${f.askida ? ' <span class="badge-ban">askıda</span>' : ''}` : '<span class="mut">bilinmiyor</span>';
+      return `<div class="fcard"><div data-full="${esc(f.url)}">${thumb}</div><div class="meta"><b>${esc(f.bolum)}</b><span class="who">${who}</span><span class="mut">${when(f.tarih)} · ${(f.boyut / 1024 | 0)} KB</span></div>
+        <div class="acts">${f.yukleyenId && f.unvan !== 'dev' && !f.askida ? `<button class="btn" data-ban2="${f.yukleyenId}" data-adi="${esc(f.yukleyen || '')}">Askıya al</button>` : ''}<button class="btn" data-fdel="${f.kaynak}:${f.id}">Sil</button></div></div>`;
+    }).join('') || '<p class="mut">Bu filtreye uyan dosya yok.</p>';
+  };
+  $('#fgrid').addEventListener('click', async (e) => {
+    const bb = e.target.closest('[data-ban2]');
+    if (bb) { const why = prompt(`${bb.dataset.adi} askıya alınsın mı? Sebep:`, 'Uygunsuz içerik yükledi'); if (why === null) return; try { await api('dev-askiya', { id: +bb.dataset.ban2, askiya: true, sebep: why }); alert('Hesap askıya alındı'); load(); } catch (err) { alert(err.message); } return; }
+    const fd = e.target.closest('[data-fdel]');
+    if (fd) { if (!confirm('Dosya silinsin mi?')) return; const [k, id] = fd.dataset.fdel.split(':'); try { await api('dev-dosya-sil', { kaynak: k, id: +id }); load(); } catch (err) { alert(err.message); } }
+  });
+  const apply = () => { sayfa = 1; load(); };
+  $('#fr').addEventListener('click', apply); $('#fi').addEventListener('change', apply); $('#ft').addEventListener('change', apply);
+  $('#fp').addEventListener('click', () => { if (sayfa > 1) { sayfa--; load(); } });
+  $('#fnx').addEventListener('click', () => { sayfa++; load(); });
+  await load();
+}
+
 async function guv() {
   M('<p class="mut">Yükleniyor…</p>'); let d; try { d = await api('dev-guvenlik'); } catch (e) { return fail(e); }
   const ipRows = (arr, cols) => arr.map((r) => `<tr><td class="mono">${esc(r.ip)}</td><td>${r.n}</td>${cols ? `<td class="nw">${when(r.son)}</td>` : ''}<td><button class="btn sm red" data-ban="${esc(r.ip)}">Engelle</button></td></tr>`).join('') || `<tr><td colspan="4" class="mut">Kayıt yok</td></tr>`;
