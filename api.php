@@ -453,8 +453,9 @@ switch ($r) {
     elseif ($tur === 'sikayet') { $st = db()->prepare('SELECT personnel_id, durum FROM sikayetler WHERE id = ?'); $st->execute([$sid]); $sk = $st->fetch(); if (!$sk || (int)$sk['personnel_id'] !== $u['id'] || $sk['durum'] !== 'acik') fail(403, 'Bu şikayete dosya eklenemez.'); $max = 3; }
     else fail(400, 'Geçersiz dosya türü.');
     $st = db()->prepare('SELECT COUNT(*) FROM dosyalar WHERE tur = ? AND sahip_id = ?'); $st->execute([$tur, $sid]); if ((int)$st->fetchColumn() >= $max) fail(400, "En fazla $max dosya eklenebilir.");
-    [$ad, $tip, $bin] = read_upload(body(), $tur === 'sikayet');
-    db()->prepare('INSERT INTO dosyalar (tur, sahip_id, uploader_id, ad, tip, boyut, veri, created_at) VALUES (?,?,?,?,?,?,?,?)')->execute([$tur, $sid, $u['id'], $ad, $tip, strlen($bin), $bin, now()]);
+    // şikayet fotoğrafları kanıt için küçültülmeden, tam çözünürlükte saklanır (8 MB'a kadar)
+    [$ad, $tip, $bin] = read_upload(body(), $tur === 'sikayet', $tur === 'sikayet' ? 8600000 : 2600000);
+    db()->prepare('INSERT INTO dosyalar (tur, sahip_id, uploader_id, ad, tip, boyut, veri, ip, ua, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$tur, $sid, $u['id'], $ad, $tip, strlen($bin), $bin, client_ip(), mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 200), now()]);
     ok(['id' => (int)db()->lastInsertId()]);
   }
   case 'dosya-sil': {
@@ -718,7 +719,7 @@ switch ($r) {
     $id = (int)(body()['id'] ?? 0); $ban = !empty(body()['askiya']); $why = str_in('sebep', 200);
     $st = db()->prepare('SELECT name, title FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
     if (!$p || $p['title'] === 'dev') fail(400, 'Bu hesap askıya alınamaz.');
-    db()->prepare('UPDATE personnel SET banned = ?, ban_reason = ? WHERE id = ?')->execute([$ban ? 1 : 0, $ban ? ($why ?: null) : null, $id]);
+    db()->prepare('UPDATE personnel SET banned = ?, ban_reason = ?' . ($ban ? '' : ', strike = 0') . ' WHERE id = ?')->execute([$ban ? 1 : 0, $ban ? ($why ?: null) : null, $id]);
     if ($ban) db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$id]);
     audit($u, $ban ? 'hesap-askiya' : 'hesap-acildi', $p['name'] . ($ban && $why ? " · $why" : ''));
     ok();
@@ -763,18 +764,18 @@ switch ($r) {
     $sayfa = max(1, (int)($_GET['sayfa'] ?? 1)); $adet = 48;
     // tüm yüklemeleri tek listede birleştir (dosyalar: şikayet/eğitim, duyuru_ek: duyuru)
     $all = [];
-    $st = db()->query("SELECT d.id, d.tur, d.sahip_id, d.uploader_id, d.ad, d.tip, d.boyut, d.created_at, p.name uploader_ad, p.title uploader_unvan, p.banned,
+    $st = db()->query("SELECT d.id, d.tur, d.sahip_id, d.uploader_id, d.ad, d.tip, d.boyut, d.ip, d.ua, d.created_at, p.name uploader_ad, p.title uploader_unvan, p.banned, p.strike,
       CASE d.tur WHEN 'sikayet' THEN (SELECT durum FROM sikayetler WHERE id = d.sahip_id) ELSE NULL END sik_durum
       FROM dosyalar d LEFT JOIN personnel p ON p.id = d.uploader_id ORDER BY d.id DESC");
     foreach ($st as $r) $all[] = ['kaynak' => 'dosya', 'id' => (int)$r['id'], 'bolum' => $r['tur'] === 'sikayet' ? 'Şikayet' : 'Eğitim/Not', 'tur' => $r['tur'],
-      'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'tarih' => utc($r['created_at']),
-      'yukleyenId' => $r['uploader_id'] ? (int)$r['uploader_id'] : null, 'yukleyen' => $r['uploader_ad'], 'unvan' => $r['uploader_unvan'], 'askida' => (bool)$r['banned'],
+      'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'tarih' => utc($r['created_at']), 'ip' => $r['ip'], 'cihaz' => ua_text((string)$r['ua']),
+      'yukleyenId' => $r['uploader_id'] ? (int)$r['uploader_id'] : null, 'yukleyen' => $r['uploader_ad'], 'unvan' => $r['uploader_unvan'], 'askida' => (bool)$r['banned'], 'uyari' => (int)$r['strike'],
       'durum' => $r['sik_durum'], 'url' => dosya_url('dosya', (int)$r['id'], '../')];
     $st = db()->query("SELECT e.id, e.duyuru_id, e.ad, e.tip, e.boyut, a.created_at, a.created_by, a.title, p.name, p.title ptitle, p.banned
       FROM duyuru_ek e JOIN announcements a ON a.id = e.duyuru_id LEFT JOIN personnel p ON p.id = a.created_by ORDER BY e.id DESC");
     foreach ($st as $r) $all[] = ['kaynak' => 'ek', 'id' => (int)$r['id'], 'bolum' => 'Duyuru', 'tur' => 'duyuru',
       'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'tarih' => utc($r['created_at']),
-      'yukleyenId' => $r['created_by'] ? (int)$r['created_by'] : null, 'yukleyen' => $r['name'], 'unvan' => $r['ptitle'], 'askida' => (bool)$r['banned'],
+      'yukleyenId' => $r['created_by'] ? (int)$r['created_by'] : null, 'yukleyen' => $r['name'], 'unvan' => $r['ptitle'], 'askida' => (bool)$r['banned'], 'uyari' => 0, 'ip' => null, 'cihaz' => '',
       'durum' => null, 'url' => dosya_url('ek', (int)$r['id'], '../')];
     usort($all, fn($x, $y) => strcmp($y['tarih'], $x['tarih']));
     if ($tur !== '' && in_array($tur, ['sikayet', 'egitim', 'duyuru'], true)) $all = array_values(array_filter($all, fn($f) => $f['tur'] === $tur));
@@ -785,11 +786,25 @@ switch ($r) {
       'dosyalar' => array_slice($all, ($sayfa - 1) * $adet, $adet)]);
   }
   case 'dev-dosya-sil': {
-    $u = dev_only(); $kaynak = (string)(body()['kaynak'] ?? ''); $id = (int)(body()['id'] ?? 0);
-    if ($kaynak === 'ek') db()->prepare('DELETE FROM duyuru_ek WHERE id = ?')->execute([$id]);
-    else db()->prepare('DELETE FROM dosyalar WHERE id = ?')->execute([$id]);
-    audit($u, 'dosya-silindi', "$kaynak #$id");
-    ok();
+    $u = dev_only(); $kaynak = (string)(body()['kaynak'] ?? ''); $id = (int)(body()['id'] ?? 0); $uygunsuz = !empty(body()['uygunsuz']);
+    $uploader = null; $uad = '';
+    if ($kaynak === 'ek') { db()->prepare('DELETE FROM duyuru_ek WHERE id = ?')->execute([$id]); }
+    else {
+      $st = db()->prepare('SELECT d.uploader_id, p.name, p.title FROM dosyalar d LEFT JOIN personnel p ON p.id = d.uploader_id WHERE d.id = ?'); $st->execute([$id]); $r = $st->fetch();
+      $uploader = $r && $r['uploader_id'] ? (int)$r['uploader_id'] : null; $uad = $r['name'] ?? ''; $utitle = $r['title'] ?? '';
+      db()->prepare('DELETE FROM dosyalar WHERE id = ?')->execute([$id]);
+    }
+    $asildi = false; $n = 0;
+    if ($uygunsuz && $uploader && ($utitle ?? '') !== 'dev') {
+      db()->prepare('UPDATE personnel SET strike = strike + 1 WHERE id = ?')->execute([$uploader]);
+      $st = db()->prepare('SELECT strike, banned FROM personnel WHERE id = ?'); $st->execute([$uploader]); $pr = $st->fetch(); $n = (int)$pr['strike'];
+      if ($n >= 3 && !$pr['banned']) { // 3. uygunsuz içerikte otomatik askıya alınır
+        db()->prepare('UPDATE personnel SET banned = 1, ban_reason = ? WHERE id = ?')->execute(["$n uygunsuz içerik", $uploader]);
+        db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$uploader]); $asildi = true;
+      }
+      audit($u, 'dosya-uygunsuz', "$uad · $n. uyarı" . ($asildi ? ' · otomatik askıya alındı' : ''));
+    } else audit($u, 'dosya-silindi', "$kaynak #$id" . ($uad ? " · $uad" : ''));
+    ok(['uyari' => $n, 'askiya' => $asildi]);
   }
 
   case 'dev-guvenlik': {
@@ -883,11 +898,11 @@ function files_of(string $tur, array $ids): array {
   foreach ($st->fetchAll() as $f) { $exp = time() + 86400; $out[(int)$f['sahip_id']][] = ['id' => (int)$f['id'], 'ad' => $f['ad'], 'tip' => $f['tip'], 'boyut' => (int)$f['boyut'], 'url' => 'api.php?r=dosya&id=' . $f['id'] . '&e=' . $exp . '&k=' . hmac('dosya:' . $f['id'] . ':' . $exp)]; }
   return $out;
 }
-function read_upload(array $e, bool $imagesOnly): array {
+function read_upload(array $e, bool $imagesOnly, int $maxBytes = 2600000): array {
   $tip = (string)($e['tip'] ?? ''); $ok = $imagesOnly ? ['image/jpeg', 'image/png', 'image/webp'] : ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
   if (!in_array($tip, $ok, true)) fail(400, $imagesOnly ? 'Yalnızca fotoğraf eklenebilir.' : 'Yalnızca fotoğraf (JPG, PNG) ve PDF eklenebilir.');
   $bin = base64_decode((string)($e['veri'] ?? ''), true); if ($bin === false || $bin === '') fail(400, 'Dosya okunamadı.');
-  if (strlen($bin) > 2600000) fail(413, 'Dosya en fazla 2,5 MB olabilir.');
+  if (strlen($bin) > $maxBytes) fail(413, 'Dosya en fazla ' . round($maxBytes / 1048576, 1) . ' MB olabilir.');
   $sig = $tip === 'application/pdf' ? '%PDF' : ($tip === 'image/png' ? "\x89PNG" : ($tip === 'image/webp' ? 'RIFF' : "\xFF\xD8"));
   if (strncmp($bin, $sig, strlen($sig)) !== 0) fail(400, 'Dosyanın türü tanınmadı.');
   return [mb_substr(preg_replace('/[^\p{L}\p{N} ._()-]/u', '', (string)($e['ad'] ?? 'dosya')) ?: 'dosya', 0, 160), $tip, $bin];

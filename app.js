@@ -952,15 +952,20 @@ async function annReaders(id) {
 const ekUrl = (u) => { try { return new URL(u, new URL(API_URL || 'api.php', location.href)).href; } catch (e) { return u; } };
 const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
 // duyuru eki hazırlığı: fotoğraflar 1600 px'e küçültülüp JPEG yapılır, PDF olduğu gibi (en fazla 2,5 MB)
-async function prepAttachment(file) {
+// full=true (şikayet): kanıt için küçültmeden gönderilir; yalnızca 8 MB'ı aşarsa yüksek kalitede sığdırılır
+async function prepAttachment(file, full) {
   const toB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+  const LIM = full ? 8.4e6 : 2.5e6;
   if (file.type === 'application/pdf') { if (file.size > 2.5e6) throw new Error(`${file.name}: PDF en fazla 2,5 MB olabilir`); return { ad: file.name, tip: 'application/pdf', veri: await toB64(file), boyut: file.size }; }
   if (!/^image\//.test(file.type)) throw new Error(`${file.name}: yalnızca fotoğraf ya da PDF eklenebilir`);
+  // tam çözünürlük: desteklenen tür ve sınır içindeyse olduğu gibi gönder
+  if (full && /^image\/(jpeg|png|webp)$/.test(file.type) && file.size <= LIM) return { ad: file.name, tip: file.type, veri: await toB64(file), boyut: file.size };
   const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error(`${file.name} açılamadı`)); im.src = URL.createObjectURL(file); });
-  const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)); const cv = document.createElement('canvas');
+  const maxDim = full ? 3200 : 1600, q = full ? 0.9 : 0.82;
+  const k = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight)); const cv = document.createElement('canvas');
   cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-  const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.82)); URL.revokeObjectURL(img.src);
-  if (blob.size > 2.5e6) throw new Error(`${file.name}: fotoğraf çok büyük`);
+  const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', q)); URL.revokeObjectURL(img.src);
+  if (blob.size > LIM) throw new Error(`${file.name}: fotoğraf çok büyük`);
   return { ad: file.name.replace(/\.[^.]+$/, '') + '.jpg', tip: 'image/jpeg', veri: await toB64(blob), boyut: blob.size };
 }
 
@@ -2034,7 +2039,7 @@ async function uploadFiles(tur, id, files, imagesOnly) {
   for (const f of files) {
     if (imagesOnly && !/^image\//.test(f.type)) throw new Error(`${f.name}: yalnızca fotoğraf eklenebilir`);
     toast(`Dosya yükleniyor ${++n}/${files.length}…`);
-    const a = await prepAttachment(f); await api('dosya-yukle', { tur, sahip_id: id, ad: a.ad, tip: a.tip, veri: a.veri });
+    const a = await prepAttachment(f, tur === 'sikayet'); await api('dosya-yukle', { tur, sahip_id: id, ad: a.ad, tip: a.tip, veri: a.veri });
   }
 }
 
@@ -2174,7 +2179,7 @@ function viewPersonnel() {
   return `<div class="pgrid"><div class="pmain stack">${left}<p class="small muted">Yönetici: her şey. Müdür: listeyi çizelgeden hazırlar ve yayınlar (görsel yüklemez), şef/personel verir. Şef: liste görsellerini yükleyerek listeyi hazırlar ve onaya gönderir, kişi ekler/çıkarır, duyuru yayınlar. Personel: listeleri görür. Etkinliklerde herkes kendisinin ve alt unvandakilerin işlemlerini görür.</p></div>
     <aside class="pside" id="pside">${personSide()}</aside></div>`;
 }
-const LOG_NAMES = { 'hesap-askiya': 'hesabı askıya alındı', 'hesap-acildi': 'hesabı açıldı', 'giris-askida': 'askıdaki hesapla giriş denedi', cikis: 'çıkış yaptı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', 'gorev-eklendi': 'görev ekledi', 'egitim-eklendi': 'eğitim/not ekledi', 'egitim-guncellendi': 'eğitim/not güncelledi', 'egitim-silindi': 'eğitim/not sildi', 'sikayet-acildi': 'şikayet bildirdi', 'sikayet-cozuldu': 'şikayeti çözdü', 'dosya-silindi': 'dosya sildi', 'gorev-guncellendi': 'görev güncelledi', 'gorev-silindi': 'görev sildi', kurulum: 'kurulum' };
+const LOG_NAMES = { 'hesap-askiya': 'hesabı askıya alındı', 'hesap-acildi': 'hesabı açıldı', 'giris-askida': 'askıdaki hesapla giriş denedi', cikis: 'çıkış yaptı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', 'gorev-eklendi': 'görev ekledi', 'egitim-eklendi': 'eğitim/not ekledi', 'egitim-guncellendi': 'eğitim/not güncelledi', 'egitim-silindi': 'eğitim/not sildi', 'sikayet-acildi': 'şikayet bildirdi', 'sikayet-cozuldu': 'şikayeti çözdü', 'dosya-silindi': 'dosya sildi', 'dosya-uygunsuz': 'uygunsuz dosya sildi', 'gorev-guncellendi': 'görev güncelledi', 'gorev-silindi': 'görev sildi', kurulum: 'kurulum' };
 // Sağ panel: seçili kişinin durumu ve etkinlikleri; kimse seçili değilse son etkinlikler ve listeyi görmeyenler
 const logLine = (k, withWho) => `<div class="logline"><span class="lt">${fmtWhen(k.tarih)}</span><span>${withWho ? `<b>${esc(k.kim || 'Sistem')}</b> ` : ''}${esc(LOG_NAMES[k.islem] || k.islem)}${k.detay ? ` <span class="muted">· ${esc(k.detay)}</span>` : ''}</span></div>`;
 function personSide() {
