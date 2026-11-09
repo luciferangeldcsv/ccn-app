@@ -77,13 +77,23 @@ function push_send(array $subs, array $msg): int {
   if ($okIds) db()->prepare('UPDATE push_subs SET last_ok = ? WHERE id IN (' . implode(',', $okIds) . ')')->execute([now()]);
   return $ok;
 }
+// Bugün (Türkiye saatiyle) OFF, rapor ya da izinde olanlar: bu kişilere bildirim gönderilmez (güvenlik uyarıları hariç)
+function resting_today(): array {
+  static $r = null; if ($r !== null) return $r;
+  $j = db()->query('SELECT data FROM rosters ORDER BY id DESC LIMIT 1')->fetchColumn(); $d = gmdate('Y-m-d', time() + 10800); $keys = [];
+  foreach (($j ? (json_decode((string)$j, true)['people'] ?? []) : []) as $p) if (in_array($p['days'][$d] ?? '', ['OFF', 'R', 'YI', 'UI', 'MI'], true)) $keys[name_key((string)$p['name'])] = true;
+  $r = []; if ($keys) foreach (db()->query('SELECT id, name FROM personnel') as $p) if (isset($keys[name_key((string)$p['name'])])) $r[(int)$p['id']] = true;
+  return $r;
+}
 function push_to_all(array $msg, ?int $exceptPid = null): int {
-  $st = db()->prepare('SELECT s.id, s.endpoint, s.p256dh, s.auth FROM push_subs s JOIN personnel p ON p.id = s.personnel_id WHERE p.banned = 0' . ($exceptPid ? ' AND s.personnel_id <> ?' : ''));
+  $st = db()->prepare('SELECT s.id, s.personnel_id, s.endpoint, s.p256dh, s.auth FROM push_subs s JOIN personnel p ON p.id = s.personnel_id WHERE p.banned = 0' . ($exceptPid ? ' AND s.personnel_id <> ?' : ''));
   $st->execute($exceptPid ? [$exceptPid] : []);
-  return push_send($st->fetchAll(), $msg);
+  $rest = empty($msg['guvenlik']) ? resting_today() : [];
+  return push_send(array_values(array_filter($st->fetchAll(), fn($x) => !isset($rest[(int)$x['personnel_id']]))), $msg);
 }
 function push_to_people(array $pids, array $msg): int {
-  $pids = array_values(array_unique(array_map('intval', $pids))); if (!$pids) return 0;
+  $rest = empty($msg['guvenlik']) ? resting_today() : [];
+  $pids = array_values(array_filter(array_unique(array_map('intval', $pids)), fn($p) => !isset($rest[$p]))); if (!$pids) return 0;
   $st = db()->prepare('SELECT id, endpoint, p256dh, auth FROM push_subs WHERE personnel_id IN (' . implode(',', array_fill(0, count($pids), '?')) . ')');
   $st->execute($pids);
   return push_send($st->fetchAll(), $msg);
