@@ -438,7 +438,7 @@ async function api(r, body) {
 function signOut(msg) {
   auth = null; saveAuth(); clearInterval(pollT);
   store = defaultStore(); try { localStorage.removeItem(STORE_KEY); } catch (e) { /* yoksay */ }
-  srv.v = null; srv.duyurular = []; srv.personel = null; srv.kayitlar = null; srv.gorev = null;
+  srv.v = null; srv.duyurular = []; srv.personel = null; srv.kayitlar = null; srv.gorev = null; srv.egitim = null; srv.sikayet = null; srv.sikayetAcik = 0;
   ui.login = { step: 'giris', hatirla: true, err: msg || '' }; ui.review = null; ui.view = 'gunluk';
   closeSheet(); render();
 }
@@ -493,7 +493,7 @@ async function syncData(force) {
   auth.ben = j.ben; saveAuth();
   srv.v = j.surum; srv.duyurular = j.duyurular || [];
   const L = j.liste;
-  srv.ayarlar = j.ayarlar || null; srv.taslak = j.taslak || null;
+  srv.ayarlar = j.ayarlar || null; srv.taslak = j.taslak || null; srv.sikayetAcik = j.sikayetAcik || 0;
   // yöneticinin yayınlamadığı değişiklikler korunur; başka biri yeni liste yayınladıysa uyarılır
   if (!force && isDirty() && L && store.pub && L.id !== store.pub.id) srv.conflict = true;
   if (force) srv.conflict = false;
@@ -632,12 +632,12 @@ function dataRange(src) {
 }
 
 // ---------- Yönlendirme ----------
-const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'gorev', 'duyuru', 'personel', 'ayarlar'];
+const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'gorev', 'duyuru', 'egitim', 'sikayet', 'personel', 'ayarlar'];
 // sekmeler kullanıcının rolüne göre
 function tabList() {
   if (!SERVER) return ['gunluk', 'ara', 'cizelge', 'yukle', 'ayarlar'];
-  if (canEdit()) return canUpload() ? ['gunluk', 'cizelge', 'yukle', 'gorev', 'duyuru', 'personel', 'ayarlar'] : ['gunluk', 'cizelge', 'gorev', 'duyuru', 'personel', 'ayarlar'];
-  return ['gunluk', 'ara', 'cizelge', 'gorev', 'duyuru', 'ayarlar'];
+  if (canEdit()) return canUpload() ? ['gunluk', 'cizelge', 'yukle', 'gorev', 'duyuru', 'egitim', 'sikayet', 'personel', 'ayarlar'] : ['gunluk', 'cizelge', 'gorev', 'duyuru', 'egitim', 'sikayet', 'personel', 'ayarlar'];
+  return ['gunluk', 'ara', 'cizelge', 'gorev', 'duyuru', 'egitim', 'sikayet', 'ayarlar'];
 }
 const allowedView = (v) => VIEWS.includes(v) && (v === 'ara' || tabList().includes(v));
 function go(view) {
@@ -650,8 +650,10 @@ const $tabs = document.querySelector('.tabs');
 const TAB_ICON = {}; document.querySelectorAll('.tab').forEach((b) => { TAB_ICON[b.dataset.view] = b.querySelector('svg').outerHTML; });
 TAB_ICON.duyuru = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 5.5a9 9 0 0 1 0 13"/></svg>';
 TAB_ICON.gorev = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h10M9 12h10M9 19h10"/><path d="M3.5 5l1.5 1.5L7.5 4M3.5 12l1.5 1.5L7.5 11M3.5 19l1.5 1.5L7.5 18"/></svg>';
+TAB_ICON.egitim = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H11v17H4.5A2.5 2.5 0 0 0 2 22.5z"/><path d="M22 5.5A2.5 2.5 0 0 0 19.5 3H13v17h6.5a2.5 2.5 0 0 1 2.5 2.5z"/></svg>';
+TAB_ICON.sikayet = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v4M12 14h.01"/></svg>';
 TAB_ICON.personel = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 20a6.5 6.5 0 0 0-3-5.5"/></svg>';
-const TAB_LABEL = { gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', gorev: 'Görevler', duyuru: 'Duyurular', personel: 'Personel', ayarlar: 'Ayarlar' };
+const TAB_LABEL = { gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', gorev: 'Görevler', duyuru: 'Duyurular', egitim: 'Eğitimler', sikayet: 'Şikayet', personel: 'Personel', ayarlar: 'Ayarlar' };
 $tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) go(b.dataset.view); });
 function unreadCount() { const seen = prefs.seenAnn || 0; const n = srv.duyurular.filter((a) => a.id > seen).length; setBadge(n); return n; }
 let lastBadge = -1;
@@ -683,7 +685,7 @@ function renderTabs() {
     $side.innerHTML = `<div class="side-title">Yönetim paneli</div>
       <div class="side-prof"><span class="av">${esc(initials(auth.ben.ad))}</span><div><b>${esc(auth.ben.ad)}</b><span class="role-badge">${esc(titleOf(auth.ben))}</span>${auth.ben.sicil ? `<small>Personel ID ${esc(auth.ben.sicil)}</small>` : ''}</div></div>
       <div class="side-search"><input type="search" id="side-q" placeholder="Kişi ara (ad soyad)" autocomplete="off" value="${esc(ui.sideQ || '')}" aria-label="Kişi ara"><div id="side-res">${sideResults()}</div></div>
-      <nav class="side-nav">${tabList().filter((v) => v !== 'personel').map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}</button>`).join('')}</nav>
+      <nav class="side-nav">${tabList().filter((v) => v !== 'personel').map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}${v === 'sikayet' && srv.sikayetAcik ? `<span class="badge">${srv.sikayetAcik}</span>` : ''}</button>`).join('')}</nav>
       ${canPeople() ? `<div class="side-sub">Kişiler</div><nav class="side-nav">${[['all', 'Tüm kişiler', 2], ['yonetici', 'Yöneticiler', 4], ['mudur', 'Müdürler', 3], ['sef', 'Şefler', 2], ['personel', 'Personeller', 2]].filter(([, , m]) => myLevel() >= m).map(([k, l]) => {
         const n = srv.personel ? (k === 'all' ? srv.personel.length : srv.personel.filter((p) => p.unvan === k).length) : '';
         const on = ui.view === 'personel' && (ui.pRole || 'all') === k;
@@ -692,7 +694,9 @@ function renderTabs() {
   } else $side.innerHTML = '';
   if (!show) return;
   const un = SERVER ? unreadCount() : 0;
-  $tabs.innerHTML = tabList().map((v) => `<button class="tab" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}${TAB_LABEL[v]}${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}</button>`).join('');
+  const tl = tabList(); $tabs.classList.toggle('many', tl.length > 6);
+  $tabs.innerHTML = tl.map((v) => `<button class="tab" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}${TAB_LABEL[v]}${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}${v === 'sikayet' && srv.sikayetAcik ? `<span class="badge">${srv.sikayetAcik}</span>` : ''}</button>`).join('');
+  const cur = $tabs.querySelector('[aria-current="page"]'); if (cur && tl.length > 6) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
 
 function render() {
@@ -709,7 +713,7 @@ function render() {
   if (isDirty() && ui.view !== 'yukle') banner += canPublish()
     ? `<div class="banner pub"><p><b>Hazırlanan liste henüz yayında değil.</b> Personel siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button>${ui.view !== 'cizelge' ? '<button class="btn" data-act="goto" data-view="cizelge">Çizelgeye git</button>' : ''}</div>`
     : `<div class="banner pub"><p><b>Hazırladığınız liste henüz yayında değil.</b> “Onaya gönder” deyince müdür ya da yönetici kontrol edip yayınlar.${srv.taslak && auth && srv.taslak.kimId === auth.ben.id && srv.taslak.onay ? ' <b>Onaya gönderildi</b> (' + fmtWhen(srv.taslak.tarih) + ').' : ''}</p><button class="btn primary" data-act="send-approval">${ICON_UPLOAD}Onaya gönder</button>${ui.view !== 'cizelge' ? '<button class="btn" data-act="goto" data-view="cizelge">Çizelgeye git</button>' : ''}</div>`;
-  const views = { gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, gorev: viewTasks, duyuru: viewAnnouncements, personel: viewPersonnel, ayarlar: viewSettings };
+  const views = { gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, gorev: viewTasks, duyuru: viewAnnouncements, egitim: viewTraining, sikayet: viewComplaints, personel: viewPersonnel, ayarlar: viewSettings };
   $app.innerHTML = banner + views[ui.view]();
   bindView();
 }
@@ -1576,6 +1580,7 @@ function bindView() {
   }
   if (ui.view === 'ayarlar') { bindSettings(); renderPushCard(); }
   if (ui.view === 'gorev') bindTasks();
+  if (ui.view === 'egitim') bindTraining();
   if (SERVER && auth && ui.view === 'duyuru') { const ids = srv.duyurular.filter((a) => !a.okudum).map((a) => a.id); if (ids.length) { srv.duyurular.forEach((a) => { a.okudum = true; }); api('duyuru-okundu', { ids }).catch(() => {}); } }
 
 }
@@ -1639,6 +1644,26 @@ const actions = {
   'day-shift': (el) => { ui.dayShift = el.dataset.g; render(); },
   'toggle-unk': (el) => { ui.collapsed['unk-' + el.dataset.g] = !ui.collapsed['unk-' + el.dataset.g]; render(); },
   'add-person': () => personSheet(null),
+  'eg-new': () => trainingSheet(null),
+  'eg-edit': (el) => { const e = (srv.egitim || []).find((x) => x.id === +el.dataset.id); if (e) trainingSheet(e); },
+  'eg-del': (el) => { const e = (srv.egitim || []).find((x) => x.id === +el.dataset.id); if (!e) return; confirmSheet('Silinsin mi?', `“${e.baslik}” ve ekleri silinir.`, 'Sil', async () => { try { await api('egitim-sil', { id: e.id }); srv.egitim = null; await loadTraining(); toast('Silindi'); } catch (err) { toast(err.message); } }); },
+  'eg-more': (el) => { ui.eOpen = { ...(ui.eOpen || {}), [el.dataset.id]: true }; render(); },
+  'eg-cat': (el) => { ui.ekat = el.dataset.k; render(); },
+  'sk-tab': (el) => { ui.skTab = el.dataset.t; render(); },
+  'sk-send': async (el) => {
+    const m = (document.getElementById('sk-m') || {}).value || ''; const files = [...((document.getElementById('sk-f') || {}).files || [])];
+    if (m.trim().length < 5) { toast('Şikayetinizi birkaç kelimeyle yazın'); return; } if (files.length > 3) { toast('En fazla 3 fotoğraf'); return; }
+    el.disabled = true;
+    try { const j = await api('sikayet-gonder', { metin: m.trim() }); await uploadFiles('sikayet', j.id, files, true); srv.sikayet = null; ui.skTab = 'acik'; await loadComplaints(); toast('Şikayetiniz iletildi'); }
+    catch (e) { el.disabled = false; toast(e.message); srv.sikayet = null; loadComplaints(); }
+  },
+  'sk-solve': async (el) => {
+    const id = +el.dataset.id; const c = (document.getElementById('sk-c-' + id) || {}).value || '';
+    if (c.trim().length < 3) { toast('Çözüm yazısını yazın'); return; }
+    el.disabled = true;
+    try { await api('sikayet-coz', { id, cozum: c.trim() }); srv.sikayet = null; await loadComplaints(); toast('Çözüldü olarak işaretlendi · şikayet edene bildirildi'); }
+    catch (e) { el.disabled = false; toast(e.message); }
+  },
   'cal': (el) => personCalendar(el.dataset.key),
   'my-share': () => { const me = myRecord(); if (me) doShare(myShareText(me), 'Vardiya günlerim'); },
   'print-grid': () => printGrid(),
@@ -1963,6 +1988,89 @@ function taskSheet(g) {
   });
 }
 
+// ---------- Dosya ekleri (eğitim, şikayet): tek tek yüklenir ----------
+const fileLinks = (list) => (list || []).length ? `<div class="annfiles">${list.map((e) => e.tip.startsWith('image/') ? `<a href="${esc(ekUrl(e.url))}" target="_blank" rel="noopener" class="annimg"><img src="${esc(ekUrl(e.url))}" alt="${esc(e.ad)}" loading="lazy"></a>` : `<a class="btn small" href="${esc(ekUrl(e.url))}" target="_blank" rel="noopener">📄 ${esc(e.ad)} <span class="muted">(${fmtSize(e.boyut)})</span></a>`).join('')}</div>` : '';
+async function uploadFiles(tur, id, files, imagesOnly) {
+  let n = 0;
+  for (const f of files) {
+    if (imagesOnly && !/^image\//.test(f.type)) throw new Error(`${f.name}: yalnızca fotoğraf eklenebilir`);
+    toast(`Dosya yükleniyor ${++n}/${files.length}…`);
+    const a = await prepAttachment(f); await api('dosya-yukle', { tur, sahip_id: id, ad: a.ad, tip: a.tip, veri: a.veri });
+  }
+}
+
+// ---------- Eğitimler / notlar ----------
+async function loadTraining() { if (srv.egitimYukleniyor) return; srv.egitimYukleniyor = true; try { srv.egitim = (await api('egitimler')).egitimler; } catch (e) { srv.egitim = []; toast(e.message); } srv.egitimYukleniyor = false; if (ui.view === 'egitim') render(); }
+function viewTraining() {
+  if (!srv.egitim) { loadTraining(); return '<div class="card"><p class="muted" style="margin:0">Eğitimler yükleniyor…</p></div>'; }
+  const q = nameKey(ui.eq || ''); const kat = ui.ekat || '';
+  const cats = [...new Set(srv.egitim.map((e) => e.kategori).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
+  const list = srv.egitim.filter((e) => (!kat || e.kategori === kat) && (!q || nameKey(e.baslik + ' ' + e.metin + ' ' + e.kategori).includes(q)));
+  const head = `<div class="card stack"><div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Eğitimler ve notlar</div><h2 style="font-size:22px;margin:0">${srv.egitim.length} kayıt</h2></div>${canEdit() ? `<button class="btn primary" data-act="eg-new">${ICON_PLUS}Yeni ekle</button>` : ''}</div>
+    <input type="search" id="eg-q" placeholder="Başlık ya da içerikte ara" value="${esc(ui.eq || '')}" aria-label="Eğitimlerde ara">
+    ${cats.length ? `<div class="chips"><button class="chip" data-act="eg-cat" data-k="" aria-pressed="${!kat}">Tümü</button>${cats.map((c) => `<button class="chip" data-act="eg-cat" data-k="${esc(c)}" aria-pressed="${kat === c}">${esc(c)}</button>`).join('')}</div>` : ''}
+    <p class="small muted" style="margin:0">Eğitim notları, talimatlar ve belgeler burada kalıcı olarak durur. ${canEdit() ? 'Fotoğraf ve PDF ekleyebilirsiniz.' : ''}</p></div>`;
+  if (!list.length) return head + `<div class="card"><p class="empty" style="margin:0">${srv.egitim.length ? 'Aramaya uyan kayıt yok.' : 'Henüz eğitim ya da not eklenmedi.'}</p></div>`;
+  return head + list.map((e) => {
+    const long = e.metin.length > 500 && !ui.eOpen?.[e.id];
+    return `<article class="card stack ann"><div class="row" style="flex-wrap:nowrap;align-items:flex-start"><div style="flex:1;min-width:0">${e.kategori ? `<span class="gtag all" style="margin:0 0 4px;display:inline-block">${esc(e.kategori)}</span>` : ''}<h3 style="margin:0;font-size:19px">${esc(e.baslik)}</h3></div>
+      ${e.duzenle ? `<button class="iconbtn" data-act="eg-edit" data-id="${e.id}" aria-label="Düzenle">${svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>')}</button><button class="iconbtn" data-act="eg-del" data-id="${e.id}" aria-label="Sil">${ICON_TRASH}</button>` : ''}</div>
+      ${e.metin ? `<p style="margin:0;white-space:pre-wrap">${esc(long ? e.metin.slice(0, 500) + '…' : e.metin)}</p>${long ? `<div><button class="btn small" data-act="eg-more" data-id="${e.id}">Devamını göster</button></div>` : ''}` : ''}
+      ${fileLinks(e.ekler)}
+      <span class="small muted">${esc(e.yazan || '')} · ${fmtWhen(e.tarih)}${e.guncel ? ' · güncellendi ' + fmtWhen(e.guncel) : ''}</span></article>`;
+  }).join('');
+}
+function bindTraining() {
+  const q = document.getElementById('eg-q'); q && q.addEventListener('input', () => { ui.eq = q.value; const pos = q.selectionStart; render(); const n = document.getElementById('eg-q'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } });
+}
+function trainingSheet(e) {
+  const cats = [...new Set((srv.egitim || []).map((x) => x.kategori).filter(Boolean))];
+  sheet(`<h3>${e ? 'Düzenle' : 'Yeni eğitim / not'}</h3>
+    <label class="field">Başlık<input id="eg-t" maxlength="160" value="${esc(e ? e.baslik : '')}" placeholder="Örn. Triaj eğitimi notları"></label>
+    <label class="field">Kategori (isteğe bağlı)<input id="eg-k" maxlength="60" list="eg-cats" value="${esc(e ? e.kategori : '')}" placeholder="Örn. Eğitim, Talimat, Not"><datalist id="eg-cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
+    <label class="field">Metin<textarea id="eg-m" rows="8" maxlength="60000" placeholder="Notlar, açıklamalar…">${esc(e ? e.metin : '')}</textarea></label>
+    ${e && e.ekler.length ? `<div class="stack" style="gap:6px"><b class="small">Ekli dosyalar</b>${e.ekler.map((f) => `<div class="row" style="flex-wrap:nowrap"><span class="small" style="flex:1;min-width:0">${f.tip.startsWith('image/') ? '🖼️' : '📄'} ${esc(f.ad)} (${fmtSize(f.boyut)})</span><button class="btn small" data-delf="${f.id}">Kaldır</button></div>`).join('')}</div>` : ''}
+    <label class="field">Fotoğraf ya da PDF ekle (en fazla 10, her biri 2,5 MB)<input type="file" id="eg-f" multiple accept="image/*,application/pdf"></label>
+    <div class="row"><button class="btn primary" id="eg-ok">${ICON_CHECK}Kaydet</button><button class="btn" data-x="1">Vazgeç</button></div>`, (bg) => {
+    bg.querySelectorAll('[data-delf]').forEach((b) => b.addEventListener('click', async () => { b.disabled = true; try { await api('dosya-sil', { id: +b.dataset.delf }); b.closest('.row').remove(); srv.egitim = null; } catch (err) { b.disabled = false; toast(err.message); } }));
+    bg.querySelector('#eg-ok').addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget; const t = bg.querySelector('#eg-t').value.trim(); if (!t) { toast('Başlık yazın'); return; }
+      btn.disabled = true;
+      try {
+        const j = await api('egitim-kaydet', { id: e ? e.id : 0, baslik: t, kategori: bg.querySelector('#eg-k').value.trim(), metin: bg.querySelector('#eg-m').value });
+        await uploadFiles('egitim', j.id, [...bg.querySelector('#eg-f').files], false);
+        closeSheet(); srv.egitim = null; await loadTraining(); toast('Kaydedildi');
+      } catch (err) { btn.disabled = false; toast(err.message); srv.egitim = null; loadTraining(); }
+    });
+  });
+}
+
+// ---------- Şikayetler ----------
+async function loadComplaints() { if (srv.sikYukleniyor) return; srv.sikYukleniyor = true; try { const j = await api('sikayetler'); srv.sikayet = j; srv.sikayetAcik = j.yonetici ? j.sikayetler.filter((x) => x.durum === 'acik').length : srv.sikayetAcik; } catch (e) { srv.sikayet = { sikayetler: [], yonetici: false }; toast(e.message); } srv.sikYukleniyor = false; if (ui.view === 'sikayet') render(); }
+function complaintCard(c, manager) {
+  const open = c.durum === 'acik';
+  return `<article class="card stack ann sk ${open ? 'open' : 'done'}"><div class="row" style="flex-wrap:nowrap;align-items:flex-start"><div style="flex:1;min-width:0"><span class="pill ${open ? 'bad' : 'ok'}">${open ? 'Açık' : 'Çözüldü'}</span>${manager ? ` <b>${esc(c.ad)}</b>` : ''}</div><span class="small muted">${fmtWhen(c.tarih)}</span></div>
+    <p style="margin:0;white-space:pre-wrap">${esc(c.metin)}</p>${fileLinks(c.ekler)}
+    ${!open ? `<div class="cozum"><b>Çözüm</b> · ${esc(c.cozen || '')} · ${fmtWhen(c.cozulduTarih)}<p style="margin:4px 0 0;white-space:pre-wrap">${esc(c.cozum || '')}</p></div>` : manager ? `<div class="stack" style="gap:6px"><textarea id="sk-c-${c.id}" rows="2" maxlength="5000" placeholder="Çözüm yazısı (şikayet edene iletilir)"></textarea><div><button class="btn primary small" data-act="sk-solve" data-id="${c.id}">${ICON_CHECK}Çözüldü olarak işaretle</button></div></div>` : '<p class="small muted" style="margin:0">Şef, müdür ve yöneticilere iletildi. Çözülünce bildirim alacaksınız.</p>'}
+  </article>`;
+}
+function viewComplaints() {
+  if (!srv.sikayet) { loadComplaints(); return '<div class="card"><p class="muted" style="margin:0">Şikayetler yükleniyor…</p></div>'; }
+  const L = srv.sikayet.sikayetler; const mgr = srv.sikayet.yonetici;
+  const form = `<div class="card stack"><h2 style="font-size:22px;margin:0">Şikayet bildir</h2>
+    <p class="small muted" style="margin:0">Şikayetiniz şef, müdür ve yöneticilere iletilir. Çözülünce size bildirim gelir.</p>
+    <textarea id="sk-m" rows="4" maxlength="5000" placeholder="Şikayetinizi yazın…"></textarea>
+    <label class="field">Fotoğraf ekle (isteğe bağlı, en fazla 3)<input type="file" id="sk-f" multiple accept="image/*"></label>
+    <div><button class="btn primary" data-act="sk-send">Şikayeti gönder</button></div></div>`;
+  const mine = L.filter((c) => c.benim);
+  const mineHtml = `<h2 class="sect">Şikayetlerim</h2>${mine.length ? mine.map((c) => complaintCard(c, false)).join('') : '<div class="card"><p class="empty" style="margin:0">Henüz şikayet bildirmediniz.</p></div>'}`;
+  if (!mgr) return form + mineHtml;
+  const tab = ui.skTab || 'acik'; const open = L.filter((c) => c.durum === 'acik'), done = L.filter((c) => c.durum !== 'acik');
+  const list = tab === 'acik' ? open : tab === 'cozuldu' ? done : null;
+  return `<div class="segtabs"><button class="chip" data-act="sk-tab" data-t="acik" aria-pressed="${tab === 'acik'}">Açık şikayetler (${open.length})</button><button class="chip" data-act="sk-tab" data-t="cozuldu" aria-pressed="${tab === 'cozuldu'}">Çözülenler (${done.length})</button><button class="chip" data-act="sk-tab" data-t="bildir" aria-pressed="${tab === 'bildir'}">Şikayet bildir</button></div>`
+    + (list ? (list.length ? list.map((c) => complaintCard(c, true)).join('') : `<div class="card"><p class="empty" style="margin:0">${tab === 'acik' ? 'Açık şikayet yok.' : 'Çözülen şikayet yok.'}</p></div>`) : form + mineHtml);
+}
+
 function viewAnnouncements() {
   const list = srv.duyurular;
   const compose = canEdit() ? `<div class="card stack">
@@ -2027,7 +2135,7 @@ function viewPersonnel() {
   return `<div class="pgrid"><div class="pmain stack">${left}<p class="small muted">Yönetici: her şey. Müdür: listeyi çizelgeden hazırlar ve yayınlar (görsel yüklemez), şef/personel verir. Şef: liste görsellerini yükleyerek listeyi hazırlar ve onaya gönderir, kişi ekler/çıkarır, duyuru yayınlar. Personel: listeleri görür. Etkinliklerde herkes kendisinin ve alt unvandakilerin işlemlerini görür.</p></div>
     <aside class="pside" id="pside">${personSide()}</aside></div>`;
 }
-const LOG_NAMES = { 'hesap-askiya': 'hesabı askıya alındı', 'hesap-acildi': 'hesabı açıldı', 'giris-askida': 'askıdaki hesapla giriş denedi', cikis: 'çıkış yaptı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', 'gorev-eklendi': 'görev ekledi', 'gorev-guncellendi': 'görev güncelledi', 'gorev-silindi': 'görev sildi', kurulum: 'kurulum' };
+const LOG_NAMES = { 'hesap-askiya': 'hesabı askıya alındı', 'hesap-acildi': 'hesabı açıldı', 'giris-askida': 'askıdaki hesapla giriş denedi', cikis: 'çıkış yaptı', 'taslak-onaya': 'listeyi onaya gönderdi', 'taslak-silindi': 'taslağı sildi', ayar: 'ayarları değiştirdi', 'yonetici-cli': 'sunucudan hesap işlemi', giris: 'giriş yaptı', 'giris-hatali': 'hatalı giriş', 'sifre-olusturuldu': 'şifresini belirledi', 'liste-yayinlandi': 'liste yayınladı', 'personel-eklendi': 'personel ekledi', 'personel-guncellendi': 'personel güncelledi', 'personel-silindi': 'personel sildi', 'personel-toplu': 'toplu personel ekledi', 'sifre-sifirlandi': 'şifre sıfırladı', duyuru: 'duyuru yayınladı', 'duyuru-silindi': 'duyuru sildi', 'gorev-eklendi': 'görev ekledi', 'egitim-eklendi': 'eğitim/not ekledi', 'egitim-guncellendi': 'eğitim/not güncelledi', 'egitim-silindi': 'eğitim/not sildi', 'sikayet-acildi': 'şikayet bildirdi', 'sikayet-cozuldu': 'şikayeti çözdü', 'gorev-guncellendi': 'görev güncelledi', 'gorev-silindi': 'görev sildi', kurulum: 'kurulum' };
 // Sağ panel: seçili kişinin durumu ve etkinlikleri; kimse seçili değilse son etkinlikler ve listeyi görmeyenler
 const logLine = (k, withWho) => `<div class="logline"><span class="lt">${fmtWhen(k.tarih)}</span><span>${withWho ? `<b>${esc(k.kim || 'Sistem')}</b> ` : ''}${esc(LOG_NAMES[k.islem] || k.islem)}${k.detay ? ` <span class="muted">· ${esc(k.detay)}</span>` : ''}</span></div>`;
 function personSide() {

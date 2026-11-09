@@ -17,7 +17,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -190,7 +190,7 @@ switch ($r) {
     if ($l) db()->prepare('UPDATE personnel SET seen_roster = ?, seen_at = ? WHERE id = ? AND (seen_roster IS NULL OR seen_roster <> ?)')->execute([(int)$l['id'], now(), $u['id'], (int)$l['id']]);
     ok(['ben' => me_out($u), 'surum' => versions(), 'ayarlar' => json_decode((string)(meta_get('ayarlar') ?? ''), true) ?: null, 'taslak' => $taslak,
       'liste' => $l ? ['id' => (int)$l['id'], 'veri' => json_decode($l['data'], true), 'tarih' => utc($l['published_at']), 'yayinlayan' => $l['published_name']] : null,
-      'duyurular' => ann_out($u, $d)]);
+      'duyurular' => ann_out($u, $d), 'sikayetAcik' => level_of($u['title'] ?? '') >= 2 ? (int)db()->query("SELECT COUNT(*) FROM sikayetler WHERE durum = 'acik'")->fetchColumn() : null]);
   }
 
   case 'yayinla': {
@@ -410,6 +410,92 @@ switch ($r) {
     db()->prepare('UPDATE personnel SET pin_hash = ? WHERE id = ?')->execute([password_hash($yeni, PASSWORD_DEFAULT), $u['id']]);
     db()->prepare('DELETE FROM sessions WHERE personnel_id = ? AND id <> ?')->execute([$u['id'], $u['sid'] ?? 0]);
     audit($u, 'sifre-degisti', 'kendi şifresini değiştirdi');
+    ok();
+  }
+
+  // ---------- Eğitimler / notlar: şef ve üstü yazar, herkes okur; fotoğraf ve PDF eklenebilir ----------
+  case 'egitimler': {
+    $u = current_user();
+    $rows = db()->query('SELECT * FROM egitimler ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 300')->fetchAll();
+    $files = files_of('egitim', array_map(fn($r) => (int)$r['id'], $rows)); $lv = level_of($u['title'] ?? '');
+    ok(['egitimler' => array_map(fn($r) => ['id' => (int)$r['id'], 'baslik' => $r['baslik'], 'metin' => $r['metin'], 'kategori' => $r['kategori'], 'yazan' => $r['created_name'], 'tarih' => utc($r['created_at']), 'guncel' => $r['updated_at'] ? utc($r['updated_at']) : null,
+      'ekler' => $files[(int)$r['id']] ?? [], 'duzenle' => $lv >= 3 || ($lv >= 2 && (int)$r['created_by'] === $u['id'])], $rows)]);
+  }
+  case 'egitim-kaydet': {
+    $u = require_level(2, 'Eğitim ve not eklemeyi şef, müdür ve yöneticiler yapabilir.');
+    $id = (int)(body()['id'] ?? 0); $t = str_in('baslik', 160); $m = mb_substr(trim((string)(body()['metin'] ?? '')), 0, 60000); $k = str_in('kategori', 60);
+    if ($t === '') fail(400, 'Başlık yazın.');
+    if ($id) {
+      egitim_can($u, $id);
+      db()->prepare('UPDATE egitimler SET baslik = ?, metin = ?, kategori = ?, updated_at = ? WHERE id = ?')->execute([$t, $m, $k, now(), $id]);
+      audit($u, 'egitim-guncellendi', $t);
+    } else {
+      db()->prepare('INSERT INTO egitimler (baslik, metin, kategori, created_by, created_name, created_at) VALUES (?,?,?,?,?,?)')->execute([$t, $m, $k, $u['id'], shown_name($u), now()]);
+      $id = (int)db()->lastInsertId(); audit($u, 'egitim-eklendi', $t);
+    }
+    ok(['id' => $id]);
+  }
+  case 'egitim-sil': {
+    $u = require_level(2); $id = (int)(body()['id'] ?? 0); egitim_can($u, $id);
+    $st = db()->prepare('SELECT baslik FROM egitimler WHERE id = ?'); $st->execute([$id]); $t = (string)$st->fetchColumn();
+    db()->prepare('DELETE FROM egitimler WHERE id = ?')->execute([$id]); db()->prepare("DELETE FROM dosyalar WHERE tur = 'egitim' AND sahip_id = ?")->execute([$id]);
+    audit($u, 'egitim-silindi', $t); ok();
+  }
+  // dosya yükleme (tek tek: istek boyutu sınırı için): eğitim (yazan/yönetici) ya da şikayet (şikayet eden, açıkken)
+  case 'dosya-yukle': {
+    $u = current_user(); $tur = (string)(body()['tur'] ?? ''); $sid = (int)(body()['sahip_id'] ?? 0);
+    if ($tur === 'egitim') { require_level(2); egitim_can($u, $sid); $max = 10; }
+    elseif ($tur === 'sikayet') { $st = db()->prepare('SELECT personnel_id, durum FROM sikayetler WHERE id = ?'); $st->execute([$sid]); $sk = $st->fetch(); if (!$sk || (int)$sk['personnel_id'] !== $u['id'] || $sk['durum'] !== 'acik') fail(403, 'Bu şikayete dosya eklenemez.'); $max = 3; }
+    else fail(400, 'Geçersiz dosya türü.');
+    $st = db()->prepare('SELECT COUNT(*) FROM dosyalar WHERE tur = ? AND sahip_id = ?'); $st->execute([$tur, $sid]); if ((int)$st->fetchColumn() >= $max) fail(400, "En fazla $max dosya eklenebilir.");
+    [$ad, $tip, $bin] = read_upload(body(), $tur === 'sikayet');
+    db()->prepare('INSERT INTO dosyalar (tur, sahip_id, ad, tip, boyut, veri, created_at) VALUES (?,?,?,?,?,?,?)')->execute([$tur, $sid, $ad, $tip, strlen($bin), $bin, now()]);
+    ok(['id' => (int)db()->lastInsertId()]);
+  }
+  case 'dosya-sil': {
+    $u = require_level(2); $id = (int)(body()['id'] ?? 0);
+    $st = db()->prepare('SELECT tur, sahip_id FROM dosyalar WHERE id = ?'); $st->execute([$id]); $f = $st->fetch();
+    if (!$f || $f['tur'] !== 'egitim') fail(404, 'Dosya bulunamadı.'); egitim_can($u, (int)$f['sahip_id']);
+    db()->prepare('DELETE FROM dosyalar WHERE id = ?')->execute([$id]); ok();
+  }
+  case 'dosya': {
+    $id = (int)($_GET['id'] ?? 0); $e = (int)($_GET['e'] ?? 0); $k = (string)($_GET['k'] ?? '');
+    if ($e < time() || !hash_equals(hmac("dosya:$id:$e"), $k)) fail(403, 'Bağlantının süresi doldu. Sayfayı yenileyin.');
+    $st = db()->prepare('SELECT ad, tip, veri FROM dosyalar WHERE id = ?'); $st->execute([$id]); $f = $st->fetch();
+    if (!$f) fail(404, 'Dosya bulunamadı.');
+    header('Content-Type: ' . $f['tip']); header('Content-Length: ' . strlen($f['veri']));
+    header("Content-Disposition: inline; filename*=UTF-8''" . rawurlencode($f['ad'])); header('Cache-Control: private, max-age=3600'); header('X-Content-Type-Options: nosniff');
+    echo $f['veri']; exit;
+  }
+
+  // ---------- Şikayetler: personel bildirir (yazı + isteğe bağlı fotoğraf), şef/müdür/yönetici görür ve çözer ----------
+  case 'sikayetler': {
+    $u = current_user(); $lv = level_of($u['title'] ?? '');
+    if ($lv >= 2) $rows = db()->query("SELECT * FROM sikayetler ORDER BY durum = 'acik' DESC, id DESC LIMIT 300")->fetchAll();
+    else { $st = db()->prepare('SELECT * FROM sikayetler WHERE personnel_id = ? ORDER BY id DESC LIMIT 100'); $st->execute([$u['id']]); $rows = $st->fetchAll(); }
+    $files = files_of('sikayet', array_map(fn($r) => (int)$r['id'], $rows));
+    ok(['yonetici' => $lv >= 2, 'sikayetler' => array_map(fn($r) => ['id' => (int)$r['id'], 'ad' => $r['ad'], 'benim' => (int)$r['personnel_id'] === $u['id'], 'metin' => $r['metin'], 'durum' => $r['durum'], 'tarih' => utc($r['created_at']),
+      'cozum' => $r['cozum'], 'cozen' => $r['cozen_ad'], 'cozulduTarih' => $r['cozuldu_at'] ? utc($r['cozuldu_at']) : null, 'ekler' => $files[(int)$r['id']] ?? []], $rows)]);
+  }
+  case 'sikayet-gonder': {
+    $u = current_user(); $m = mb_substr(trim((string)(body()['metin'] ?? '')), 0, 5000);
+    if (mb_strlen($m) < 5) fail(400, 'Şikayetinizi birkaç kelimeyle yazın.');
+    $st = db()->prepare('SELECT COUNT(*) FROM sikayetler WHERE personnel_id = ? AND created_at > ?'); $st->execute([$u['id'], gmdate('Y-m-d H:i:s', time() - 3600)]);
+    if ((int)$st->fetchColumn() >= 10) fail(429, 'Bir saatte en fazla 10 şikayet gönderilebilir.');
+    db()->prepare('INSERT INTO sikayetler (personnel_id, ad, metin, created_at) VALUES (?,?,?,?)')->execute([$u['id'], (string)$u['name'], $m, now()]);
+    $id = (int)db()->lastInsertId(); audit($u, 'sikayet-acildi', "#$id");
+    try { $ids = []; foreach (db()->query("SELECT id, title FROM personnel WHERE banned = 0") as $p) if (level_of((string)$p['title']) >= 2 && (int)$p['id'] !== $u['id']) $ids[] = (int)$p['id'];
+      push_to_people($ids, ['baslik' => 'Yeni şikayet', 'metin' => $u['name'] . ': ' . mb_substr($m, 0, 140), 'url' => './#sikayet', 'etiket' => "sikayet-$id"]); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
+    ok(['id' => $id]);
+  }
+  case 'sikayet-coz': {
+    $u = require_level(2, 'Şikayetleri şef, müdür ve yöneticiler çözebilir.'); $id = (int)(body()['id'] ?? 0); $c = mb_substr(trim((string)(body()['cozum'] ?? '')), 0, 5000);
+    if (mb_strlen($c) < 3) fail(400, 'Çözüm yazısını yazın.');
+    $st = db()->prepare('SELECT personnel_id, durum FROM sikayetler WHERE id = ?'); $st->execute([$id]); $sk = $st->fetch();
+    if (!$sk) fail(404, 'Şikayet bulunamadı.'); if ($sk['durum'] !== 'acik') fail(409, 'Bu şikayet zaten çözülmüş.');
+    db()->prepare("UPDATE sikayetler SET durum = 'cozuldu', cozum = ?, cozen_id = ?, cozen_ad = ?, cozuldu_at = ? WHERE id = ?")->execute([$c, $u['id'], shown_name($u), now(), $id]);
+    audit($u, 'sikayet-cozuldu', "#$id");
+    try { push_to_people([(int)$sk['personnel_id']], ['baslik' => 'Şikayetiniz çözüldü', 'metin' => mb_substr($c, 0, 160), 'url' => './#sikayet', 'etiket' => "sikayet-$id", 'acil' => true]); } catch (Throwable $e) { error_log('ccn push: ' . $e->getMessage()); }
     ok();
   }
 
@@ -742,6 +828,28 @@ function clean_roster(): array {
     }
     $data = ['people' => $people, 'rules' => $rules, 'settings' => ['company' => mb_substr((string)($s['company'] ?? ''), 0, 80), 'hours' => $hours, 'offRule' => ($s['offRule'] ?? '') === 'team' ? 'team' : 'return']];
     return [$data, count($people), $min, $max];
+}
+
+// Dosyalar (eğitim, şikayet): imzalı süreli bağlantı
+function files_of(string $tur, array $ids): array {
+  if (!$ids) return []; $out = [];
+  $st = db()->prepare('SELECT id, sahip_id, ad, tip, boyut FROM dosyalar WHERE tur = ? AND sahip_id IN (' . implode(',', array_map('intval', $ids)) . ') ORDER BY id'); $st->execute([$tur]);
+  foreach ($st->fetchAll() as $f) { $exp = time() + 86400; $out[(int)$f['sahip_id']][] = ['id' => (int)$f['id'], 'ad' => $f['ad'], 'tip' => $f['tip'], 'boyut' => (int)$f['boyut'], 'url' => 'api.php?r=dosya&id=' . $f['id'] . '&e=' . $exp . '&k=' . hmac('dosya:' . $f['id'] . ':' . $exp)]; }
+  return $out;
+}
+function read_upload(array $e, bool $imagesOnly): array {
+  $tip = (string)($e['tip'] ?? ''); $ok = $imagesOnly ? ['image/jpeg', 'image/png', 'image/webp'] : ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+  if (!in_array($tip, $ok, true)) fail(400, $imagesOnly ? 'Yalnızca fotoğraf eklenebilir.' : 'Yalnızca fotoğraf (JPG, PNG) ve PDF eklenebilir.');
+  $bin = base64_decode((string)($e['veri'] ?? ''), true); if ($bin === false || $bin === '') fail(400, 'Dosya okunamadı.');
+  if (strlen($bin) > 2600000) fail(413, 'Dosya en fazla 2,5 MB olabilir.');
+  $sig = $tip === 'application/pdf' ? '%PDF' : ($tip === 'image/png' ? "\x89PNG" : ($tip === 'image/webp' ? 'RIFF' : "\xFF\xD8"));
+  if (strncmp($bin, $sig, strlen($sig)) !== 0) fail(400, 'Dosyanın türü tanınmadı.');
+  return [mb_substr(preg_replace('/[^\p{L}\p{N} ._()-]/u', '', (string)($e['ad'] ?? 'dosya')) ?: 'dosya', 0, 160), $tip, $bin];
+}
+function egitim_can(array $u, int $id): void {
+  $st = db()->prepare('SELECT created_by FROM egitimler WHERE id = ?'); $st->execute([$id]); $by = $st->fetchColumn();
+  if ($by === false) fail(404, 'Kayıt bulunamadı.');
+  if (level_of($u['title'] ?? '') < 3 && (int)$by !== $u['id']) fail(403, 'Yalnızca kendi eklediğinizi değiştirebilirsiniz.');
 }
 
 // Hedefli duyuru: '' herkes, v1/v2/v3 o vardiya ekibi (yayındaki listedeki ekip), sef / mudur unvan

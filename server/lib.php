@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 12;
+const SCHEMA_V = 13;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -155,6 +155,10 @@ function upgrades(PDO $pdo): void {
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
+    // 12 → 13: eğitimler / notlar, şikayetler ve bunların dosyaları (fotoğraf, PDF)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS egitimler (id INT AUTO_INCREMENT PRIMARY KEY, baslik VARCHAR(160) NOT NULL, metin MEDIUMTEXT NOT NULL, kategori VARCHAR(60) NOT NULL DEFAULT '', created_by INT NULL, created_name VARCHAR(120) NULL, created_at DATETIME NOT NULL, updated_at DATETIME NULL) $T");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS sikayetler (id INT AUTO_INCREMENT PRIMARY KEY, personnel_id INT NOT NULL, ad VARCHAR(120) NOT NULL, metin TEXT NOT NULL, durum VARCHAR(10) NOT NULL DEFAULT 'acik', cozum TEXT NULL, cozen_id INT NULL, cozen_ad VARCHAR(120) NULL, created_at DATETIME NOT NULL, cozuldu_at DATETIME NULL, INDEX (durum), INDEX (personnel_id)) $T");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS dosyalar (id INT AUTO_INCREMENT PRIMARY KEY, tur VARCHAR(10) NOT NULL, sahip_id INT NOT NULL, ad VARCHAR(160) NOT NULL, tip VARCHAR(60) NOT NULL, boyut INT NOT NULL, veri MEDIUMBLOB NOT NULL, created_at DATETIME NOT NULL, INDEX (tur, sahip_id)) $T");
     // 11 → 12: hedefli duyuru, duyuru okundu bilgisi, duyuru ekleri, bilinen cihazlar (yeni cihazdan giriş uyarısı)
     if (!$pdo->query("SHOW COLUMNS FROM announcements LIKE 'hedef'")->fetch()) $pdo->exec("ALTER TABLE announcements ADD COLUMN hedef VARCHAR(10) NOT NULL DEFAULT ''");
     $pdo->exec("CREATE TABLE IF NOT EXISTS duyuru_okundu (duyuru_id INT NOT NULL, personnel_id INT NOT NULL, at DATETIME NOT NULL, PRIMARY KEY (duyuru_id, personnel_id)) $T");
