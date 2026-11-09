@@ -625,7 +625,9 @@ const TAB_LABEL = { gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', y
 $tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) go(b.dataset.view); });
 function unreadCount() { const seen = prefs.seenAnn || 0; return srv.duyurular.filter((a) => a.id > seen).length; }
 const $side = document.createElement('aside'); $side.id = 'side'; $side.setAttribute('aria-label', 'Yönetim menüsü'); document.body.prepend($side);
-$side.addEventListener('click', (e) => { const r = e.target.closest('[data-role]'); if (r) { document.body.classList.remove('side-open'); ui.pRole = r.dataset.role; ui.pSel = null; go('personel'); return; } const b = e.target.closest('[data-view]'); if (b) { document.body.classList.remove('side-open'); go(b.dataset.view); } else if (e.target.closest('[data-side-logout]')) { document.body.classList.remove('side-open'); actions.logout(); } });
+$side.addEventListener('input', (e) => { if (e.target.id !== 'side-q') return; ui.sideQ = e.target.value; const r = document.getElementById('side-res'); if (r) r.innerHTML = sideResults(); });
+$side.addEventListener('keydown', (e) => { if (e.target.id === 'side-q' && e.key === 'Enter') { const b = $side.querySelector('[data-cal]'); if (b) b.click(); } if (e.target.id === 'side-q' && e.key === 'Escape') { ui.sideQ = ''; e.target.value = ''; document.getElementById('side-res').innerHTML = ''; } });
+$side.addEventListener('click', (e) => { const cb = e.target.closest('[data-cal]'); if (cb) { document.body.classList.remove('side-open'); personCalendar(cb.dataset.cal); return; } const r = e.target.closest('[data-role]'); if (r) { document.body.classList.remove('side-open'); ui.pRole = r.dataset.role; ui.pSel = null; go('personel'); return; } const b = e.target.closest('[data-view]'); if (b) { document.body.classList.remove('side-open'); go(b.dataset.view); } else if (e.target.closest('[data-side-logout]')) { document.body.classList.remove('side-open'); actions.logout(); } });
 // telefonda (web) sol menü ☰ ile açılır, dışına dokununca kapanır
 const $menuBtn = document.createElement('button'); $menuBtn.id = 'menuBtn'; $menuBtn.type = 'button'; $menuBtn.setAttribute('aria-label', 'Menüyü aç');
 $menuBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
@@ -648,6 +650,7 @@ function renderTabs() {
     const un = unreadCount();
     $side.innerHTML = `<div class="side-title">Yönetim paneli</div>
       <div class="side-prof"><span class="av">${esc(initials(auth.ben.ad))}</span><div><b>${esc(auth.ben.ad)}</b><span class="role-badge">${esc(titleOf(auth.ben))}</span>${auth.ben.sicil ? `<small>Personel ID ${esc(auth.ben.sicil)}</small>` : ''}</div></div>
+      <div class="side-search"><input type="search" id="side-q" placeholder="Kişi ara (ad soyad)" autocomplete="off" value="${esc(ui.sideQ || '')}" aria-label="Kişi ara"><div id="side-res">${sideResults()}</div></div>
       <nav class="side-nav">${tabList().filter((v) => v !== 'personel').map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}</button>`).join('')}</nav>
       ${canPeople() ? `<div class="side-sub">Kişiler</div><nav class="side-nav">${[['all', 'Tüm kişiler', 2], ['yonetici', 'Yöneticiler', 4], ['mudur', 'Müdürler', 3], ['sef', 'Şefler', 2], ['personel', 'Personeller', 2]].filter(([, , m]) => myLevel() >= m).map(([k, l]) => {
         const n = srv.personel ? (k === 'all' ? srv.personel.length : srv.personel.filter((p) => p.unvan === k).length) : '';
@@ -812,11 +815,47 @@ function searchResults() {
     const st = statusOf(p, ui.date);
     const days = Object.keys(p.days).sort();
     return `<section class="card stack person">
-      <div class="row"><h3 style="font-size:20px;flex:1;min-width:0">${esc(p.name)}</h3>${p.group ? `<span class="gtag k-${p.group}">${p.group}. vardiya ekibi</span>` : ''}</div>
+      <div class="row"><h3 style="font-size:20px;flex:1;min-width:0">${esc(p.name)}</h3>${p.group ? `<span class="gtag k-${p.group}">${p.group}. vardiya ekibi</span>` : ''}<button class="btn small" data-act="cal" data-key="${esc(p.key)}">Takvim</button></div>
       <div class="pstat ${st.cls}"><span>${fmtShort(ui.date)}</span><b>${esc(st.text)}</b></div>
       <div class="pdays">${days.map((d) => { const c = p.days[d]; return `<button class="pday k-${c} ${d === ui.date ? 'sel' : ''}" data-act="set-date" data-date="${d}"><span>${fmtShort(d).slice(0, 5)}</span><b>${CODES[c] ? CODES[c].short : c}</b></button>`; }).join('')}</div>
     </section>`;
   }).join('');
+}
+
+// ---------- Genel kişi arama (sol menü) ve kişi takvimi ----------
+function sideResults() {
+  const q = nameKey(ui.sideQ || ''); if (q.length < 2) return '';
+  const t = todayIso();
+  const hits = allPeople(viewPeople()).filter((p) => nameKey(p.name).includes(q)).sort(cmpName).slice(0, 8);
+  if (!hits.length) return '<p class="small muted" style="margin:6px 4px 0">Kimse bulunamadı.</p>';
+  return `<div class="side-hits">${hits.map((p) => { const c = p.days[t] || ''; return `<button type="button" data-cal="${esc(p.key)}"><span class="hn">${esc(p.name)}</span><span class="code k-${c}">${c ? (CODES[c] ? CODES[c].short : c) : '–'}</span></button>`; }).join('')}</div>`;
+}
+function personCalendar(key) {
+  const P = viewPeople()[key] || store.people[key]; if (!P) return;
+  const t = todayIso(); const ds = Object.keys(P.days || {}).sort();
+  let ym = (P.days[t] || !ds.length || ds.some((d) => d.slice(0, 7) === t.slice(0, 7))) ? t.slice(0, 7) : (ds.find((d) => d >= t) || ds[ds.length - 1]).slice(0, 7);
+  const LBL = { '1': '1. vardiya', '2': '2. vardiya', '3': '3. vardiya', OFF: 'OFF', R: 'Rapor', YI: 'Yıllık izin', UI: 'Ücretsiz izin', MI: 'Diğer izin' };
+  const body = () => {
+    const [y, m] = ym.split('-').map(Number); const first = new Date(y, m - 1, 1); const n = new Date(y, m, 0).getDate();
+    const lead = (first.getDay() + 6) % 7; const cnt = {};
+    const cells = [...Array(lead).fill('<div class="cd empty"></div>'), ...Array.from({ length: n }, (_, i) => {
+      const d = `${ym}-${pad(i + 1)}`; const c = P.days[d] || ''; if (c) cnt[c] = (cnt[c] || 0) + 1;
+      const we = [0, 6].includes(new Date(y, m - 1, i + 1).getDay());
+      return `<div class="cd k-${c} ${c ? 'has' : ''} ${d === t ? 'today' : ''} ${we ? 'we' : ''}" title="${fmtShort(d)}: ${c ? LBL[c] || c : 'kayıt yok'}"><span>${i + 1}</span><b>${c ? (CODES[c] ? CODES[c].short : c) : ''}</b></div>`;
+    })].join('');
+    const work = (cnt['1'] || 0) + (cnt['2'] || 0) + (cnt['3'] || 0); const izin = (cnt.R || 0) + (cnt.YI || 0) + (cnt.UI || 0) + (cnt.MI || 0);
+    const st = statusOf({ ...P, days: P.days || {} }, t);
+    return `<div class="row" style="flex-wrap:nowrap;align-items:center"><button class="iconbtn" data-cm="-1" aria-label="Önceki ay">${ICON_LEFT}</button><h3 style="flex:1;text-align:center;margin:0">${MONTHS[m - 1]} ${y}</h3><button class="iconbtn" data-cm="1" aria-label="Sonraki ay">${ICON_RIGHT}</button></div>
+      <div class="cal">${DAY_SHORT.slice(1).concat(DAY_SHORT[0]).map((x) => `<div class="cw">${x}</div>`).join('')}${cells}</div>
+      <div class="calsum"><span><b>${work}</b> çalışma</span>${['1', '2', '3'].filter((g) => cnt[g]).map((g) => `<span class="k-${g}"><b>${cnt[g]}</b> × ${g}.</span>`).join('')}<span class="k-OFF"><b>${cnt.OFF || 0}</b> OFF</span>${izin ? `<span class="k-R"><b>${izin}</b> izin/rapor</span>` : ''}</div>
+      <p class="small muted" style="margin:0">Bugün: <b>${esc(st.text)}</b>${store.settings.hours ? ` · Saatler: ${['1', '2', '3'].map((g) => `${g}. ${esc(store.settings.hours[g] || '')}`).join(', ')}` : ''}</p>`;
+  };
+  sheet(`<div class="row" style="flex-wrap:nowrap;align-items:flex-start"><div style="flex:1;min-width:0"><div class="eyebrow">Vardiya takvimi</div><h3 style="margin:0;font-size:22px">${esc(P.name)}</h3></div>${P.group ? `<span class="gtag k-${P.group}">${P.group}. vardiya ekibi</span>` : ''}</div>
+    <div id="cal-body" class="stack">${body()}</div>
+    <div class="row"><button class="btn" data-x="1">Kapat</button></div>`, (bg) => {
+    const box = bg.querySelector('#cal-body');
+    box.addEventListener('click', (e) => { const b = e.target.closest('[data-cm]'); if (!b) return; const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + +b.dataset.cm, 1); ym = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; box.innerHTML = body(); });
+  });
 }
 
 // ---------- Yardımcılar ----------
@@ -1462,6 +1501,7 @@ const actions = {
   'day-shift': (el) => { ui.dayShift = el.dataset.g; render(); },
   'toggle-unk': (el) => { ui.collapsed['unk-' + el.dataset.g] = !ui.collapsed['unk-' + el.dataset.g]; render(); },
   'add-person': () => personSheet(null),
+  'cal': (el) => personCalendar(el.dataset.key),
   'set-tab': (el) => { ui.setTab = el.dataset.t; render(); },
   'grid-mode': (el) => {
     ui.gridMode = el.dataset.m; ui.sel = null; ui.gridStart = null;
