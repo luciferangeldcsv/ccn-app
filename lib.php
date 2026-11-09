@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 16;
+const SCHEMA_V = 17;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -155,6 +155,9 @@ function upgrades(PDO $pdo): void {
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
+    // 16 → 17: büyük dosyalar (100 MB'a kadar fotoğraf/video/PDF) diskte saklanır; blob yerine yol tutulur
+    if (!$pdo->query("SHOW COLUMNS FROM dosyalar LIKE 'yol'")->fetch()) { $pdo->exec("ALTER TABLE dosyalar ADD COLUMN yol VARCHAR(255) NULL, MODIFY veri MEDIUMBLOB NULL"); }
+    if (!$pdo->query("SHOW COLUMNS FROM duyuru_ek LIKE 'yol'")->fetch()) { $pdo->exec("ALTER TABLE duyuru_ek ADD COLUMN yol VARCHAR(255) NULL, MODIFY veri MEDIUMBLOB NULL"); }
     // 15 → 16: yüklenen dosyada IP ve cihaz; kişide uygunsuz içerik sayacı (otomatik askıya alma)
     if (!$pdo->query("SHOW COLUMNS FROM dosyalar LIKE 'ip'")->fetch()) $pdo->exec("ALTER TABLE dosyalar ADD COLUMN ip VARCHAR(45) NULL, ADD COLUMN ua VARCHAR(200) NULL");
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'strike'")->fetch()) $pdo->exec("ALTER TABLE personnel ADD COLUMN strike INT NOT NULL DEFAULT 0");
@@ -208,6 +211,47 @@ function ok(array $data = []): never {
 function now(): string { return gmdate('Y-m-d H:i:s'); }
 function client_ip(): string { return substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45); }
 function hmac(string $v): string { return hash_hmac('sha256', $v, (string)cfg()['pepper']); }
+// Yüklenen dosyalar diskte: varsayılan olarak api.php yanındaki ccn-veri/ (git'e girmez). cfg['uploads'] ile taşınabilir.
+function uploads_dir(): string {
+  $d = (string)(cfg()['uploads'] ?? (__DIR__ . '/ccn-veri'));
+  if (!is_dir($d)) @mkdir($d, 0770, true);
+  return rtrim($d, '/');
+}
+const UPLOAD_MAX = 104857600; // 100 MB
+const UPLOAD_TYPES = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif', 'image/heic' => 'heic',
+  'application/pdf' => 'pdf', 'video/mp4' => 'mp4', 'video/quicktime' => 'mov', 'video/webm' => 'webm', 'video/x-matroska' => 'mkv', 'video/3gpp' => '3gp'];
+// Yüklenen geçici dosyayı (ya da ikili veriyi) diske taşır; ['yol', 'tip', 'boyut', 'ad'] döner
+function store_upload(string $tmp, string $tip, string $ad, bool $isUploaded = true): array {
+  if (!isset(UPLOAD_TYPES[$tip])) fail(400, 'Bu dosya türü yüklenemez (yalnızca fotoğraf, video ve PDF).');
+  $boyut = (int)@filesize($tmp); if ($boyut <= 0) fail(400, 'Dosya okunamadı.');
+  if ($boyut > UPLOAD_MAX) fail(413, 'Dosya en fazla 100 MB olabilir.');
+  $sub = substr(bin2hex(random_bytes(1)), 0, 2); $dir = uploads_dir() . '/' . $sub;
+  if (!is_dir($dir)) @mkdir($dir, 0770, true);
+  $name = bin2hex(random_bytes(16)) . '.' . UPLOAD_TYPES[$tip]; $dest = "$dir/$name";
+  $okMove = $isUploaded ? @move_uploaded_file($tmp, $dest) : @rename($tmp, $dest);
+  if (!$okMove) fail(500, 'Dosya kaydedilemedi.');
+  @chmod($dest, 0640);
+  $ad = mb_substr(preg_replace('/[^\p{L}\p{N} ._()-]/u', '', $ad) ?: 'dosya', 0, 160);
+  return ['yol' => "$sub/$name", 'tip' => $tip, 'boyut' => $boyut, 'ad' => $ad];
+}
+// Diskteki dosyayı Range (video için) destekleyerek gönderir
+function serve_file(string $yol, string $tip, string $ad): never {
+  $path = uploads_dir() . '/' . $yol;
+  if (strpos($yol, '..') !== false || !is_file($path)) fail(404, 'Dosya bulunamadı.');
+  $size = (int)filesize($path); $start = 0; $end = $size - 1; $code = 200;
+  header('Content-Type: ' . $tip); header('Accept-Ranges: bytes');
+  header("Content-Disposition: inline; filename*=UTF-8''" . rawurlencode($ad));
+  header('Cache-Control: private, max-age=3600'); header('X-Content-Type-Options: nosniff');
+  if (isset($_SERVER['HTTP_RANGE']) && preg_match('/bytes=(\d*)-(\d*)/', $_SERVER['HTTP_RANGE'], $m)) {
+    if ($m[1] !== '') $start = (int)$m[1]; if ($m[2] !== '') $end = min((int)$m[2], $size - 1);
+    if ($start > $end || $start >= $size) { http_response_code(416); header("Content-Range: bytes */$size"); exit; }
+    $code = 206; http_response_code(206); header("Content-Range: bytes $start-$end/$size");
+  }
+  header('Content-Length: ' . ($end - $start + 1));
+  $fp = fopen($path, 'rb'); if ($start) fseek($fp, $start); $left = $end - $start + 1;
+  while ($left > 0 && !feof($fp)) { $buf = fread($fp, min(262144, $left)); if ($buf === false) break; echo $buf; $left -= strlen($buf); @ob_flush(); flush(); }
+  fclose($fp); exit;
+}
 function digits(string $s): string { return preg_replace('/\D+/', '', $s) ?? ''; }
 // Telefon: son 10 hane (0 / +90 öneki fark etmez)
 function norm_phone(string $s): string { $d = digits($s); return strlen($d) >= 10 ? substr($d, -10) : ''; }
