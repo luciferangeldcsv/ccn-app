@@ -18,6 +18,8 @@ for (const f of readdirSync(root + 'server/pwa/')) cpSync(root + 'server/pwa/' +
   writeFileSync(out + 'index.html', html);
   writeFileSync(out + 'sw.js', readFileSync(out + 'sw.js', 'utf8').replace('__SW_VERSION__', ver));
 }
+// yayınlanan sürüm (native güncelleme uyarısı için): sunucu bu sürümü bildirir
+writeFileSync(out + 'surum.txt', JSON.parse(readFileSync(root + 'package.json', 'utf8')).version);
 // yüklenen dosya klasörü (git'e girmez; sunucuda kalıcı olmalı)
 mkdirSync(out + 'ccn-veri', { recursive: true });
 // DEV paneli: /livadmin (yalnızca web)

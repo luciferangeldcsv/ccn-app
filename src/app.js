@@ -331,6 +331,25 @@ function updateSheet(info) {
   });
 }
 
+// Sunucu tabanlı güncelleme uyarısı: yayınlanan sürüm, yüklü native sürümden yeniyse açılışta "güncelleme geldi" der (Android)
+function semverGt(a, b) {
+  const pa = String(a || '').split('.').map((x) => parseInt(x, 10) || 0), pb = String(b || '').split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < 3; i++) { if ((pa[i] || 0) > (pb[i] || 0)) return true; if ((pa[i] || 0) < (pb[i] || 0)) return false; }
+  return false;
+}
+function maybeServerUpdate() {
+  if (!NATIVE || ui.updNotified) return;                         // yalnızca Android/iOS uygulaması; oturumda bir kez
+  const sv = srv.v && srv.v.appSurum; if (!sv || !/^\d/.test(APP_VERSION)) return;
+  if (semverGt(sv, APP_VERSION)) { ui.updNotified = true; serverUpdateSheet(sv); }
+}
+function serverUpdateSheet(sv) {
+  sheet(`<div class="permhead">${ICON_UPLOAD}<h3>Güncelleme geldi (${esc(sv)})</h3></div>
+    <p class="muted" style="margin:0">Vardiya Listesi'nin yeni sürümü yayında. Yenilikler ve düzeltmeler için Google Play'den güncelleyin. Kayıtlı listeleriniz silinmez.</p>
+    <div class="row"><button class="btn primary" id="up-ok">Güncelle</button><button class="btn" data-x="1">Sonra</button></div>`, (bg) => {
+    bg.querySelector('#up-ok').addEventListener('click', async () => { closeSheet(); try { if (AppUpdate && AppUpdate.openAppStore) { await AppUpdate.openAppStore(); return; } } catch (e) { /* yoksay */ } window.open(PLAY_URL, '_blank'); });
+  });
+}
+
 // Görsel seçmeden önce fotoğraf erişimi için izin iste (bir kez; Ayarlar'dan geri alınabilir)
 function askPhotoAccess(then) {
   sheet(`<div class="permhead">${ICON_IMAGE}<h3>Fotoğraflarınıza erişim</h3></div>
@@ -668,6 +687,7 @@ async function syncData(force) {
   const j = await api('veri');
   auth.ben = j.ben; saveAuth();
   srv.v = j.surum; srv.duyurular = j.duyurular || [];
+  maybeServerUpdate();
   const L = j.liste;
   srv.ayarlar = j.ayarlar || null; srv.taslak = j.taslak || null; srv.sikayetAcik = j.sikayetAcik || 0;
   srv.bildirimler = j.bildirimler || []; srv.bildirimSon = Math.max(srv.bildirimSon || 0, j.bildirimSon || 0); srv.yenilikler = j.yenilikler || null;
