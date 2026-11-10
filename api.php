@@ -1011,53 +1011,41 @@ function save_person(array $in, array $u, bool $bulk = false): array {
   $me = level_of($u['title'] ?? ''); $grant = grantable($u['title'] ?? '');
   $id = (int)($in['id'] ?? 0);
   $name = clean_name((string)($in['ad'] ?? ''));
-  $sicil = clean_sicil((string)($in['sicil'] ?? ''));
-  $tcRaw = ''; // TC kimlik numarası artık alınmıyor ve saklanmıyor
   $tel = norm_phone((string)($in['telefon'] ?? ''));
   // unvan: verilmezse Personel; kişi yalnızca kendi verebileceği unvanları atayabilir
   $title = (string)($in['unvan'] ?? '');
   if (!isset(TITLES[$title])) $title = ($in['rol'] ?? '') === 'admin' ? 'yonetici' : 'personel';
-  if ($tcRaw !== '' && !valid_tc($tcRaw)) $err('TC kimlik numarası geçersiz' . ($name ? " ($name)" : '') . '.');
   if (($in['telefon'] ?? '') !== '' && $tel === '') $err('Telefon numarası geçersiz' . ($name ? " ($name)" : '') . '.');
-  $tcHash = $tcRaw !== '' ? hmac('tc:' . $tcRaw) : null;
 
-  if (!$id && $bulk) {
-    // toplu: Personel ID ya da TC ile var olan kişiyi bul
-    if ($sicil !== '') { $st = db()->prepare('SELECT id FROM personnel WHERE sicil = ?'); $st->execute([$sicil]); $id = (int)($st->fetchColumn() ?: 0); }
-    if (!$id && $tcHash) { $st = db()->prepare('SELECT id FROM personnel WHERE tc_hash = ?'); $st->execute([$tcHash]); $id = (int)($st->fetchColumn() ?: 0); }
+  if (!$id && $bulk && $name !== '') {
+    // toplu: aynı ada sahip kişi (büyük/küçük ve Türkçe karakter duyarsız) zaten varsa onu bulur
+    $nk = name_key($name);
+    foreach (db()->query('SELECT id, name FROM personnel')->fetchAll() as $r) if (name_key((string)$r['name']) === $nk) { $id = (int)$r['id']; break; }
   }
   if ($id) {
     $st = db()->prepare('SELECT * FROM personnel WHERE id = ?'); $st->execute([$id]); $old = $st->fetch();
     if (!$old) $err('Kişi bulunamadı.');
-    if ($old['title'] === 'dev' && $me < 5) $err($bulk ? "Bu Personel ID başka bir kişide kayıtlı ($name)." : 'Bu kişinin bilgileri değiştirilemez.');
-    // toplu eklemede Personel ID/TC başka isimli bir kişide kayıtlıysa o kişinin kaydı DEĞİŞTİRİLMEZ
-    if ($bulk && $name !== '' && name_key($name) !== name_key($old['name'])) $err("Bu Personel ID başka bir kişide kayıtlı: {$old['name']} ($name)");
+    if ($old['title'] === 'dev' && $me < 5) $err('Bu kişinin bilgileri değiştirilemez.');
     if ((int)$old['id'] === $u['id']) $err('Kendi hesabınızın unvanını ya da bilgilerini buradan değiştiremezsiniz.');
     if (!can_touch($u, $old)) $err("{$old['name']}: yalnızca sizden alt unvandaki kişileri düzenleyebilirsiniz.");
+    if ($bulk) return ['id' => $id, 'yeni' => false]; // toplu: aynı ad zaten kayıtlı, dokunulmaz
     if ($me < 3) $err("{$old['name']} zaten kayıtlı. Şefler yalnızca yeni kişi ekleyip çıkarabilir.");
-    // telefon / Personel ID / TC değişikliği sistemsel: yalnızca yönetici (ve DEV)
-    $sysChange = ($tel !== '' && !hash_equals($old['phone_hash'], hmac('tel:' . $tel))) || ($sicil !== '' && $sicil !== (string)$old['sicil']) || ($tcHash && $tcHash !== $old['tc_hash']);
-    if ($sysChange && $me < 4) $err('Telefon ve Personel ID değişikliğini yalnızca yöneticiler yapabilir.');
-    if ($bulk) $title = $old['title']; // toplu yükleme unvanları değiştirmez
-    elseif ($title !== $old['title'] && $title === 'yonetici') $err('Yönetici unvanı yalnızca DEV panelinden verilir.');
+    // telefon değişikliği sistemsel: yalnızca yönetici (ve DEV)
+    $sysChange = ($tel !== '' && !hash_equals($old['phone_hash'], hmac('tel:' . $tel)));
+    if ($sysChange && $me < 4) $err('Telefon değişikliğini yalnızca yöneticiler yapabilir.');
+    if ($title !== $old['title'] && $title === 'yonetici') $err('Yönetici unvanı yalnızca DEV panelinden verilir.');
     elseif ($title !== $old['title'] && !in_array($title, $grant, true)) $err('Bu unvanı verme yetkiniz yok.');
-    $sets = ['name = ?' => $name ?: $old['name'], 'sicil = ?' => $sicil !== '' ? $sicil : $old['sicil'], 'role = ?' => role_of($title), 'title = ?' => $title];
-    if ($tcHash) { $sets['tc_hash = ?'] = $tcHash; $sets['tc_last2 = ?'] = substr($tcRaw, -2); }
+    $sets = ['name = ?' => $name ?: $old['name'], 'role = ?' => role_of($title), 'title = ?' => $title];
     if ($tel !== '') { $sets['phone_hash = ?'] = hmac('tel:' . $tel); $sets['phone_last4 = ?'] = substr($tel, -4); }
-    try {
-      db()->prepare('UPDATE personnel SET ' . implode(', ', array_keys($sets)) . ' WHERE id = ?')->execute([...array_values($sets), $id]);
-    } catch (PDOException $e) { $err('Bu Personel ID başka bir kişide kayıtlı.'); }
+    db()->prepare('UPDATE personnel SET ' . implode(', ', array_keys($sets)) . ' WHERE id = ?')->execute([...array_values($sets), $id]);
     if ($title !== $old['title']) db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$id]); // unvan değişince yeniden girer
-    if (!$bulk) audit($u, 'personel-guncellendi', ($name ?: $old['name']) . ($title !== $old['title'] ? ' → ' . TITLES[$title] : ''));
+    audit($u, 'personel-guncellendi', ($name ?: $old['name']) . ($title !== $old['title'] ? ' → ' . TITLES[$title] : ''));
     return ['id' => $id, 'yeni' => false];
   }
   if ($name === '') $err('Ad soyad gerekli.');
-  if ($sicil === '') $err("Personel ID gerekli ($name).");
   if ($bulk || !in_array($title, $grant, true)) $title = 'personel'; // yeni eklenen herkes Personel; üst unvanı yalnızca yetkili verir
-  try {
-    db()->prepare('INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-      ->execute([$name, $sicil !== '' ? $sicil : null, $tcHash, $tcHash ? substr($tcRaw, -2) : null, $tel !== '' ? hmac('tel:' . $tel) : '', $tel !== '' ? substr($tel, -4) : '', role_of($title), $title, now()]);
-  } catch (PDOException $e) { $err("Bu Personel ID başka bir kişide kayıtlı ($name)."); }
+  db()->prepare('INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+    ->execute([$name, null, null, null, $tel !== '' ? hmac('tel:' . $tel) : '', $tel !== '' ? substr($tel, -4) : '', role_of($title), $title, now()]);
   $nid = (int)db()->lastInsertId();
   if (!$bulk) audit($u, 'personel-eklendi', $name . ($title !== 'personel' ? ' (' . TITLES[$title] . ')' : ''));
   return ['id' => $nid, 'yeni' => true];

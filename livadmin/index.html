@@ -90,7 +90,7 @@ aside #install { color: var(--ok); } aside #install[hidden] { display: none; }
 <body>
 <form id="login" autocomplete="off">
   <h1>Giriş</h1>
-  <label>Personel ID<input id="k" required></label>
+  <label>Ad Soyad<input id="k" required></label>
   <label>Şifre<input id="p" type="password" maxlength="64" required></label>
   <div class="err" id="le"></div>
   <button class="btn pri">Giriş</button>
@@ -258,8 +258,8 @@ async function kul() {
   const roles = [['yonetici', 'Yönetici'], ['mudur', 'Müdür'], ['sef', 'Şef'], ['personel', 'Personel']];
   M(`<div class="top"><h2>Kullanıcılar · ${d.kullanicilar.length}</h2></div>
     <p class="mut" style="margin-top:-8px">Yönetici unvanı yalnızca buradan verilir. Unvan değişince ya da hesap askıya alınınca kişi oturumdan düşer.</p>
-    <div class="tw"><table><thead><tr><th>Ad soyad</th><th>Unvan</th><th>Personel ID</th><th>Tel</th><th>Şifre</th><th>Son giriş</th><th>Son IP / cihaz</th><th>Oturum</th><th>İşlem</th><th>Liste gördü</th><th>İşlemler</th></tr></thead><tbody>
-    ${d.kullanicilar.map((u) => `<tr style="${u.askida ? 'opacity:.6' : ''}"><td>${esc(u.ad)}${u.kilitli ? ' <span class="tag" style="color:var(--bad)">kilitli</span>' : ''}${u.askida ? ` <span class="tag" style="color:var(--bad)">askıda${u.askiSebep ? ': ' + esc(u.askiSebep) : ''}</span>` : ''}</td><td>${tag(u.unvan)}</td><td class="mono">${esc(u.sicil || '–')}</td><td class="mono">${esc(u.telefon)}</td><td>${u.sifreVar ? '✓' : '<span class="mut">yok</span>'}</td>
+    <div class="tw"><table><thead><tr><th>Ad soyad</th><th>Unvan</th><th>Tel</th><th>Şifre</th><th>Son giriş</th><th>Son IP / cihaz</th><th>Oturum</th><th>İşlem</th><th>Liste gördü</th><th>İşlemler</th></tr></thead><tbody>
+    ${d.kullanicilar.map((u) => `<tr style="${u.askida ? 'opacity:.6' : ''}"><td>${esc(u.ad)}${u.kilitli ? ' <span class="tag" style="color:var(--bad)">kilitli</span>' : ''}${u.askida ? ` <span class="tag" style="color:var(--bad)">askıda${u.askiSebep ? ': ' + esc(u.askiSebep) : ''}</span>` : ''}</td><td>${tag(u.unvan)}</td><td class="mono">${esc(u.telefon)}</td><td>${u.sifreVar ? '✓' : '<span class="mut">yok</span>'}</td>
       <td class="nw">${when(u.sonGiris)}</td><td><span class="mono">${esc(u.sonIp || '')}</span><br><span class="mut">${esc(u.sonCihaz || '')}</span></td><td>${u.oturum}</td><td>${u.islem}</td><td class="nw">${when(u.listeGordu)}</td>
       <td class="nw">${u.unvan === 'dev' ? '<span class="mut">siz</span>' : `<select data-role="${u.id}">${roles.map(([k, l]) => `<option value="${k}" ${u.unvan === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <button class="btn sm" data-ban-u="${u.id}" data-on="${u.askida ? 0 : 1}">${u.askida ? 'Askıdan al' : 'Askıya al'}</button>

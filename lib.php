@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 17;
+const SCHEMA_V = 18;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -150,8 +150,10 @@ function upgrades(PDO $pdo): void {
     $T = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci';
     $pdo->exec("CREATE TABLE IF NOT EXISTS ip_bans (ip VARCHAR(45) PRIMARY KEY, reason VARCHAR(200) NULL, created_by VARCHAR(120) NULL, created_at DATETIME NOT NULL, until DATETIME NULL) $T");
     $pdo->exec("CREATE TABLE IF NOT EXISTS daily_stats (day DATE NOT NULL, k VARCHAR(30) NOT NULL, n INT NOT NULL DEFAULT 0, PRIMARY KEY (day, k)) $T");
-    // 7 → 8: TC kimlik numarası artık kullanılmıyor; kayıtlı TC verileri silinir (giriş: Personel ID + telefon + şifre)
+    // 7 → 8: TC kimlik numarası artık kullanılmıyor; kayıtlı TC verileri silinir
     $pdo->exec('UPDATE personnel SET tc_hash = NULL, tc_last2 = NULL WHERE tc_hash IS NOT NULL OR tc_last2 IS NOT NULL');
+    // 17 → 18: Personel ID (sicil) tamamen kaldırıldı; giriş Ad Soyad + şifre ile. Kayıtlı tüm Personel ID değerleri silinir.
+    $pdo->exec('UPDATE personnel SET sicil = NULL WHERE sicil IS NOT NULL');
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
