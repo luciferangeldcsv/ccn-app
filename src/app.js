@@ -205,7 +205,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
   // önbellekten anında başla; yoksa sakin "açık" ile başla
   const HK = 'ccn_hava';
   let cached = null; try { cached = JSON.parse(localStorage.getItem(HK) || 'null'); } catch (e) { cached = null; }
-  if (cached && (Date.now() - cached.t < 30 * 60000)) apply(cached); else apply(null);
+  if (cached && (Date.now() - cached.t < 10 * 60000)) apply(cached); else apply(null);
 
   // güncel Ankara hava durumunu çek (API anahtarı yok; sabit koordinat, kişisel konum değil)
   (function fetchHava() {
@@ -1967,8 +1967,8 @@ function viewLogin() {
       <label class="field">Yeni şifre (tekrar)<input id="lg-new2" type="password" ${pwAttrs} autocomplete="new-password" required></label>
       <p class="small muted" style="margin:-4px 0 0">Şifre kuralı: ${esc(L.kural || '')}</p>`;
   let form;
-  if (L.step === 'olustur') form = `<p style="margin:0">İlk kez giriyorsanız Personel ID’nizi yazıp kendinize bir şifre belirleyin. Bundan sonra Personel ID ve bu şifreyle gireceksiniz.</p>
-      <label class="field">Personel ID<input id="lg-kimlik" autocomplete="username" autocapitalize="off" value="${esc(L.kimlik || '')}" required></label>
+  if (L.step === 'olustur') form = `<p style="margin:0">İlk kez giriyorsanız <b>ad ve soyadınızı</b> yazıp kendinize bir şifre belirleyin. Bundan sonra ad soyad ve bu şifreyle gireceksiniz.</p>
+      <label class="field">Ad Soyad<input id="lg-kimlik" autocomplete="name" autocapitalize="words" value="${esc(L.kimlik || '')}" placeholder="Örn. Ahmet Yılmaz" required></label>
       <label class="field">Şifre<input id="lg-new" type="password" ${pwAttrs} autocomplete="new-password" required></label>
       <label class="field">Şifre (tekrar)<input id="lg-new2" type="password" ${pwAttrs} autocomplete="new-password" required></label>
       <p class="small muted" style="margin:-4px 0 0">${L.kural ? 'Şifre kuralı: ' + esc(L.kural) : 'Personel: 6 haneli sayı. Şef, müdür ve yönetici: en az 7 karakter; büyük harf, küçük harf ve rakam.'}</p>
@@ -1976,7 +1976,7 @@ function viewLogin() {
   else if (L.step === 'yenile') form = `<p style="margin:0">Merhaba <b>${esc(L.ad || '')}</b>. Unvanınız için şifre kuralı farklı; devam etmek için yeni bir şifre belirleyin.</p>
       ${newPw}
       <div class="row"><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Kaydediliyor…' : 'Şifreyi güncelle ve gir'}</button><button class="btn" type="button" data-act="login-back">Geri</button></div>`;
-  else form = `<label class="field">Personel ID<input id="lg-kimlik" autocomplete="username" autocapitalize="off" value="${esc(L.kimlik || '')}" required></label>
+  else form = `<label class="field">Ad Soyad<input id="lg-kimlik" autocomplete="name" autocapitalize="words" value="${esc(L.kimlik || '')}" placeholder="Örn. Ahmet Yılmaz" required></label>
       <label class="field">Şifre<input id="lg-pin" type="password" maxlength="64" autocomplete="current-password" required></label>
       <label class="row" style="gap:8px"><input type="checkbox" id="lg-remember" ${L.hatirla !== false ? 'checked' : ''}> <span>Beni hatırla <span class="small muted">(uygulama kapansa da oturum açık kalır)</span></span></label>
       <div class="row"><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Giriş yapılıyor…' : 'Giriş yap'}</button><button class="btn" type="button" data-act="login-create" ${L.busy ? 'disabled' : ''}>Şifrem yok · Şifre oluştur</button></div>`;
@@ -2020,11 +2020,11 @@ function bindLogin() {
     const body = { istemci: 3, kimlik: L.kimlik, hatirla: L.hatirla, cihaz };
     if (L.step === 'giris') {
       L.kimlik = f.querySelector('#lg-kimlik').value.trim(); L.hatirla = f.querySelector('#lg-remember').checked; L.pin = f.querySelector('#lg-pin').value;
-      if (!L.kimlik) { L.err = 'Personel ID girin.'; render(); return; }
+      if (!L.kimlik) { L.err = 'Ad soyad girin.'; render(); return; }
       if (!L.pin) { L.err = 'Şifrenizi yazın. Şifreniz yoksa “Şifrem yok · Şifre oluştur”a dokunun.'; render(); return; }
       Object.assign(body, { kimlik: L.kimlik, hatirla: L.hatirla, pin: L.pin });
     } else {
-      if (L.step === 'olustur') { L.kimlik = f.querySelector('#lg-kimlik').value.trim(); body.kimlik = L.kimlik; if (!L.kimlik) { L.err = 'Personel ID girin.'; render(); return; } }
+      if (L.step === 'olustur') { L.kimlik = f.querySelector('#lg-kimlik').value.trim(); body.kimlik = L.kimlik; if (!L.kimlik) { L.err = 'Ad soyad girin.'; render(); return; } }
       const a = f.querySelector('#lg-new').value, b = f.querySelector('#lg-new2').value;
       if (!a) { L.err = 'Şifre girin.'; render(); return; }
       const pe = L.kuralTip ? pwCheck(a, L.kuralTip) : ''; if (pe) { L.err = pe; render(); return; }

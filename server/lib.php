@@ -350,6 +350,22 @@ function find_person(string $kimlik): ?array {
   $st = db()->prepare('SELECT * FROM personnel WHERE sicil = ?'); $st->execute([$k]);
   return $st->fetch() ?: null;
 }
+// Ad/soyad eşleştirme için sadeleştirme: Türkçe büyük/küçük ve aksan duyarsız, boşluk sadeleştirilir
+function fold_name(string $s): string {
+  $map = ['İ' => 'i', 'I' => 'i', 'ı' => 'i', 'Ş' => 's', 'ş' => 's', 'Ğ' => 'g', 'ğ' => 'g', 'Ü' => 'u', 'ü' => 'u', 'Ö' => 'o', 'ö' => 'o', 'Ç' => 'c', 'ç' => 'c', 'Â' => 'a', 'â' => 'a', 'Î' => 'i', 'î' => 'i', 'Û' => 'u', 'û' => 'u'];
+  $s = mb_strtolower(strtr(trim($s), $map), 'UTF-8');
+  return trim(preg_replace('/\s+/u', ' ', $s) ?? '');
+}
+// Kişiyi Personel ID (sicil) ya da Ad Soyad ile bul. Ad çakışırsa birden fazla dönebilir (şifreyle ayrılır).
+function find_people(string $kimlik): array {
+  $k = trim($kimlik); if ($k === '') return [];
+  $s = clean_sicil($k);
+  if ($s !== '') { $st = db()->prepare('SELECT * FROM personnel WHERE sicil = ?'); $st->execute([$s]); $p = $st->fetch(); if ($p) return [$p]; }
+  $f = fold_name($k); if ($f === '') return [];
+  $out = [];
+  foreach (db()->query('SELECT * FROM personnel')->fetchAll() as $p) if (fold_name((string)$p['name']) === $f) $out[] = $p;
+  return $out;
+}
 
 function security_headers(): void {
   header('X-Content-Type-Options: nosniff');

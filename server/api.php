@@ -54,15 +54,23 @@ switch ($r) {
     db()->prepare('INSERT INTO login_attempts (ip, at) VALUES (?, ?)')->execute([$ip, now()]);
     if (random_int(1, 50) === 1) db()->prepare('DELETE FROM login_attempts WHERE at < ?')->execute([gmdate('Y-m-d H:i:s', time() - 86400)]);
 
-    $kimlik = str_in('kimlik', 40); $tel = norm_phone(str_in('telefon', 30));
+    $kimlik = str_in('kimlik', 60); $tel = norm_phone(str_in('telefon', 30)); // kimlik: Ad Soyad (ya da Personel ID)
     $pin = str_in('pin', 64); $yeni = str_in('yeniPin', 64); $hatirla = !empty(body()['hatirla']);
-    $yeniIstemci = (int)(body()['istemci'] ?? 0) >= 2; // 2.8.2 ve sonrası: giriş = Personel ID + şifre
+    $yeniIstemci = (int)(body()['istemci'] ?? 0) >= 2; // 2.8.2 ve sonrası: giriş = şifre
     $v3 = (int)(body()['istemci'] ?? 0) >= 3; // 2.8.5 ve web: telefon sorulmaz, ilk şifre "Şifrem yok" ekranından oluşturulur
-    if ($kimlik === '') fail(400, 'Personel ID girin.');
-    $p = find_person($kimlik);
+    if ($kimlik === '') fail(400, 'Ad ve soyadınızı girin.');
     $help = 'Şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.';
-    // listede (sistemde) olmayan ya da silinen kişi
-    if (!$p) { stat_inc('giris_hatali'); audit(null, 'giris-bilinmeyen', 'girilen: ' . mb_substr($kimlik, 0, 2) . str_repeat('•', max(0, min(9, mb_strlen($kimlik) - 2)))); fail(401, "Sisteme kayıtlı değilsiniz. Bu Personel ID listede yok. $help", ['kayitsiz' => true]); }
+    // Ad Soyad (ya da Personel ID) ile kişiyi bul
+    $cands = find_people($kimlik);
+    // listede olmayan ya da listeden çıkarılan kişi
+    if (!$cands) { stat_inc('giris_hatali'); audit(null, 'giris-bilinmeyen', 'girilen: ' . mb_substr($kimlik, 0, 2) . str_repeat('•', max(0, min(9, mb_strlen($kimlik) - 2)))); fail(401, "Üye bulunamadı. Girdiğiniz ad soyad listede yok (ya da listeden çıkarıldınız). $help", ['kayitsiz' => true]); }
+    if (count($cands) === 1) { $p = $cands[0]; }
+    else {
+      // aynı ada sahip birden fazla kişi: doğru şifreyle hangisi olduğu belirlenir
+      $p = null;
+      if ($pin !== '') foreach ($cands as $c) if ($c['pin_hash'] !== null && password_verify($pin, $c['pin_hash'])) { $p = $c; break; }
+      if (!$p) fail(409, 'Aynı ada sahip birden fazla kayıt var. Lütfen Personel ID’nizle giriş yapın ya da yöneticinize başvurun.', ['adCakismasi' => true]);
+    }
     if (!empty($p['banned'])) { audit(['id' => $p['id'], 'name' => $p['name']], 'giris-askida'); fail(403, 'Hesabınız askıya alındı. Yöneticinize başvurun.'); }
     if ($p['locked_until'] && $p['locked_until'] > now()) {
       $min = max(1, (int)ceil((strtotime($p['locked_until'] . ' UTC') - time()) / 60));
@@ -130,9 +138,11 @@ switch ($r) {
     $st->execute([$ip, gmdate('Y-m-d H:i:s', time() - 900)]);
     if ((int)$st->fetchColumn() >= 150) fail(429, 'Çok fazla deneme yapıldı. 15 dakika sonra tekrar deneyin.');
     db()->prepare('INSERT INTO login_attempts (ip, at) VALUES (?, ?)')->execute([$ip, now()]);
-    $kimlik = str_in('kimlik', 40); if ($kimlik === '') fail(400, 'Personel ID girin.');
-    $p = find_person($kimlik);
-    if (!$p) fail(401, 'Sisteme kayıtlı değilsiniz. Bu Personel ID listede yok. Şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.', ['kayitsiz' => true]);
+    $kimlik = str_in('kimlik', 60); if ($kimlik === '') fail(400, 'Ad ve soyadınızı girin.');
+    $cands = find_people($kimlik);
+    if (!$cands) fail(401, 'Üye bulunamadı. Girdiğiniz ad soyad listede yok (ya da listeden çıkarıldınız). Şefiniz, müdürünüz ya da yöneticinizle iletişime geçin.', ['kayitsiz' => true]);
+    if (count($cands) > 1) fail(409, 'Aynı ada sahip birden fazla kayıt var. Lütfen Personel ID’nizle giriş yapın ya da yöneticinize başvurun.', ['adCakismasi' => true]);
+    $p = $cands[0];
     if (!empty($p['banned'])) fail(403, 'Hesabınız askıya alındı. Yöneticinize başvurun.');
     $rule = pw_rule($p['title'] ?? 'personel');
     ok(['var' => $p['pin_hash'] !== null, 'kural' => $rule['metin'], 'kuralTip' => $rule['tip']]);
