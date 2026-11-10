@@ -125,13 +125,115 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
   document.body.classList.add('intro-run');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const ver = document.getElementById('intro-ver'); if (ver) ver.textContent = /^\d/.test(APP_VERSION) ? 'Sürüm ' + APP_VERSION : '';
+  let raf = 0;
   const done = () => {
     if (el.dataset.out) return; el.dataset.out = '1';
+    if (raf) cancelAnimationFrame(raf);
     el.classList.add('out'); document.body.classList.remove('intro-run'); document.body.classList.add('intro-done'); applyTheme();
     setTimeout(() => { el.remove(); document.body.classList.remove('intro-done'); setTimeout(() => checkForUpdate(false), 300); }, 560);
   };
-  setTimeout(done, reduce ? 450 : 3000);
   el.addEventListener('click', done);
+
+  const cv = document.getElementById('intro-canvas');
+  const flash = document.getElementById('intro-flash');
+  const ctx = cv && cv.getContext && cv.getContext('2d');
+  if (reduce || !ctx) { el.classList.add('struck', 'lit'); setTimeout(done, reduce ? 450 : 2400); return; }
+
+  let W = 0, H = 0, DPR = 1;
+  const resize = () => {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = el.clientWidth || window.innerWidth; H = el.clientHeight || window.innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  };
+  resize();
+  window.addEventListener('resize', resize);
+
+  // Fraktal yıldırım: orta nokta sapması + rastgele dallar
+  const makeBolt = (x1, y1, x2, y2, disp, branch) => {
+    const segs = [];
+    const divide = (ax, ay, bx, by, d, gen) => {
+      if (d < 4.5 || gen > 9) { segs.push([ax, ay, bx, by, gen]); return; }
+      let mx = (ax + bx) / 2, my = (ay + by) / 2;
+      const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+      const off = (Math.random() - 0.5) * d;
+      mx += (-dy / len) * off; my += (dx / len) * off;
+      divide(ax, ay, mx, my, d / 2, gen);
+      divide(mx, my, bx, by, d / 2, gen);
+      if (branch && d > 16 && Math.random() < 0.55) {
+        const ang = Math.atan2(my - ay, mx - ax) + (Math.random() - 0.5) * 1.3;
+        const bl = d * (1.3 + Math.random() * 1.4);
+        divide(mx, my, mx + Math.cos(ang) * bl, my + Math.sin(ang) * bl, d / 2.1, gen + 2);
+      }
+    };
+    divide(x1, y1, x2, y2, disp, 0);
+    return segs;
+  };
+  const drawBolt = (segs, a) => {
+    if (a <= 0) return;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const passes = [[14, 0.05], [6.5, 0.14], [2.8, 0.45], [1.1, 1]];
+    for (let i = 0; i < passes.length; i++) {
+      const w = passes[i][0], pa = passes[i][1] * a;
+      ctx.beginPath();
+      for (let j = 0; j < segs.length; j++) { const s = segs[j]; ctx.moveTo(s[0], s[1]); ctx.lineTo(s[2], s[3]); }
+      ctx.lineWidth = w; ctx.strokeStyle = 'rgba(255,255,255,' + Math.min(1, pa) + ')';
+      ctx.shadowColor = 'rgba(255,255,255,' + Math.min(1, 0.85 * pa) + ')'; ctx.shadowBlur = w * 3.4;
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'source-over';
+  };
+
+  // Hedef: "VARDİYA LİSTESİ" yazısının üstü
+  const target = () => {
+    const vl = el.querySelector('.intro-vl'); const er = el.getBoundingClientRect();
+    if (!vl) return { x: W / 2, y: H * 0.42 };
+    const r = vl.getBoundingClientRect();
+    return { x: r.left - er.left + r.width / 2, y: r.top - er.top + 6 };
+  };
+  const strikes = [];
+  const build = () => {
+    const tg = target();
+    const disp = Math.min(W, 460) * 0.52;
+    const seq = [
+      { at: 110, dur: 150, power: 0.35, branch: false },
+      { at: 240, dur: 150, power: 0.3, branch: false },
+      { at: 560, dur: 440, power: 1, branch: true, main: true },
+      { at: 700, dur: 200, power: 0.5, branch: true },
+      { at: 850, dur: 230, power: 0.8, branch: true },
+      { at: 1050, dur: 170, power: 0.4, branch: false }
+    ];
+    for (const s of seq) {
+      const sx = W * (0.5 + (Math.random() - 0.5) * 0.16);
+      strikes.push({ t0: s.at, dur: s.dur, power: s.power, main: !!s.main, fired: false,
+        segs: makeBolt(sx, -24, tg.x + (Math.random() - 0.5) * 44, tg.y, disp, s.branch) });
+    }
+  };
+  build();
+
+  const T0 = performance.now();
+  const frame = (now) => {
+    const t = now - T0;
+    ctx.clearRect(0, 0, W, H);
+    let flashA = 0;
+    for (const s of strikes) {
+      const dt = t - s.t0;
+      if (dt < 0 || dt > s.dur) continue;
+      const fl = Math.random() > 0.22 ? 1 : 0.35;        // titreme
+      drawBolt(s.segs, s.power * (1 - dt / s.dur) * fl);
+      if (s.main) {
+        if (dt < 170) flashA = Math.max(flashA, (1 - dt / 170) * 0.92);
+        if (!s.fired) { s.fired = true; el.classList.add('struck'); setTimeout(() => el.classList.add('lit'), 340); }
+      }
+    }
+    if (flash) flash.style.opacity = flashA ? String(flashA) : '0';
+    if (t < 1360) { raf = requestAnimationFrame(frame); }
+    else { ctx.clearRect(0, 0, W, H); if (flash) flash.style.opacity = '0'; el.classList.add('struck', 'lit'); raf = 0; }
+  };
+  raf = requestAnimationFrame(frame);
+  setTimeout(done, 3000);
 })();
 ['online', 'offline'].forEach((ev) => window.addEventListener(ev, () => { if (ui.view === 'ayarlar' && !$overlay.innerHTML) render(); }));
 
