@@ -196,10 +196,22 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
     const n = Math.max(6, Math.round(base * (mode === 'rain' || mode === 'snow' ? intensity : 1)));
     parts = []; for (let i = 0; i < n; i++) parts.push(spawn(true));
   };
+  // Ölçülen kar/yağmur miktarı + sıcaklık, hava koduna göre önceliklidir (kod geç kalsa da doğru efekt)
+  const decide = (w) => {
+    if (!w) return ['clear', 1];
+    const snow = +w.snow || 0, rain = +w.rain || 0, shw = +w.showers || 0, pr = +w.precip || 0, t = w.temp;
+    if (snow > 0) return ['snow', snow >= 1 ? 1.7 : snow >= 0.3 ? 1.2 : 0.8];                     // ölçülen kar → kesin KAR
+    if ((rain > 0 || shw > 0 || pr > 0) && t != null && t <= 1) return ['snow', 1.2];              // donma civarı yağış → kar
+    const wet = rain + shw; if (wet > 0) return ['rain', wet >= 2 ? 1.7 : wet >= 0.5 ? 1.2 : 0.8]; // ölçülen yağmur
+    return modeFor(w.code);                                                                         // ölçüm yoksa koda göre
+  };
   const apply = (w) => {
-    const m = modeFor(w ? w.code : null); mode = m[0]; intensity = m[1]; isDay = w ? (w.day ? 1 : 0) : 1;
+    const m = decide(w); mode = m[0]; intensity = m[1]; isDay = w ? (w.day ? 1 : 0) : 1;
     rebuild();
-    if (chip && w) { const lab = labelFor(w.code); chip.textContent = 'ANKARA · ' + (lab ? lab + ' · ' : '') + (w.temp != null ? w.temp + '°' : ''); el.classList.add('hava'); }
+    if (chip && w) {
+      const lab = mode === 'snow' ? 'Karlı' : mode === 'rain' ? 'Yağmurlu' : labelFor(w.code);
+      chip.textContent = 'ANKARA · ' + (lab ? lab + ' · ' : '') + (w.temp != null ? w.temp + '°' : ''); el.classList.add('hava');
+    }
   };
 
   // önbellekten anında başla; yoksa sakin "açık" ile başla
@@ -213,12 +225,13 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
     if (!navigator.onLine || typeof fetch !== 'function') return;
     const ac = ('AbortController' in window) ? new AbortController() : null;
     const to = setTimeout(() => ac && ac.abort(), 3000);
-    const url = 'https://api.open-meteo.com/v1/forecast?latitude=39.93&longitude=32.86&current=temperature_2m,weather_code,is_day&_=' + Date.now();
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=39.93&longitude=32.86&current=temperature_2m,weather_code,is_day,snowfall,rain,showers,precipitation&_=' + Date.now();
     fetch(url, { cache: 'no-store', signal: ac ? ac.signal : undefined })
       .then((r) => r.ok ? r.json() : null)
       .then((j) => {
         clearTimeout(to); if (!j || !j.current) return;
-        const w = { code: j.current.weather_code, temp: Math.round(j.current.temperature_2m), day: j.current.is_day, t: Date.now() };
+        const c = j.current;
+        const w = { code: c.weather_code, temp: Math.round(c.temperature_2m), day: c.is_day, snow: c.snowfall, rain: c.rain, showers: c.showers, precip: c.precipitation, t: Date.now() };
         try { localStorage.setItem(HK, JSON.stringify(w)); } catch (e) {}
         if (!el.dataset.out) apply(w);          // açılış hâlâ açıksa canlı uygula (taze veri eskisinin üzerine yazar)
       })
