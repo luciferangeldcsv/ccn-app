@@ -130,7 +130,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
     el.classList.add('out'); document.body.classList.remove('intro-run'); document.body.classList.add('intro-done'); applyTheme();
     setTimeout(() => { el.remove(); document.body.classList.remove('intro-done'); setTimeout(() => checkForUpdate(false), 300); }, 560);
   };
-  setTimeout(done, reduce ? 450 : 2500);
+  setTimeout(done, reduce ? 450 : 3000);
   el.addEventListener('click', done);
 })();
 ['online', 'offline'].forEach((ev) => window.addEventListener(ev, () => { if (ui.view === 'ayarlar' && !$overlay.innerHTML) render(); }));

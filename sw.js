@@ -1,7 +1,7 @@
 // CCN Vardiya — çevrimdışı açılış ve "ana ekrana ekle" için hizmet çalışanı.
 // Uygulama kabuğu (sayfa, kod, yazı tipleri, ikonlar) önce ağdan istenir; ağ yoksa son kopya kullanılır.
 // api.php hiç önbelleğe alınmaz (oturuma özel veri): çevrimdışıyken son liste uygulamanın kendi kaydından gösterilir.
-const CACHE = 'ccn-kabuk-d120ce06a6';
+const CACHE = 'ccn-kabuk-ce4e3babf5';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
