@@ -135,9 +135,9 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
   el.addEventListener('click', done);
 
   const cv = document.getElementById('intro-canvas');
-  const flash = document.getElementById('intro-flash');
   const ctx = cv && cv.getContext && cv.getContext('2d');
-  if (reduce || !ctx) { el.classList.add('struck', 'lit'); setTimeout(done, reduce ? 450 : 2400); return; }
+  const chip = document.getElementById('intro-weather');
+  if (reduce || !ctx) { setTimeout(done, reduce ? 450 : 2400); return; }
 
   let W = 0, H = 0, DPR = 1;
   const resize = () => {
@@ -150,87 +150,107 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
   resize();
   window.addEventListener('resize', resize);
 
-  // Fraktal yıldırım: orta nokta sapması + rastgele dallar
-  const makeBolt = (x1, y1, x2, y2, disp, branch) => {
-    const segs = [];
-    const divide = (ax, ay, bx, by, d, gen) => {
-      if (d < 4.5 || gen > 9) { segs.push([ax, ay, bx, by, gen]); return; }
-      let mx = (ax + bx) / 2, my = (ay + by) / 2;
-      const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
-      const off = (Math.random() - 0.5) * d;
-      mx += (-dy / len) * off; my += (dx / len) * off;
-      divide(ax, ay, mx, my, d / 2, gen);
-      divide(mx, my, bx, by, d / 2, gen);
-      if (branch && d > 16 && Math.random() < 0.55) {
-        const ang = Math.atan2(my - ay, mx - ax) + (Math.random() - 0.5) * 1.3;
-        const bl = d * (1.3 + Math.random() * 1.4);
-        divide(mx, my, mx + Math.cos(ang) * bl, my + Math.sin(ang) * bl, d / 2.1, gen + 2);
-      }
-    };
-    divide(x1, y1, x2, y2, disp, 0);
-    return segs;
+  // ---- Ankara hava durumuna göre açılış efekti (yağmur / kar / bulut / sis / yıldız) ----
+  // WMO hava kodu → efekt modu + yoğunluk
+  const modeFor = (code) => {
+    if (code == null) return ['clear', 1];
+    if ([51, 53, 55, 56, 57].includes(code)) return ['rain', 0.6];      // çisenti
+    if ([61, 80].includes(code)) return ['rain', 0.95];                  // hafif yağmur
+    if ([63, 81].includes(code)) return ['rain', 1.25];                  // yağmur
+    if ([65, 82, 66, 67].includes(code)) return ['rain', 1.7];          // kuvvetli / dondurucu
+    if ([95, 96, 99].includes(code)) return ['rain', 1.9];             // fırtına → şiddetli yağmur
+    if ([71, 85].includes(code)) return ['snow', 0.8];                  // hafif kar
+    if ([73, 86].includes(code)) return ['snow', 1.2];                  // kar
+    if ([75, 77].includes(code)) return ['snow', 1.7];                  // yoğun kar
+    if ([45, 48].includes(code)) return ['fog', 1];                     // sis
+    if ([3].includes(code)) return ['clouds', 1.2];                     // kapalı
+    if ([1, 2].includes(code)) return ['clouds', 0.7];                  // az/parçalı bulut
+    return ['clear', 1];                                                 // açık
   };
-  const drawBolt = (segs, a) => {
-    if (a <= 0) return;
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    const passes = [[14, 0.05], [6.5, 0.14], [2.8, 0.45], [1.1, 1]];
-    for (let i = 0; i < passes.length; i++) {
-      const w = passes[i][0], pa = passes[i][1] * a;
-      ctx.beginPath();
-      for (let j = 0; j < segs.length; j++) { const s = segs[j]; ctx.moveTo(s[0], s[1]); ctx.lineTo(s[2], s[3]); }
-      ctx.lineWidth = w; ctx.strokeStyle = 'rgba(255,255,255,' + Math.min(1, pa) + ')';
-      ctx.shadowColor = 'rgba(255,255,255,' + Math.min(1, 0.85 * pa) + ')'; ctx.shadowBlur = w * 3.4;
-      ctx.stroke();
-    }
-    ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'source-over';
+  const labelFor = (code) => {
+    if (code == null) return '';
+    if (code === 0) return 'Açık';
+    if ([1, 2].includes(code)) return 'Az Bulutlu';
+    if (code === 3) return 'Bulutlu';
+    if ([45, 48].includes(code)) return 'Sisli';
+    if ([51, 53, 55, 56, 57].includes(code)) return 'Çiseliyor';
+    if ([61, 63, 65, 80, 81, 82].includes(code)) return 'Yağmurlu';
+    if ([66, 67].includes(code)) return 'Dondurucu Yağmur';
+    if ([71, 73, 75, 77, 85, 86].includes(code)) return 'Karlı';
+    if ([95, 96, 99].includes(code)) return 'Fırtınalı';
+    return '';
   };
 
-  // Hedef: "VARDİYA LİSTESİ" yazısının üstü
-  const target = () => {
-    const vl = el.querySelector('.intro-vl'); const er = el.getBoundingClientRect();
-    if (!vl) return { x: W / 2, y: H * 0.42 };
-    const r = vl.getBoundingClientRect();
-    return { x: r.left - er.left + r.width / 2, y: r.top - er.top + 6 };
+  let mode = 'clear', intensity = 1, isDay = 1;
+  let parts = [];
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const spawn = (init) => {
+    if (mode === 'rain') return { x: rnd(-40, W), y: init ? rnd(0, H) : rnd(-40, -4), v: rnd(8, 15) * (0.7 + intensity * 0.3), len: rnd(12, 22) * (0.8 + intensity * 0.3), w: rnd(0.5, 1.4) };
+    if (mode === 'snow') return { x: rnd(0, W), y: init ? rnd(0, H) : rnd(-12, -2), v: rnd(0.5, 1.6), r: rnd(1, 3.2), ph: rnd(0, 6.283), ds: rnd(0.3, 0.9) };
+    if (mode === 'clouds' || mode === 'fog') return { x: rnd(-120, W), y: mode === 'fog' ? rnd(H * 0.2, H) : rnd(0, H * 0.62), r: rnd(70, 180), v: rnd(0.1, 0.35), a: rnd(0.03, 0.08) };
+    if (!isDay) return { x: rnd(0, W), y: rnd(0, H * 0.75), r: rnd(0.3, 1.7), ph: rnd(0, 6.283), ts: rnd(0.015, 0.05) }; // yıldız
+    return { x: rnd(0, W), y: rnd(0, H), r: rnd(0.3, 1.5), v: rnd(0.15, 0.45), ph: rnd(0, 6.283), ds: rnd(0.2, 0.5) };   // toz zerresi
   };
-  const strikes = [];
-  const build = () => {
-    const tg = target();
-    const disp = Math.min(W, 460) * 0.52;
-    const seq = [
-      { at: 110, dur: 150, power: 0.35, branch: false },
-      { at: 240, dur: 150, power: 0.3, branch: false },
-      { at: 560, dur: 440, power: 1, branch: true, main: true },
-      { at: 700, dur: 200, power: 0.5, branch: true },
-      { at: 850, dur: 230, power: 0.8, branch: true },
-      { at: 1050, dur: 170, power: 0.4, branch: false }
-    ];
-    for (const s of seq) {
-      const sx = W * (0.5 + (Math.random() - 0.5) * 0.16);
-      strikes.push({ t0: s.at, dur: s.dur, power: s.power, main: !!s.main, fired: false,
-        segs: makeBolt(sx, -24, tg.x + (Math.random() - 0.5) * 44, tg.y, disp, s.branch) });
+  const rebuild = () => {
+    const base = { rain: 170, snow: 95, clouds: 7, fog: 8, clear: isDay ? 24 : 70 }[mode] || 30;
+    const n = Math.max(6, Math.round(base * (mode === 'rain' || mode === 'snow' ? intensity : 1)));
+    parts = []; for (let i = 0; i < n; i++) parts.push(spawn(true));
+  };
+  const apply = (w) => {
+    const m = modeFor(w ? w.code : null); mode = m[0]; intensity = m[1]; isDay = w ? (w.day ? 1 : 0) : 1;
+    rebuild();
+    if (chip && w) { const lab = labelFor(w.code); chip.textContent = 'ANKARA · ' + (lab ? lab + ' · ' : '') + (w.temp != null ? w.temp + '°' : ''); el.classList.add('hava'); }
+  };
+
+  // önbellekten anında başla; yoksa sakin "açık" ile başla
+  const HK = 'ccn_hava';
+  let cached = null; try { cached = JSON.parse(localStorage.getItem(HK) || 'null'); } catch (e) { cached = null; }
+  if (cached && (Date.now() - cached.t < 30 * 60000)) apply(cached); else apply(null);
+
+  // güncel Ankara hava durumunu çek (API anahtarı yok; sabit koordinat, kişisel konum değil)
+  (function fetchHava() {
+    if (!navigator.onLine || typeof fetch !== 'function') return;
+    const ac = ('AbortController' in window) ? new AbortController() : null;
+    const to = setTimeout(() => ac && ac.abort(), 2500);
+    fetch('https://api.open-meteo.com/v1/forecast?latitude=39.93&longitude=32.86&current=temperature_2m,weather_code,is_day', ac ? { signal: ac.signal } : undefined)
+      .then((r) => r.ok ? r.json() : null)
+      .then((j) => {
+        clearTimeout(to); if (!j || !j.current) return;
+        const w = { code: j.current.weather_code, temp: Math.round(j.current.temperature_2m), day: j.current.is_day, t: Date.now() };
+        try { localStorage.setItem(HK, JSON.stringify(w)); } catch (e) {}
+        if (!el.dataset.out) apply(w);          // açılış hâlâ açıksa canlı uygula
+      })
+      .catch(() => { clearTimeout(to); });
+  })();
+
+  const drawPart = (p) => {
+    if (mode === 'rain') {
+      ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = p.w; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.len * 0.18, p.y + p.len); ctx.stroke();
+      p.y += p.v; p.x -= p.v * 0.16; if (p.y > H + 24) Object.assign(p, spawn(false));
+    } else if (mode === 'snow') {
+      ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
+      p.ph += 0.02; p.y += p.v; p.x += Math.sin(p.ph) * p.ds; if (p.y > H + 10) Object.assign(p, spawn(false));
+    } else if (mode === 'clouds' || mode === 'fog') {
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+      g.addColorStop(0, 'rgba(255,255,255,' + p.a + ')'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
+      p.x += p.v; if (p.x - p.r > W) { p.x = -p.r; }
+    } else if (!isDay) { // yıldız
+      p.ph += p.ts; const a = 0.25 + Math.abs(Math.sin(p.ph)) * 0.6;
+      ctx.fillStyle = 'rgba(255,255,255,' + a + ')'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
+    } else { // toz zerresi
+      ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
+      p.ph += 0.01; p.y -= p.v * 0.3; p.x += Math.sin(p.ph) * p.ds; if (p.y < -6) { p.y = H + 6; p.x = rnd(0, W); }
     }
   };
-  build();
-
-  const T0 = performance.now();
-  const frame = (now) => {
-    const t = now - T0;
+  const frame = () => {
     ctx.clearRect(0, 0, W, H);
-    let flashA = 0;
-    for (const s of strikes) {
-      const dt = t - s.t0;
-      if (dt < 0 || dt > s.dur) continue;
-      const fl = Math.random() > 0.22 ? 1 : 0.35;        // titreme
-      drawBolt(s.segs, s.power * (1 - dt / s.dur) * fl);
-      if (s.main) {
-        if (dt < 170) flashA = Math.max(flashA, (1 - dt / 170) * 0.92);
-        if (!s.fired) { s.fired = true; el.classList.add('struck'); setTimeout(() => el.classList.add('lit'), 340); }
-      }
-    }
-    if (flash) flash.style.opacity = flashA ? String(flashA) : '0';
-    if (t < 1360) { raf = requestAnimationFrame(frame); }
-    else { ctx.clearRect(0, 0, W, H); if (flash) flash.style.opacity = '0'; el.classList.add('struck', 'lit'); raf = 0; }
+    const glow = (mode === 'snow' || mode === 'clouds' || mode === 'fog' || mode === 'clear');
+    ctx.globalCompositeOperation = glow ? 'lighter' : 'source-over';
+    for (let i = 0; i < parts.length; i++) drawPart(parts[i]);
+    ctx.globalCompositeOperation = 'source-over';
+    raf = requestAnimationFrame(frame);
   };
   raf = requestAnimationFrame(frame);
   setTimeout(done, 3000);
