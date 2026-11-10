@@ -134,6 +134,22 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
   };
   el.addEventListener('click', done);
 
+  // Özel gün: 10 Kasım — Atatürk'ü saygıyla anma (siyah-beyaz, hava efekti yok)
+  const _td = new Date();
+  if (_td.getMonth() === 10 && _td.getDate() === 10) {
+    el.classList.add('anma');
+    const stage = el.querySelector('.intro-stage');
+    if (stage) stage.innerHTML = '<div class="anma-wrap">'
+      + '<div class="anma-dates">1881 — 1938</div>'
+      + '<div class="anma-name">ATATÜRK</div>'
+      + '<div class="anma-line"></div>'
+      + '<div class="anma-sub">10 Kasım · Saygı, sevgi ve özlemle anıyoruz</div>'
+      + '</div>';
+    const _cv = document.getElementById('intro-canvas'); if (_cv) _cv.style.display = 'none';
+    setTimeout(done, reduce ? 700 : 5400);
+    return;
+  }
+
   const cv = document.getElementById('intro-canvas');
   const ctx = cv && cv.getContext && cv.getContext('2d');
   const chip = document.getElementById('intro-weather');
@@ -196,22 +212,21 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
     const n = Math.max(6, Math.round(base * (mode === 'rain' || mode === 'snow' ? intensity : 1)));
     parts = []; for (let i = 0; i < n; i++) parts.push(spawn(true));
   };
-  // Ölçülen kar/yağmur miktarı + sıcaklık, hava koduna göre önceliklidir (kod geç kalsa da doğru efekt)
-  const decide = (w) => {
-    if (!w) return ['clear', 1];
+  const winter = [10, 11, 0, 1].includes(new Date().getMonth()); // Kasım–Şubat: kış mevsimi
+  // Gerçek hava: ölçülen kar/yağmur + sıcaklık, hava koduna göre önceliklidir → [efektModu, etiket, yoğunluk]
+  const realCond = (w) => {
+    if (!w) return ['clear', '', 1];
     const snow = +w.snow || 0, rain = +w.rain || 0, shw = +w.showers || 0, pr = +w.precip || 0, t = w.temp;
-    if (snow > 0) return ['snow', snow >= 1 ? 1.7 : snow >= 0.3 ? 1.2 : 0.8];                     // ölçülen kar → kesin KAR
-    if ((rain > 0 || shw > 0 || pr > 0) && t != null && t <= 1) return ['snow', 1.2];              // donma civarı yağış → kar
-    const wet = rain + shw; if (wet > 0) return ['rain', wet >= 2 ? 1.7 : wet >= 0.5 ? 1.2 : 0.8]; // ölçülen yağmur
-    return modeFor(w.code);                                                                         // ölçüm yoksa koda göre
+    if (snow > 0 || ((rain > 0 || shw > 0 || pr > 0) && t != null && t <= 1)) return ['snow', 'Karlı', snow >= 1 ? 1.7 : 1.2]; // ölçülen/donma karı → KAR
+    const wet = rain + shw; if (wet > 0) return ['rain', 'Yağmurlu', wet >= 2 ? 1.7 : wet >= 0.5 ? 1.2 : 0.8];                 // ölçülen yağmur
+    const m = modeFor(w.code); return [m[0], labelFor(w.code), m[1]];                                                          // ölçüm yoksa koda göre
   };
   const apply = (w) => {
-    const m = decide(w); mode = m[0]; intensity = m[1]; isDay = w ? (w.day ? 1 : 0) : 1;
+    const rc = realCond(w); let effMode = rc[0], effInt = rc[2];
+    if (winter && effMode === 'clear') { effMode = 'snow'; effInt = 0.4; } // kış ambiyansı: açık havada hafif kar (etiket gerçek durumu gösterir)
+    mode = effMode; intensity = effInt; isDay = w ? (w.day ? 1 : 0) : 1;
     rebuild();
-    if (chip && w) {
-      const lab = mode === 'snow' ? 'Karlı' : mode === 'rain' ? 'Yağmurlu' : labelFor(w.code);
-      chip.textContent = 'ANKARA · ' + (lab ? lab + ' · ' : '') + (w.temp != null ? w.temp + '°' : ''); el.classList.add('hava');
-    }
+    if (chip && w) { chip.textContent = 'ANKARA · ' + (rc[1] ? rc[1] + ' · ' : '') + (w.temp != null ? w.temp + '°' : ''); el.classList.add('hava'); }
   };
 
   // önbellekten anında başla; yoksa sakin "açık" ile başla
