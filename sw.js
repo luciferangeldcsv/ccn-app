@@ -2,7 +2,7 @@
 // Uygulama kabuğu (sayfa, kod, yazı tipleri, ikonlar) önce ağdan istenir; ağ yoksa son kopya kullanılır.
 // api.php hiç önbelleğe alınmaz (oturuma özel veri): çevrimdışıyken son liste uygulamanın kendi kaydından gösterilir.
 const CACHE = 'ccn-kabuk-b98c917426';
-const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
+const SHELL = ['./', './index.html', './manifest.json', './icon-192.png?v=3', './icon-512.png?v=3', './apple-touch-icon.png?v=3'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
@@ -51,7 +51,7 @@ self.addEventListener('fetch', (e) => {
 self.addEventListener('push', (e) => {
   let m = {}; try { m = e.data ? e.data.json() : {}; } catch (err) { m = { metin: e.data ? e.data.text() : '' }; }
   if (m.rozet && self.navigator && self.navigator.setAppBadge) self.navigator.setAppBadge().catch(() => {});
-  e.waitUntil(self.registration.showNotification(m.baslik || 'Vardiya Listesi', { body: m.metin || '', icon: './icon-192.png', badge: './icon-192.png', tag: m.etiket || undefined, data: { url: m.url || './' } }));
+  e.waitUntil(self.registration.showNotification(m.baslik || 'Vardiya Listesi', { body: m.metin || '', icon: './icon-192.png?v=3', badge: './icon-192.png?v=3', tag: m.etiket || undefined, data: { url: m.url || './' } }));
 });
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
