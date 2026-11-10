@@ -134,19 +134,19 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
   };
   el.addEventListener('click', done);
 
-  // Özel gün: 10 Kasım — Atatürk'ü saygıyla anma (siyah-beyaz, hava efekti yok)
+  // Özel gün: 10 Kasım — önce VARDİYA LİSTESİ, sonra alta iner; ATATÜRK alttan üste süzülüp kaybolur, sonra uygulama açılır
   const _td = new Date();
   if (_td.getMonth() === 10 && _td.getDate() === 10) {
     el.classList.add('anma');
-    const stage = el.querySelector('.intro-stage');
-    if (stage) stage.innerHTML = '<div class="anma-wrap">'
-      + '<div class="anma-dates">1881 — 1938</div>'
+    const rise = document.createElement('div');
+    rise.className = 'anma-rise';
+    rise.innerHTML = '<div class="anma-dates">1881 — 1938</div>'
       + '<div class="anma-name">ATATÜRK</div>'
       + '<div class="anma-line"></div>'
-      + '<div class="anma-sub">10 Kasım · Saygı, sevgi ve özlemle anıyoruz</div>'
-      + '</div>';
+      + '<div class="anma-sub">10 Kasım · Saygı, sevgi ve özlemle anıyoruz</div>';
+    el.appendChild(rise);
     const _cv = document.getElementById('intro-canvas'); if (_cv) _cv.style.display = 'none';
-    setTimeout(done, reduce ? 700 : 5400);
+    setTimeout(done, reduce ? 800 : 6200);
     return;
   }
 
