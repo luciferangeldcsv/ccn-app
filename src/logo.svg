@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Vardiya Listesi">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17181c"/>
+      <stop offset="0.55" stop-color="#0c0c0e"/>
+      <stop offset="1" stop-color="#050506"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.5" cy="0.26" r="0.72">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.11"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="116" fill="url(#sheen)"/>
+  <rect x="3" y="3" width="506" height="506" rx="114" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="2"/>
+  <g fill="#ffffff">
+    <g opacity="1">
+      <circle cx="176" cy="176" r="19"/>
+      <rect x="214" y="161" width="150" height="30" rx="15"/>
+    </g>
+    <g opacity="0.8">
+      <circle cx="176" cy="256" r="19"/>
+      <rect x="214" y="241" width="126" height="30" rx="15"/>
+    </g>
+    <g opacity="0.6">
+      <circle cx="176" cy="336" r="19"/>
+      <rect x="214" y="321" width="100" height="30" rx="15"/>
+    </g>
+  </g>
+</svg>

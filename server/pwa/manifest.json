@@ -1,7 +1,7 @@
 {
-  "name": "CCN Vardiya",
-  "short_name": "CCN Vardiya",
-  "description": "CCN Vardiya Programı: vardiya listesi, görevler ve duyurular",
+  "name": "Vardiya Listesi",
+  "short_name": "Vardiya Listesi",
+  "description": "Vardiya Listesi: vardiya listesi, görevler ve duyurular",
   "lang": "tr",
   "id": "/",
   "start_url": "/",

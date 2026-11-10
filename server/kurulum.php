@@ -35,9 +35,9 @@ if (!$hasAdmin && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
   }
 }
 $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
-?><!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CCN Vardiya · Kurulum</title>
+?><!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vardiya Listesi · Kurulum</title>
 <style>body{font:16px/1.5 system-ui,sans-serif;background:#eef2f5;color:#1b2430;margin:0;padding:24px 16px}main{max-width:440px;margin:auto;background:#fff;border-radius:14px;padding:22px;box-shadow:0 2px 10px #0001}h1{font-size:22px;margin:0 0 6px}label{display:block;margin:12px 0 4px;font-weight:600;font-size:14px}input{width:100%;box-sizing:border-box;padding:11px;border:1px solid #c5ced8;border-radius:10px;font:inherit}button{margin-top:18px;width:100%;padding:12px;border:0;border-radius:10px;background:#1f5f8b;color:#fff;font:600 16px system-ui}.m{padding:10px 12px;border-radius:10px;background:#fde8e8;color:#9b1c1c;margin-top:12px}.ok{background:#e3f6e8;color:#14532d}p{color:#55606d;font-size:14px}</style></head><body><main>
-<h1>CCN Vardiya · İlk kurulum</h1>
+<h1>Vardiya Listesi · İlk kurulum</h1>
 <?php if ($done): ?>
   <div class="m ok"><b>Yönetici hesabı oluşturuldu.</b> Artık <a href="./">ana sayfadan</a> Personel ID ve şifrenizle giriş yapabilirsiniz. Bu sayfa bir daha çalışmaz.</div>
 <?php elseif ($hasAdmin): ?>

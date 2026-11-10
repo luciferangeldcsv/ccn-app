@@ -1,4 +1,4 @@
-// CCN DEV paneli — çevrimdışı açılış ve ana ekrana ekleme. api.php kapsam dışında (hep ağdan gelir).
+// Vardiya Listesi · DEV paneli — çevrimdışı açılış ve ana ekrana ekleme. api.php kapsam dışında (hep ağdan gelir).
 const CACHE = 'ccn-dev-1';
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest']).catch(() => {})).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil((async () => { for (const k of await caches.keys()) if (k !== CACHE && k.startsWith('ccn-dev-')) await caches.delete(k); await self.clients.claim(); })()); });

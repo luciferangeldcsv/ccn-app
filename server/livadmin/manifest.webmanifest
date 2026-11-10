@@ -1,7 +1,7 @@
 {
-  "name": "CCN DEV Paneli",
-  "short_name": "CCN DEV",
-  "description": "CCN Vardiya yönetici (DEV) paneli",
+  "name": "Vardiya Listesi · DEV Paneli",
+  "short_name": "Vardiya Listesi · DEV",
+  "description": "Vardiya Listesi yönetici (DEV) paneli",
   "lang": "tr",
   "id": "/livadmin/",
   "start_url": "./",
