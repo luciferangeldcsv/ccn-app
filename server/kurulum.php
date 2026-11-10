@@ -18,18 +18,15 @@ $msg = ''; $done = false;
 if (!$hasAdmin && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
   $key = (string)($_POST['anahtar'] ?? '');
   $name = clean_name((string)($_POST['ad'] ?? ''));
-  $sicil = clean_sicil((string)($_POST['sicil'] ?? ''));
-  $tc = ''; // TC artık kullanılmıyor
   $tel = norm_phone((string)($_POST['telefon'] ?? ''));
   $pin = (string)($_POST['pin'] ?? '');
   $setup = (string)(cfg()['setup_key'] ?? '');
   if (strlen($setup) < 12 || !hash_equals($setup, $key)) { $msg = 'Kurulum anahtarı yanlış.'; sleep(2); }
-  elseif ($name === '' || $tel === '' || $sicil === '') $msg = 'Ad soyad, Personel ID ve telefon gerekli.';
-  elseif ($tc !== '' && !valid_tc($tc)) $msg = 'TC kimlik numarası geçersiz.';
+  elseif ($name === '' || $tel === '') $msg = 'Ad soyad ve telefon gerekli.';
   elseif (mb_strlen($pin) < 7 || !preg_match('/\p{Lu}/u', $pin) || !preg_match('/\p{Ll}/u', $pin) || !preg_match('/\d/', $pin)) $msg = 'Şifre en az 7 karakter olmalı; en az bir büyük harf, bir küçük harf ve bir rakam içermeli.';
   else {
-    db()->prepare("INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, pin_hash, created_at) VALUES (?,?,?,?,?,?,'admin','dev',?,?)")
-      ->execute([$name, $sicil !== '' ? $sicil : null, $tc !== '' ? hmac('tc:' . $tc) : null, $tc !== '' ? substr($tc, -2) : null, hmac('tel:' . $tel), substr($tel, -4), password_hash($pin, PASSWORD_DEFAULT), now()]);
+    db()->prepare("INSERT INTO personnel (name, tc_hash, tc_last2, phone_hash, phone_last4, role, title, pin_hash, created_at) VALUES (?,?,?,?,?,'admin','dev',?,?)")
+      ->execute([$name, null, null, hmac('tel:' . $tel), substr($tel, -4), password_hash($pin, PASSWORD_DEFAULT), now()]);
     audit(['id' => (int)db()->lastInsertId(), 'name' => $name], 'kurulum', 'ilk yönetici');
     $done = true;
   }
@@ -39,7 +36,7 @@ $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 <style>body{font:16px/1.5 system-ui,sans-serif;background:#eef2f5;color:#1b2430;margin:0;padding:24px 16px}main{max-width:440px;margin:auto;background:#fff;border-radius:14px;padding:22px;box-shadow:0 2px 10px #0001}h1{font-size:22px;margin:0 0 6px}label{display:block;margin:12px 0 4px;font-weight:600;font-size:14px}input{width:100%;box-sizing:border-box;padding:11px;border:1px solid #c5ced8;border-radius:10px;font:inherit}button{margin-top:18px;width:100%;padding:12px;border:0;border-radius:10px;background:#1f5f8b;color:#fff;font:600 16px system-ui}.m{padding:10px 12px;border-radius:10px;background:#fde8e8;color:#9b1c1c;margin-top:12px}.ok{background:#e3f6e8;color:#14532d}p{color:#55606d;font-size:14px}</style></head><body><main>
 <h1>Vardiya Listesi · İlk kurulum</h1>
 <?php if ($done): ?>
-  <div class="m ok"><b>Yönetici hesabı oluşturuldu.</b> Artık <a href="./">ana sayfadan</a> Personel ID ve şifrenizle giriş yapabilirsiniz. Bu sayfa bir daha çalışmaz.</div>
+  <div class="m ok"><b>Yönetici hesabı oluşturuldu.</b> Artık <a href="./">ana sayfadan</a> ad soyad ve şifrenizle giriş yapabilirsiniz. Bu sayfa bir daha çalışmaz.</div>
 <?php elseif ($hasAdmin): ?>
   <p>Kurulum tamamlanmış. Giriş için <a href="./">ana sayfaya</a> gidin.</p>
 <?php else: ?>
@@ -48,7 +45,6 @@ $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
   <form method="post" autocomplete="off">
     <label>Kurulum anahtarı<input name="anahtar" required></label>
     <label>Ad soyad<input name="ad" required value="<?= $e($_POST['ad'] ?? '') ?>"></label>
-    <label>Personel ID<input name="sicil" value="<?= $e($_POST['sicil'] ?? '') ?>"></label>
     <label>Telefon<input name="telefon" required inputmode="tel" placeholder="05xx xxx xx xx" value="<?= $e($_POST['telefon'] ?? '') ?>"></label>
     <label>Şifre (en az 7 karakter; büyük harf, küçük harf ve rakam)<input name="pin" required maxlength="64" type="password" autocomplete="new-password"></label>
     <button>Yönetici hesabını oluştur</button>

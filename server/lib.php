@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 18;
+const SCHEMA_V = 19;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -60,7 +60,6 @@ function migrate(PDO $pdo): void {
   $pdo->exec("CREATE TABLE IF NOT EXISTS personnel (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(120) NOT NULL,
-    sicil VARCHAR(32) NULL UNIQUE,
     tc_hash CHAR(64) NULL UNIQUE,
     tc_last2 CHAR(2) NULL,
     phone_hash CHAR(64) NOT NULL,
@@ -152,8 +151,8 @@ function upgrades(PDO $pdo): void {
     $pdo->exec("CREATE TABLE IF NOT EXISTS daily_stats (day DATE NOT NULL, k VARCHAR(30) NOT NULL, n INT NOT NULL DEFAULT 0, PRIMARY KEY (day, k)) $T");
     // 7 → 8: TC kimlik numarası artık kullanılmıyor; kayıtlı TC verileri silinir
     $pdo->exec('UPDATE personnel SET tc_hash = NULL, tc_last2 = NULL WHERE tc_hash IS NOT NULL OR tc_last2 IS NOT NULL');
-    // 17 → 18: Personel ID (sicil) tamamen kaldırıldı; giriş Ad Soyad + şifre ile. Kayıtlı tüm Personel ID değerleri silinir.
-    $pdo->exec('UPDATE personnel SET sicil = NULL WHERE sicil IS NOT NULL');
+    // 17 → 19: Personel ID (sicil) tamamen kaldırıldı; kolon ve geçmişteki tüm değerler silinir. Giriş yalnızca Ad Soyad + şifre.
+    if ($pdo->query("SHOW COLUMNS FROM personnel LIKE 'sicil'")->fetch()) $pdo->exec('ALTER TABLE personnel DROP COLUMN sicil');
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
@@ -318,7 +317,7 @@ function current_user(bool $required = true): ?array {
   if ($u !== false) return $u ?: ($required ? fail(401, 'Oturum geçersiz.', ['cikis' => true]) : null);
   $u = null; $t = token_in();
   if ($t) {
-    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.prefs, p.sicil, p.banned FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
+    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.prefs, p.banned FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
     $st->execute([hash('sha256', $t)]);
     $r = $st->fetch();
     if ($r && $r['banned']) { db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$r['id']]); $r = null; } // askıya alınan hesap düşer
@@ -326,7 +325,7 @@ function current_user(bool $required = true): ?array {
       // "beni hatırla" oturumu kullanıldıkça uzar; diğeri 12 saatte biter
       $exp = $r['remember'] ? gmdate('Y-m-d H:i:s', time() + 180 * 86400) : $r['expires_at'];
       db()->prepare('UPDATE sessions SET last_seen = ?, expires_at = ? WHERE id = ?')->execute([now(), $exp, $r['sid']]);
-      $u = ['id' => (int)$r['id'], 'name' => $r['name'], 'role' => $r['role'], 'title' => $r['title'] ?: ($r['role'] === 'admin' ? 'yonetici' : 'personel'), 'prefs' => $r['prefs'], 'sicil' => $r['sicil'], 'sid' => (int)$r['sid']];
+      $u = ['id' => (int)$r['id'], 'name' => $r['name'], 'role' => $r['role'], 'title' => $r['title'] ?: ($r['role'] === 'admin' ? 'yonetici' : 'personel'), 'prefs' => $r['prefs'], 'sid' => (int)$r['sid']];
     } elseif ($r) {
       db()->prepare('DELETE FROM sessions WHERE id = ?')->execute([$r['sid']]);
     }
@@ -346,24 +345,15 @@ function new_session(int $pid, bool $remember): string {
   return $t;
 }
 
-// Kişiyi Personel ID ile bul (TC artık kullanılmıyor)
-function find_person(string $kimlik): ?array {
-  $k = clean_sicil(trim($kimlik)); if ($k === '') return null;
-  $st = db()->prepare('SELECT * FROM personnel WHERE sicil = ?'); $st->execute([$k]);
-  return $st->fetch() ?: null;
-}
 // Ad/soyad eşleştirme için sadeleştirme: Türkçe büyük/küçük ve aksan duyarsız, boşluk sadeleştirilir
 function fold_name(string $s): string {
   $map = ['İ' => 'i', 'I' => 'i', 'ı' => 'i', 'Ş' => 's', 'ş' => 's', 'Ğ' => 'g', 'ğ' => 'g', 'Ü' => 'u', 'ü' => 'u', 'Ö' => 'o', 'ö' => 'o', 'Ç' => 'c', 'ç' => 'c', 'Â' => 'a', 'â' => 'a', 'Î' => 'i', 'î' => 'i', 'Û' => 'u', 'û' => 'u'];
   $s = mb_strtolower(strtr(trim($s), $map), 'UTF-8');
   return trim(preg_replace('/\s+/u', ' ', $s) ?? '');
 }
-// Kişiyi Personel ID (sicil) ya da Ad Soyad ile bul. Ad çakışırsa birden fazla dönebilir (şifreyle ayrılır).
+// Kişiyi YALNIZCA Ad Soyad ile bul (Personel ID kaldırıldı). Ad çakışırsa birden fazla dönebilir (şifreyle ayrılır).
 function find_people(string $kimlik): array {
-  $k = trim($kimlik); if ($k === '') return [];
-  $s = clean_sicil($k);
-  if ($s !== '') { $st = db()->prepare('SELECT * FROM personnel WHERE sicil = ?'); $st->execute([$s]); $p = $st->fetch(); if ($p) return [$p]; }
-  $f = fold_name($k); if ($f === '') return [];
+  $f = fold_name($kimlik); if ($f === '') return [];
   $out = [];
   foreach (db()->query('SELECT * FROM personnel')->fetchAll() as $p) if (fold_name((string)$p['name']) === $f) $out[] = $p;
   return $out;
