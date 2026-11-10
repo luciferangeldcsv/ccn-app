@@ -205,20 +205,22 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
   // önbellekten anında başla; yoksa sakin "açık" ile başla
   const HK = 'ccn_hava';
   let cached = null; try { cached = JSON.parse(localStorage.getItem(HK) || 'null'); } catch (e) { cached = null; }
-  if (cached && (Date.now() - cached.t < 10 * 60000)) apply(cached); else apply(null);
+  // yalnızca çok taze önbelleği (≤2 dk) anında göster; değilse sakin başla ve canlı veriyi bekle
+  if (cached && (Date.now() - cached.t < 2 * 60000)) apply(cached); else apply(null);
 
-  // güncel Ankara hava durumunu çek (API anahtarı yok; sabit koordinat, kişisel konum değil)
+  // güncel Ankara hava durumunu çek — her seferinde TAZE (tarayıcı/CDN önbelleği baypas edilir)
   (function fetchHava() {
     if (!navigator.onLine || typeof fetch !== 'function') return;
     const ac = ('AbortController' in window) ? new AbortController() : null;
-    const to = setTimeout(() => ac && ac.abort(), 2500);
-    fetch('https://api.open-meteo.com/v1/forecast?latitude=39.93&longitude=32.86&current=temperature_2m,weather_code,is_day', ac ? { signal: ac.signal } : undefined)
+    const to = setTimeout(() => ac && ac.abort(), 3000);
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=39.93&longitude=32.86&current=temperature_2m,weather_code,is_day&_=' + Date.now();
+    fetch(url, { cache: 'no-store', signal: ac ? ac.signal : undefined })
       .then((r) => r.ok ? r.json() : null)
       .then((j) => {
         clearTimeout(to); if (!j || !j.current) return;
         const w = { code: j.current.weather_code, temp: Math.round(j.current.temperature_2m), day: j.current.is_day, t: Date.now() };
         try { localStorage.setItem(HK, JSON.stringify(w)); } catch (e) {}
-        if (!el.dataset.out) apply(w);          // açılış hâlâ açıksa canlı uygula
+        if (!el.dataset.out) apply(w);          // açılış hâlâ açıksa canlı uygula (taze veri eskisinin üzerine yazar)
       })
       .catch(() => { clearTimeout(to); });
   })();
