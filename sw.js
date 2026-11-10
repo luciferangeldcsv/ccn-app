@@ -1,7 +1,7 @@
 // Vardiya Listesi — çevrimdışı açılış ve "ana ekrana ekle" için hizmet çalışanı.
 // Uygulama kabuğu (sayfa, kod, yazı tipleri, ikonlar) önce ağdan istenir; ağ yoksa son kopya kullanılır.
 // api.php hiç önbelleğe alınmaz (oturuma özel veri): çevrimdışıyken son liste uygulamanın kendi kaydından gösterilir.
-const CACHE = 'ccn-kabuk-0704123a82';
+const CACHE = 'ccn-kabuk-7c65da19f6';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png?v=3', './icon-512.png?v=3', './apple-touch-icon.png?v=3'];
 
 self.addEventListener('install', (e) => {

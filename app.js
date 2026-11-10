@@ -134,10 +134,10 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
   };
   el.addEventListener('click', done);
 
-  // Özel gün: 10 Kasım — önce ATATÜRK belirir, durur, kaybolur; sonra VARDİYA LİSTESİ belirir; sonra uygulama açılır
+  // Özel gün: 10 Kasım — önce NORMAL açılış (yağan kar + VARDİYA LİSTESİ + hava + Powered + sürüm) oynar, SONRA Atatürk anması gelir
   const _td = new Date();
-  if (_td.getMonth() === 10 && _td.getDate() === 10) {
-    el.classList.add('anma');
+  const isAnma = _td.getMonth() === 10 && _td.getDate() === 10;
+  if (isAnma) {
     const an = document.createElement('div');
     an.className = 'anma-center';
     an.innerHTML = '<div class="anma-dates">1881 — 1938</div>'
@@ -145,15 +145,16 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
       + '<div class="anma-line"></div>'
       + '<div class="anma-sub">10 Kasım · Saygı, sevgi ve özlemle anıyoruz</div>';
     el.appendChild(an);
-    const _cv = document.getElementById('intro-canvas'); if (_cv) _cv.style.display = 'none';
-    setTimeout(done, reduce ? 800 : 5000);
-    return;
   }
 
   const cv = document.getElementById('intro-canvas');
   const ctx = cv && cv.getContext && cv.getContext('2d');
   const chip = document.getElementById('intro-weather');
-  if (reduce || !ctx) { setTimeout(done, reduce ? 450 : 2400); return; }
+  if (reduce || !ctx) {
+    if (isAnma) { setTimeout(() => el.classList.add('anma'), 1700); setTimeout(done, 4600); }
+    else setTimeout(done, reduce ? 450 : 2400);
+    return;
+  }
 
   let W = 0, H = 0, DPR = 1;
   const resize = () => {
@@ -284,7 +285,8 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
     raf = requestAnimationFrame(frame);
   };
   raf = requestAnimationFrame(frame);
-  setTimeout(done, 4800);
+  if (isAnma) { setTimeout(() => el.classList.add('anma'), 3200); setTimeout(done, 6400); } // normal açılış sonrası Atatürk anması
+  else setTimeout(done, 4800);
 })();
 ['online', 'offline'].forEach((ev) => window.addEventListener(ev, () => { if (ui.view === 'ayarlar' && !$overlay.innerHTML) render(); }));
 
