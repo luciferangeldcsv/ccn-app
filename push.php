@@ -152,5 +152,5 @@ function check_release(): void {
   $r = release_info(); if (!$r || meta_get('son_surum') === (string)$r['surum']) return;
   meta_set('son_surum', (string)$r['surum']);
   $items = array_slice((array)($r['maddeler'] ?? []), 0, 3);
-  notify(null, ['baslik' => 'CCN Vardiya ' . $r['surum'] . ' yayında', 'metin' => 'Yenilikler: ' . implode(' · ', $items) . (count((array)($r['maddeler'] ?? [])) > 3 ? ' ve daha fazlası' : ''), 'url' => './#yenilikler', 'etiket' => 'surum-' . $r['surum']], 'guncelleme');
+  notify(null, ['baslik' => 'Vardiya Listesi ' . $r['surum'] . ' yayında', 'metin' => 'Yenilikler: ' . implode(' · ', $items) . (count((array)($r['maddeler'] ?? [])) > 3 ? ' ve daha fazlası' : ''), 'url' => './#yenilikler', 'etiket' => 'surum-' . $r['surum']], 'guncelleme');
 }

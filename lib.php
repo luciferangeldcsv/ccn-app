@@ -1,5 +1,5 @@
 <?php
-// CCN Vardiya — sunucu ortak kodu (doğrudan açılmaz; api.php ve kurulum.php kullanır)
+// Vardiya Listesi — sunucu ortak kodu (doğrudan açılmaz; api.php ve kurulum.php kullanır)
 declare(strict_types=1);
 if (!defined('CCN')) { http_response_code(404); exit; }
 

@@ -1,5 +1,5 @@
 <?php
-// CCN Vardiya — uygulama ve web paneli için JSON arayüzü.  Kullanım: api.php?r=<işlem>
+// Vardiya Listesi — uygulama ve web paneli için JSON arayüzü.  Kullanım: api.php?r=<işlem>
 declare(strict_types=1);
 const CCN = 1;
 require __DIR__ . '/lib.php';
@@ -157,7 +157,7 @@ switch ($r) {
   }
   case 'bildirim-test': {
     $u = current_user();
-    $n = push_to_people([$u['id']], ['guvenlik' => true, 'baslik' => 'CCN Vardiya', 'metin' => 'Bildirimler açık. Duyurular, yeni liste ve vardiya hatırlatmaları bu cihaza gelecek.', 'url' => './']);
+    $n = push_to_people([$u['id']], ['guvenlik' => true, 'baslik' => 'Vardiya Listesi', 'metin' => 'Bildirimler açık. Duyurular, yeni liste ve vardiya hatırlatmaları bu cihaza gelecek.', 'url' => './']);
     if (!$n) fail(502, 'Deneme bildirimi gönderilemedi. Bildirimi kapatıp yeniden açmayı deneyin.');
     ok(['gonderildi' => $n]);
   }

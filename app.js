@@ -1,5 +1,5 @@
 'use strict';
-/* CCN Vardiya Programı — vardiya listesi görsellerinden 1/2/3 vardiya, OFF, rapor ve izin listeleri çıkarır.
+/* Vardiya Listesi — vardiya listesi görsellerinden 1/2/3 vardiya, OFF, rapor ve izin listeleri çıkarır.
    Tüm veri cihazda (localStorage) tutulur; APK (Capacitor) içinde de aynı kod çalışır. */
 
 // ---------- Sabitler ----------
@@ -267,7 +267,7 @@ window.addEventListener('error', (e) => logError('genel', e.error || e.message))
 window.addEventListener('unhandledrejection', (e) => logError('genel', e.reason));
 function errorReport() {
   const list = readLS(ERR_KEY, []);
-  return [`CCN Vardiya Programı hata raporu`, `Sürüm: ${APP_VERSION}`, `Tarih: ${new Date().toLocaleString('tr-TR')}`,
+  return [`Vardiya Listesi hata raporu`, `Sürüm: ${APP_VERSION}`, `Tarih: ${new Date().toLocaleString('tr-TR')}`,
     `Cihaz: ${navigator.userAgent}`, `Ekran: ${screen.width}×${screen.height} @${devicePixelRatio}x`, `Dil: ${navigator.language}`, `Bağlantı: ${navigator.onLine ? 'çevrimiçi' : 'çevrimdışı'}`,
     `Kayıtlı kişi: ${Object.keys(store.people).length} · Yüklenen liste: ${store.uploads.length}`, '',
     list.length ? `Son hatalar (${list.length}):` : 'Kayıtlı hata yok.', ...list.map((x) => `- ${x.at} [${x.where}] ${x.msg}${x.stack ? '\n  ' + x.stack : ''}`)].join('\n');
@@ -287,7 +287,7 @@ async function checkForUpdate(manual) {
 function updateSheet(info) {
   const v = info.availableVersionName ? ` (${esc(info.availableVersionName)})` : '';
   sheet(`<div class="permhead">${ICON_UPLOAD}<h3>Yeni sürüm hazır${v}</h3></div>
-    <p class="muted" style="margin:0">CCN Vardiya Programı'nın yeni sürümü Google Play'de. Yenilikler ve düzeltmeler için şimdi güncelleyin. Kayıtlı listeleriniz silinmez.</p>
+    <p class="muted" style="margin:0">Vardiya Listesi'nin yeni sürümü Google Play'de. Yenilikler ve düzeltmeler için şimdi güncelleyin. Kayıtlı listeleriniz silinmez.</p>
     <div class="row"><button class="btn primary" id="up-ok">Güncelle</button><button class="btn" data-x="1">Sonra</button></div>`, (bg) => {
     bg.querySelector('#up-ok').addEventListener('click', async () => {
       closeSheet();
@@ -302,7 +302,7 @@ function updateSheet(info) {
 // Görsel seçmeden önce fotoğraf erişimi için izin iste (bir kez; Ayarlar'dan geri alınabilir)
 function askPhotoAccess(then) {
   sheet(`<div class="permhead">${ICON_IMAGE}<h3>Fotoğraflarınıza erişim</h3></div>
-    <p class="muted" style="margin:0"><b>CCN Vardiya Programı</b>, vardiya listesi görsellerini okuyabilmek için fotoğraflarınıza erişmek istiyor.</p>
+    <p class="muted" style="margin:0"><b>Vardiya Listesi</b>, vardiya listesi görsellerini okuyabilmek için fotoğraflarınıza erişmek istiyor.</p>
     <ul class="small muted permlist"><li>Yalnızca sizin seçtiğiniz görseller açılır.</li><li>Görseller okunduktan sonra saklanmaz, telefon dışına gönderilmez.</li><li>İzni istediğiniz zaman Ayarlar’dan geri alabilirsiniz.</li></ul>
     <div class="row"><button class="btn primary" id="pa-ok">İzin ver</button><button class="btn" id="pa-no">İzin verme</button></div>`, (bg) => {
     bg.querySelector('#pa-ok').addEventListener('click', () => { prefs.photoOk = true; savePrefs(); closeSheet(); then(); });
@@ -483,7 +483,7 @@ async function renderPushCard() {
   const info = `<ul class="small muted" style="margin:0;padding-left:18px"><li>Bildirimler <b>zorunludur</b>: duyurular, yeni vardiya listesi, vardiya hatırlatması, şikayet ve güncellemeler herkese gelir.</li><li><b>OFF, rapor ve izin günlerinizde</b> bildirim gönderilmez (yalnızca hesap güvenliği uyarıları gelir).</li></ul>`;
   const body = {
     yok: '<p class="small muted" style="margin:0">Bu tarayıcı bildirimleri desteklemiyor. Android’de Chrome, bilgisayarda Chrome ya da Edge kullanın.</p>',
-    ios: `<p class="small muted" style="margin:0">iPhone ve iPad’de bildirim için önce siteyi ana ekrana ekleyin, sonra ana ekrandaki <b>CCN Vardiya</b> simgesinden açıp buradan bildirimi açın.</p><div><button class="btn" data-act="install-app">${ICON_DOWNLOAD}Ana ekrana ekle</button></div>`,
+    ios: `<p class="small muted" style="margin:0">iPhone ve iPad’de bildirim için önce siteyi ana ekrana ekleyin, sonra ana ekrandaki <b>Vardiya Listesi</b> simgesinden açıp buradan bildirimi açın.</p><div><button class="btn" data-act="install-app">${ICON_DOWNLOAD}Ana ekrana ekle</button></div>`,
     red: '<p class="small muted" style="margin:0">Bildirim izni kapalı. Tarayıcının ya da telefonun ayarlarından bu site için bildirimlere izin verin, sonra sayfayı yenileyin.</p>',
     acik: '', kapali: '',
   }[st];
@@ -505,7 +505,7 @@ function installApp() {
     firefox: ['Firefox uygulama olarak eklemeyi desteklemiyor.', 'Bu sayfayı <b>Google Chrome</b> ya da <b>Microsoft Edge</b>’de açın ve buradaki düğmeye tekrar basın.'],
     desktop: ['Adres çubuğunun sağındaki <b>yükle</b> simgesine (⊕ ya da ekran simgesi) tıklayın.', 'Simge yoksa: Chrome’da <b>⋮</b> menüsü → <b>Yayınla, kaydet ve paylaş</b> → <b>Sayfayı uygulama olarak yükle</b>; Edge’de <b>…</b> menüsü → <b>Uygulamalar</b> → <b>Bu siteyi uygulama olarak yükle</b>.', '<b>Yükle</b>’ye tıklayın. Masaüstünde ve Başlat menüsünde simgesi çıkar.'],
   }[pf];
-  sheet(`<h3>Uygulama olarak ekle</h3><p class="small muted" style="margin:0">CCN Vardiya ${pf === 'ios' || pf === 'android' ? 'ana ekranınıza' : 'bilgisayarınıza'} uygulama olarak eklenir; tek dokunuşla, tarayıcı çubuğu olmadan açılır.</p>
+  sheet(`<h3>Uygulama olarak ekle</h3><p class="small muted" style="margin:0">Vardiya Listesi ${pf === 'ios' || pf === 'android' ? 'ana ekranınıza' : 'bilgisayarınıza'} uygulama olarak eklenir; tek dokunuşla, tarayıcı çubuğu olmadan açılır.</p>
     <ol class="steps">${steps.map((x) => `<li>${x}</li>`).join('')}</ol>
     <div class="row"><button class="btn primary" data-x="1">Tamam</button></div>`);
 }
@@ -822,7 +822,7 @@ function render() {
   sub.textContent = store.settings.company ? store.settings.company : SERVER && auth ? (canEdit() ? 'Yönetim paneli' : 'Vardiya listesi') : '1 · 2 · 3 vardiya, OFF ve izin takibi';
   let lastSync = null; try { lastSync = localStorage.getItem('ccn-son-veri'); } catch (e) { /* yoksay */ }
   const offline = SERVER && auth && srv.offline ? `<div class="banner offline"><p><b>Çevrimdışı</b> · son güncelleme ${lastSync ? fmtWhen(lastSync) : 'bilinmiyor'}. İnternet gelince liste kendiliğinden yenilenir.</p></div>` : '';
-  const inst = canOfferInstall() && auth && !prefs.installHide ? `<div class="banner install"><p><b>CCN Vardiya’yı uygulama olarak ekleyin.</b> ${devicePlatform() === 'ios' || devicePlatform() === 'android' ? 'Ana ekranınızdan' : 'Masaüstünüzden'} tek dokunuşla açılır.</p><button class="btn primary" data-act="install-app">${ICON_DOWNLOAD}Ekle</button><button class="btn" data-act="install-hide">Kapat</button></div>` : '';
+  const inst = canOfferInstall() && auth && !prefs.installHide ? `<div class="banner install"><p><b>Vardiya Listesi’ni uygulama olarak ekleyin.</b> ${devicePlatform() === 'ios' || devicePlatform() === 'android' ? 'Ana ekranınızdan' : 'Masaüstünüzden'} tek dokunuşla açılır.</p><button class="btn primary" data-act="install-app">${ICON_DOWNLOAD}Ekle</button><button class="btn" data-act="install-hide">Kapat</button></div>` : '';
   const pst = srv.pushState;
   const pushBan = SERVER && auth && !NATIVE && pst && pst !== 'acik' && pst !== 'yok' ? `<div class="banner pushban"><p><b>🔔 Bildirimler zorunludur.</b> ${pst === 'kapali' ? 'Duyuru, liste ve vardiya bildirimlerini almak için izin verin.' : pst === 'red' ? 'Bildirim izni kapalı. Tarayıcının ya da telefonun ayarlarından bu siteye bildirim izni verin.' : 'iPhone/iPad’de bildirim için siteyi ana ekrana ekleyin ve oradan açın.'}</p>${pst === 'kapali' ? '<button class="btn primary" data-act="push-allow">İzin ver</button>' : pst === 'ios' ? `<button class="btn primary" data-act="install-app">${ICON_DOWNLOAD}Ana ekrana ekle</button>` : ''}</div>` : '';
   let banner = offline + pushBan + inst + (store.demo ? `<div class="banner"><p><b>Örnek veri gösteriliyor.</b> Kendi vardiya listenizin görselini “Liste Yükle” bölümünden ekleyin; örnek veri o zaman silinir.</p><button class="btn" data-act="clear-demo">Örnek veriyi temizle</button></div>` : '');
@@ -1102,7 +1102,7 @@ function showWhatsNew(force) {
   const r = srv.yenilikler; if (!r || !r.surum) return;
   if (!force && prefs.seenNotes === r.surum) return;
   prefs.seenNotes = r.surum; savePrefs();
-  sheet(`<div class="eyebrow">Yenilikler</div><h3 style="margin:0;font-size:22px">CCN Vardiya ${esc(r.surum)}</h3>
+  sheet(`<div class="eyebrow">Yenilikler</div><h3 style="margin:0;font-size:22px">Vardiya Listesi ${esc(r.surum)}</h3>
     <ul class="whatsnew">${(r.maddeler || []).map((m) => `<li>${esc(m)}</li>`).join('')}</ul>
     <div class="row"><button class="btn primary" data-x="1">Tamam</button></div>`);
 }
@@ -1441,7 +1441,7 @@ async function exportExcel() {
   if (!people.length) { toast('Çizelgede kimse yok'); return; }
   const title = ui.gridSpan === 'ay' ? `${MONTHS[parseIso(days[0]).getMonth()]} ${parseIso(days[0]).getFullYear()}` : `${fmtShort(days[0])}-${fmtShort(days[days.length - 1])}`;
   const blob = buildXlsx(days, people, title);
-  const name = `CCN-Vardiya-${days[0]}_${days[days.length - 1]}${ui.gridGroup !== 'all' ? '-' + ui.gridGroup + '.vardiya' : ''}.xlsx`;
+  const name = `Vardiya-Listesi-${days[0]}_${days[days.length - 1]}${ui.gridGroup !== 'all' ? '-' + ui.gridGroup + '.vardiya' : ''}.xlsx`;
   const file = new File([blob], name, { type: blob.type });
   const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   if (native && navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
@@ -1952,7 +1952,7 @@ const actions = {
   'photo-allow': () => askPhotoAccess(() => { render(); toast('Fotoğraf izni verildi'); }),
   'photo-revoke': () => { prefs.photoOk = false; savePrefs(); render(); toast('Fotoğraf izni kaldırıldı'); },
   'check-update': () => checkForUpdate(true),
-  'send-report': () => doShare(errorReport(), 'CCN Vardiya Programı hata raporu'),
+  'send-report': () => doShare(errorReport(), 'Vardiya Listesi hata raporu'),
   'clear-errors': () => { writeLS(ERR_KEY, []); render(); toast('Hata kayıtları temizlendi'); },
   'wipe': () => confirmSheet('Tüm veriler silinsin mi?', 'Yüklenen bütün listeler ve kişiler bu cihazdan silinir. Bu işlem geri alınamaz.', 'Hepsini sil', () => { store = defaultStore(); save(); render(); toast('Tüm veriler silindi'); }),
 };
