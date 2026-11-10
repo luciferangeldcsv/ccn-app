@@ -558,7 +558,7 @@ async function api(r, body) {
   if (srv.offline) { srv.offline = false; setTimeout(() => auth && render(), 0); }
   let j = null; try { j = await res.json(); } catch (e) { /* JSON değil */ }
   if (res.status === 401 && j && j.cikis && r !== 'giris') { signOut('Oturumunuz kapandı. Hesabınız kaldırılmış ya da oturum süresi dolmuş olabilir.'); throw new Error(j.hata); }
-  if (!res.ok || !j || j.hata) throw new Error((j && j.hata) || `Sunucu hatası (${res.status})`);
+  if (!res.ok || !j || j.hata) { const e = new Error((j && j.hata) || `Sunucu hatası (${res.status})`); e.data = j || {}; throw e; }
   return j;
 }
 // büyük dosya (fotoğraf/video/PDF) yüklemesi: multipart, 100 MB'a kadar; ilerleme bildirir
@@ -2053,7 +2053,7 @@ function bindLogin() {
     if (L.step === 'giris') {
       L.kimlik = f.querySelector('#lg-kimlik').value.trim(); L.hatirla = f.querySelector('#lg-remember').checked; L.pin = f.querySelector('#lg-pin').value;
       if (!L.kimlik) { L.err = 'Ad soyad girin.'; render(); return; }
-      if (!L.pin) { L.err = 'Şifrenizi yazın. Şifreniz yoksa “Şifrem yok · Şifre oluştur”a dokunun.'; render(); return; }
+      // şifre boş olabilir: hiç girmemiş (şifresiz) kişide sunucu "sifreYok" der, doğrudan şifre oluştur ekranına geçeriz
       Object.assign(body, { kimlik: L.kimlik, hatirla: L.hatirla, pin: L.pin });
     } else {
       if (L.step === 'olustur') { L.kimlik = f.querySelector('#lg-kimlik').value.trim(); body.kimlik = L.kimlik; if (!L.kimlik) { L.err = 'Ad soyad girin.'; render(); return; } }
@@ -2072,7 +2072,13 @@ function bindLogin() {
       ui.login = null; ui.view = 'gunluk'; ui.date = todayIso();
       await bootServer();
       toast(`Hoş geldiniz, ${j.ben.ad}`);
-    } catch (err) { L.busy = false; L.err = err.message; render(); }
+    } catch (err) {
+      L.busy = false;
+      const d = err.data || {};
+      // hiç giriş yapmamış (şifresiz) kişi: doğrudan "Şifre oluştur" ekranına geç
+      if (d.sifreYok) { Object.assign(L, { step: 'olustur', err: '', kural: d.kural || '', kuralTip: d.kuralTip || '' }); render(); return; }
+      L.err = err.message; render();
+    }
   });
 }
 
