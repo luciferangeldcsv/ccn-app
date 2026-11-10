@@ -117,46 +117,20 @@ function applyTheme() {
 applyTheme();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
-// Açılış animasyonu: yaklaşık 3,2 sn; harfler üç yönden gelir, renk çizgileri hapa dönüşür, yükleme çubuğu dolar; dokununca hemen geçer
+// Açılış ekranı: kurumsal, sade, siyah tema; ~2,4 sn; dokununca hemen geçer
 (function intro() {
   const el = document.getElementById('intro'); if (!el) return;
   const sb = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SystemBars;
   if (sb && sb.setStyle) sb.setStyle({ style: 'DARK' }).catch(() => {});
   document.body.classList.add('intro-run');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ver = document.getElementById('intro-ver'); if (ver) ver.textContent = /^\d/.test(APP_VERSION) ? 'Sürüm ' + APP_VERSION : '';
   const done = () => {
     if (el.dataset.out) return; el.dataset.out = '1';
     el.classList.add('out'); document.body.classList.remove('intro-run'); document.body.classList.add('intro-done'); applyTheme();
-    setTimeout(() => { el.remove(); document.body.classList.remove('intro-done'); setTimeout(() => checkForUpdate(false), 300); }, 700);
+    setTimeout(() => { el.remove(); document.body.classList.remove('intro-done'); setTimeout(() => checkForUpdate(false), 300); }, 560);
   };
-  // sürüm numarası
-  const ver = document.getElementById('intro-ver'); if (ver) ver.textContent = /^\d/.test(APP_VERSION) ? `Sürüm ${APP_VERSION}` : '';
-  // harfler yere indikçe sahne hafifçe sarsılır
-  const stage = el.querySelector('.intro-stage');
-  if (!reduce && stage) [770, 1040, 1310].forEach((ms) => setTimeout(() => { stage.classList.remove('shake'); void stage.offsetWidth; stage.classList.add('shake'); }, ms));
-  // yükleme çubuğu: vardiya renklerinde mini personel yürüyerek işe gelir; arkalarından çubuk dolar, kapıdan girdikçe yüzde artar
-  const bar = el.querySelector('.intro-bar'), walk = document.getElementById('intro-walk'), door = document.getElementById('intro-door');
-  const pct = document.getElementById('intro-pct'), msg = document.getElementById('intro-msg');
-  const COLS = ['#f0a63a', '#4fc9bd', '#9a9df2', '#ff8fa3'];
-  const person = (c) => `<svg viewBox="0 0 14 24"><circle cx="7" cy="3.6" r="3" fill="#ffe2c4"/><path d="M7 7v8" stroke="${c}" stroke-width="4.4" stroke-linecap="round"/><path class="ar1" d="M7 9l-3.6 4.2" stroke="${c}" stroke-width="2" stroke-linecap="round"/><path class="ar2" d="M7 9l3.6 4.2" stroke="${c}" stroke-width="2" stroke-linecap="round"/><path class="lg1" d="M7 14.5l-2.6 8" stroke="#d9e2ec" stroke-width="2.2" stroke-linecap="round"/><path class="lg2" d="M7 14.5l2.6 8" stroke="#d9e2ec" stroke-width="2.2" stroke-linecap="round"/></svg>`;
-  const W = COLS.map((c) => { const d = document.createElement('div'); d.className = 'iw'; d.innerHTML = person(c); if (walk) walk.appendChild(d); return { d, x: 0, in: false }; });
-  const MSG = [[0, 'Personel yola çıktı…'], [25, 'Vardiya listesi hazırlanıyor…'], [55, 'Ekipler yerleşiyor…'], [85, 'Son kişiler geliyor…'], [100, 'Herkes işbaşında · Hazır']];
-  const t0 = performance.now() + (reduce ? 0 : 950), dur = reduce ? 300 : 1650, gap = reduce ? 0 : 150;
-  const tick = (now) => {
-    if (!document.body.contains(el)) return;
-    let sum = 0, tail = 1;
-    W.forEach((w, k) => {
-      const x = Math.max(0, Math.min(1, (now - t0 - k * gap) / dur)); w.x = x; sum += x; tail = Math.min(tail, x);
-      w.d.style.setProperty('--x', x.toFixed(4)); w.d.classList.toggle('on', now >= t0 + k * gap && x < 1);
-      if (x >= 1 && !w.in) { w.in = true; w.d.classList.add('in'); if (door) { door.classList.add('flash'); setTimeout(() => door.classList.remove('flash'), 180); } }
-    });
-    const p = Math.round((sum / W.length) * 100);
-    if (bar) bar.style.setProperty('--p', tail.toFixed(4)); if (pct) pct.textContent = '%' + p;
-    if (msg) msg.textContent = MSG.filter(([k]) => p >= k).pop()[1];
-    if (W.some((w) => !w.in)) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-  setTimeout(done, reduce ? 500 : 3300);
+  setTimeout(done, reduce ? 450 : 2500);
   el.addEventListener('click', done);
 })();
 ['online', 'offline'].forEach((ev) => window.addEventListener(ev, () => { if (ui.view === 'ayarlar' && !$overlay.innerHTML) render(); }));
