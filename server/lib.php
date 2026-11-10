@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 19;
+const SCHEMA_V = 20;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -156,6 +156,8 @@ function upgrades(PDO $pdo): void {
     $pdo->exec('UPDATE personnel SET tc_hash = NULL, tc_last2 = NULL WHERE tc_hash IS NOT NULL OR tc_last2 IS NOT NULL');
     // 17 → 19: Personel ID (sicil) tamamen kaldırıldı; kolon ve geçmişteki tüm değerler silinir. Giriş yalnızca Ad Soyad + şifre.
     if ($pdo->query("SHOW COLUMNS FROM personnel LIKE 'sicil'")->fetch()) $pdo->exec('ALTER TABLE personnel DROP COLUMN sicil');
+    // 19 → 20: gizli profil — kullanıcı adı, profil fotoğrafı, giriş tercihi (ad / kullanıcı adı / ikisi). Yalnızca kişinin kendisine görünür.
+    if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'username'")->fetch()) $pdo->exec("ALTER TABLE personnel ADD COLUMN username VARCHAR(32) NULL UNIQUE, ADD COLUMN avatar MEDIUMTEXT NULL, ADD COLUMN login_pref VARCHAR(12) NOT NULL DEFAULT 'ad'");
     // 6 → 7: hesap askıya alma (yalnızca DEV panelinden)
     if (!$pdo->query("SHOW COLUMNS FROM personnel LIKE 'banned'")->fetch()) $pdo->exec('ALTER TABLE personnel ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0, ADD COLUMN ban_reason VARCHAR(200) NULL');
     $pdo->exec("CREATE TABLE IF NOT EXISTS rl_hits (id BIGINT AUTO_INCREMENT PRIMARY KEY, ip VARCHAR(45) NOT NULL, at DATETIME NOT NULL, INDEX (at)) $T");
@@ -320,7 +322,7 @@ function current_user(bool $required = true): ?array {
   if ($u !== false) return $u ?: ($required ? fail(401, 'Oturum geçersiz.', ['cikis' => true]) : null);
   $u = null; $t = token_in();
   if ($t) {
-    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.prefs, p.banned FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
+    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.prefs, p.banned, p.username, p.avatar, p.login_pref FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
     $st->execute([hash('sha256', $t)]);
     $r = $st->fetch();
     if ($r && $r['banned']) { db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$r['id']]); $r = null; } // askıya alınan hesap düşer
@@ -328,7 +330,7 @@ function current_user(bool $required = true): ?array {
       // "beni hatırla" oturumu kullanıldıkça uzar; diğeri 12 saatte biter
       $exp = $r['remember'] ? gmdate('Y-m-d H:i:s', time() + 180 * 86400) : $r['expires_at'];
       db()->prepare('UPDATE sessions SET last_seen = ?, expires_at = ? WHERE id = ?')->execute([now(), $exp, $r['sid']]);
-      $u = ['id' => (int)$r['id'], 'name' => $r['name'], 'role' => $r['role'], 'title' => $r['title'] ?: ($r['role'] === 'admin' ? 'yonetici' : 'personel'), 'prefs' => $r['prefs'], 'sid' => (int)$r['sid']];
+      $u = ['id' => (int)$r['id'], 'name' => $r['name'], 'role' => $r['role'], 'title' => $r['title'] ?: ($r['role'] === 'admin' ? 'yonetici' : 'personel'), 'prefs' => $r['prefs'], 'username' => $r['username'], 'avatar' => $r['avatar'], 'login_pref' => $r['login_pref'], 'sid' => (int)$r['sid']];
     } elseif ($r) {
       db()->prepare('DELETE FROM sessions WHERE id = ?')->execute([$r['sid']]);
     }
@@ -354,11 +356,20 @@ function fold_name(string $s): string {
   $s = mb_strtolower(strtr(trim($s), $map), 'UTF-8');
   return trim(preg_replace('/\s+/u', ' ', $s) ?? '');
 }
-// Kişiyi YALNIZCA Ad Soyad ile bul (Personel ID kaldırıldı). Ad çakışırsa birden fazla dönebilir (şifreyle ayrılır).
+// Kişiyi Ad Soyad ve/veya Kullanıcı Adı ile bul — her kişinin giriş tercihine (login_pref) göre.
+//   ad       → yalnızca ad soyadla girer      kullanici → yalnızca kullanıcı adıyla girer      ikisi → ikisi de
+// Eşleşme çakışırsa birden fazla dönebilir (şifreyle ayrılır).
 function find_people(string $kimlik): array {
-  $f = fold_name($kimlik); if ($f === '') return [];
+  $q = trim($kimlik); if ($q === '') return [];
+  $f = fold_name($q);                        // ad eşleşmesi (Türkçe/aksan duyarsız)
+  $un = mb_strtolower($q, 'UTF-8');           // kullanıcı adı eşleşmesi (büyük/küçük duyarsız)
   $out = [];
-  foreach (db()->query('SELECT * FROM personnel')->fetchAll() as $p) if (fold_name((string)$p['name']) === $f) $out[] = $p;
+  foreach (db()->query('SELECT * FROM personnel')->fetchAll() as $p) {
+    $pref = $p['login_pref'] ?? 'ad';
+    $byName = ($pref === 'ad' || $pref === 'ikisi') && $f !== '' && fold_name((string)$p['name']) === $f;
+    $byUser = ($pref === 'kullanici' || $pref === 'ikisi') && !empty($p['username']) && mb_strtolower((string)$p['username'], 'UTF-8') === $un;
+    if ($byName || $byUser) $out[] = $p;
+  }
   return $out;
 }
 

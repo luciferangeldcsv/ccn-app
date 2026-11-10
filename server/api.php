@@ -17,7 +17,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -34,6 +34,8 @@ function me_out(array $u): array {
   $t = $u['title'] ?? ($u['role'] === 'admin' ? 'yonetici' : 'personel'); $lv = level_of($t);
   return ['id' => $u['id'], 'ad' => $u['name'], 'rol' => $lv >= 3 ? 'admin' : 'staff', 'unvan' => $t, 'seviye' => $lv,
     'verebilir' => grantable($t), 'yetki' => ['liste' => $lv >= 2, 'yayin' => $lv >= 3, 'kisi' => $lv >= 2, 'sistem' => $lv >= 4, 'taslak' => $lv >= 2],
+    // gizli profil: yalnızca kişinin kendisine döner (başka kimse görmez)
+    'kullaniciAdi' => $u['username'] ?? null, 'avatar' => $u['avatar'] ?? null, 'girisTercihi' => $u['login_pref'] ?? 'ad',
     'tercih' => json_decode((string)($u['prefs'] ?? ''), true) ?: null];
 }
 const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'];
@@ -128,7 +130,7 @@ switch ($r) {
       }
     }
     audit(['id' => $p['id'], 'name' => $p['name']], 'giris');
-    ok(['token' => $tok, 'ben' => me_out(['id' => (int)$p['id'], 'name' => $p['name'], 'role' => $p['role'], 'title' => $p['title'] ?? null, 'prefs' => $p['prefs'] ?? null]), 'hatirla' => $hatirla]);
+    ok(['token' => $tok, 'ben' => me_out(['id' => (int)$p['id'], 'name' => $p['name'], 'role' => $p['role'], 'title' => $p['title'] ?? null, 'prefs' => $p['prefs'] ?? null, 'username' => $p['username'] ?? null, 'avatar' => $p['avatar'] ?? null, 'login_pref' => $p['login_pref'] ?? 'ad']), 'hatirla' => $hatirla]);
   }
 
   // "Şifrem yok": yazılan Personel ID'nin şifresi var mı (varsa uyarı), şifre kuralı ne
@@ -268,6 +270,30 @@ switch ($r) {
       'paylas' => ['bold' => !empty($in['paylas']['bold']), 'style' => in_array($in['paylas']['style'] ?? '', ['num', 'bullet', 'plain'], true) ? $in['paylas']['style'] : 'num']];
     db()->prepare('UPDATE personnel SET prefs = ? WHERE id = ?')->execute([json_encode($t), $u['id']]);
     ok(['tercih' => $t]);
+  }
+
+  // Gizli profil: kullanıcı adı, profil fotoğrafı, giriş tercihi. Yalnızca kişinin KENDİSİ değiştirir; kimseye görünmez; loga yazılmaz.
+  case 'profil-kaydet': {
+    $u = current_user();
+    $kad = mb_substr(trim((string)(body()['kullaniciAdi'] ?? '')), 0, 32);
+    $pref = (string)(body()['girisTercihi'] ?? 'ad'); if (!in_array($pref, ['ad', 'kullanici', 'ikisi'], true)) $pref = 'ad';
+    if ($kad !== '') {
+      if (!preg_match('/^[A-Za-z0-9._]{3,32}$/', $kad)) fail(400, 'Kullanıcı adı 3-32 karakter olmalı; yalnızca harf, rakam, nokta ve alt çizgi.');
+      $st = db()->prepare('SELECT id FROM personnel WHERE username = ? AND id <> ?'); $st->execute([$kad, $u['id']]);
+      if ($st->fetch()) fail(409, 'Bu kullanıcı adı başkası tarafından alınmış. Başka bir ad seçin.');
+    }
+    if (($pref === 'kullanici' || $pref === 'ikisi') && $kad === '') fail(400, 'Kullanıcı adıyla giriş için önce bir kullanıcı adı belirleyin.');
+    $sets = ['username = ?' => $kad !== '' ? $kad : null, 'login_pref = ?' => $pref];
+    if (array_key_exists('avatar', body())) {
+      $av = body()['avatar'];
+      if ($av === null || $av === '') $sets['avatar = ?'] = null;
+      else { $av = (string)$av; if (strlen($av) > 500000 || !preg_match('#^data:image/[a-z]+;base64,#', $av)) fail(400, 'Profil fotoğrafı geçersiz ya da çok büyük.'); $sets['avatar = ?'] = $av; }
+    }
+    try {
+      db()->prepare('UPDATE personnel SET ' . implode(', ', array_keys($sets)) . ' WHERE id = ?')->execute([...array_values($sets), $u['id']]);
+    } catch (PDOException $e) { fail(409, 'Bu kullanıcı adı başkası tarafından alınmış. Başka bir ad seçin.'); }
+    $st = db()->prepare('SELECT * FROM personnel WHERE id = ?'); $st->execute([$u['id']]); $p = $st->fetch();
+    ok(['ben' => me_out($p)]); // not: bilerek audit YOK — profil loglara yazılmaz
   }
 
   case 'personel': {
