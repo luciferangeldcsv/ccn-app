@@ -830,8 +830,17 @@ switch ($r) {
       'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'video' => strncmp($r['tip'], 'video/', 6) === 0, 'tarih' => utc($r['created_at']),
       'yukleyenId' => $r['created_by'] ? (int)$r['created_by'] : null, 'yukleyen' => $r['name'], 'unvan' => $r['ptitle'], 'askida' => (bool)$r['banned'], 'uyari' => 0, 'ip' => null, 'cihaz' => '',
       'durum' => null, 'url' => dosya_url('ek', (int)$r['id'], '../')];
+    // profil fotoğrafları (pp) — yalnızca DEV panelinde moderasyon için; normal hiçbir yerde görünmez
+    if ($tur === '' || $tur === 'pp' || $tip === 'foto') {
+      $st = db()->query("SELECT id, name, title, avatar, banned, strike, updated_at FROM personnel WHERE avatar IS NOT NULL");
+      foreach ($st as $r) $all[] = ['kaynak' => 'pp', 'id' => (int)$r['id'], 'bolum' => 'Profil (PP)', 'tur' => 'pp',
+        'ad' => $r['name'] . ' — profil fotoğrafı', 'tip' => 'image/jpeg', 'boyut' => (int)(strlen((string)$r['avatar']) * 3 / 4), 'video' => false,
+        'tarih' => utc($r['updated_at'] ?? now()), 'ip' => null, 'cihaz' => '',
+        'yukleyenId' => (int)$r['id'], 'yukleyen' => $r['name'], 'unvan' => $r['title'], 'askida' => (bool)$r['banned'], 'uyari' => (int)$r['strike'],
+        'durum' => null, 'url' => (string)$r['avatar']];
+    }
     usort($all, fn($x, $y) => strcmp($y['tarih'], $x['tarih']));
-    if ($tur !== '' && in_array($tur, ['sikayet', 'egitim', 'duyuru'], true)) $all = array_values(array_filter($all, fn($f) => $f['tur'] === $tur));
+    if ($tur !== '' && in_array($tur, ['sikayet', 'egitim', 'duyuru', 'pp'], true)) $all = array_values(array_filter($all, fn($f) => $f['tur'] === $tur));
     if ($tip === 'foto') $all = array_values(array_filter($all, fn($f) => strncmp($f['tip'], 'image/', 6) === 0));
     elseif ($tip === 'pdf') $all = array_values(array_filter($all, fn($f) => $f['tip'] === 'application/pdf'));
     $toplam = count($all);
@@ -840,8 +849,12 @@ switch ($r) {
   }
   case 'dev-dosya-sil': {
     $u = dev_only(); $kaynak = (string)(body()['kaynak'] ?? ''); $id = (int)(body()['id'] ?? 0); $uygunsuz = !empty(body()['uygunsuz']);
-    $uploader = null; $uad = '';
-    if ($kaynak === 'ek') { db()->prepare('DELETE FROM duyuru_ek WHERE id = ?')->execute([$id]); }
+    $uploader = null; $uad = ''; $utitle = '';
+    if ($kaynak === 'pp') { // profil fotoğrafını kaldır
+      $st = db()->prepare('SELECT name, title FROM personnel WHERE id = ?'); $st->execute([$id]); $r = $st->fetch();
+      $uploader = $r ? $id : null; $uad = $r['name'] ?? ''; $utitle = $r['title'] ?? '';
+      db()->prepare('UPDATE personnel SET avatar = NULL WHERE id = ?')->execute([$id]);
+    } elseif ($kaynak === 'ek') { db()->prepare('DELETE FROM duyuru_ek WHERE id = ?')->execute([$id]); }
     else {
       $st = db()->prepare('SELECT d.uploader_id, d.yol, p.name, p.title FROM dosyalar d LEFT JOIN personnel p ON p.id = d.uploader_id WHERE d.id = ?'); $st->execute([$id]); $r = $st->fetch();
       $uploader = $r && $r['uploader_id'] ? (int)$r['uploader_id'] : null; $uad = $r['name'] ?? ''; $utitle = $r['title'] ?? '';
