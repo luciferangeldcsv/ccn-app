@@ -75,6 +75,9 @@
 .intro-sub { margin-top: 20px; font: 500 clamp(10px, 2.8vw, 12px)/1 var(--font-body); letter-spacing: .42em; text-transform: uppercase; color: rgba(255,255,255,.42); opacity: 0; padding-left: .42em; animation: introFade .8s ease .85s both; }
 .intro-weather { margin-top: 14px; min-height: 12px; font: 500 11px/1 var(--font-body); letter-spacing: .3em; text-transform: uppercase; color: rgba(255,255,255,.55); opacity: 0; padding-left: .3em; transition: opacity .6s ease; }
 #intro.hava .intro-weather { opacity: 1; }
+.intro-load { width: 150px; height: 3px; margin-top: 26px; border-radius: 3px; background: rgba(255,255,255,.13); overflow: hidden; opacity: 0; animation: introFade .6s ease .9s both; }
+.intro-load > i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, rgba(255,255,255,.45), #fff); box-shadow: 0 0 10px rgba(255,255,255,.45); animation: introLoad 4.25s cubic-bezier(.45,.05,.35,1) .3s forwards; }
+@keyframes introLoad { from { width: 0; } to { width: 100%; } }
 .intro-ver { position: absolute; left: 0; right: 0; bottom: max(52px, calc(env(safe-area-inset-bottom) + 30px)); text-align: center; font: 500 11px/1 var(--font-body); letter-spacing: .26em; text-transform: uppercase; color: rgba(255,255,255,.5); opacity: 0; z-index: 3; animation: introFade .6s ease 1.15s both; }
 .intro-by { position: absolute; left: 0; right: 0; bottom: max(26px, env(safe-area-inset-bottom)); text-align: center; font: 600 12px/1 var(--font-display); letter-spacing: .22em; color: rgba(255,255,255,.72); opacity: 0; z-index: 3; animation: introFade .7s ease 1.3s both; }
 .intro-by b { color: #fff; }
@@ -91,7 +94,8 @@ body.intro-done #app { animation: introAppIn .4s cubic-bezier(.2,.8,.2,1) .05s b
 @media (prefers-reduced-motion: reduce) {
   #intro *, #intro { animation-duration: .01s !important; animation-delay: 0s !important; }
   #intro .intro-vl span { opacity: 1 !important; transform: none !important; }
-  #intro .intro-sub, #intro .intro-ver, #intro .intro-by { opacity: 1 !important; }
+  #intro .intro-sub, #intro .intro-ver, #intro .intro-by, #intro .intro-load { opacity: 1 !important; }
+  #intro .intro-load > i { width: 100% !important; }
   #intro .intro-sky { display: none !important; }
   #intro.out { animation-duration: .3s !important; }
 }
@@ -582,6 +586,7 @@ h4.ph { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color
     <div class="intro-vl"><span>VARDİYA</span><span>LİSTESİ</span></div>
     <div class="intro-sub">Vardiya Yönetim Sistemi</div>
     <div class="intro-weather" id="intro-weather"></div>
+    <div class="intro-load" aria-hidden="true"><i></i></div>
   </div>
   <div class="intro-ver" id="intro-ver"></div>
   <div class="intro-by">Powered by <b>Lucifer</b></div>
@@ -624,7 +629,7 @@ h4.ph { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color
   setTimeout(off, 6000);
 })();
 </script>
-<script src="app.js?v=c4ba1591f8"></script>
+<script src="app.js?v=1fc93dd2dd"></script>
 
 </body>
 </html>

@@ -141,7 +141,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
 
   let W = 0, H = 0, DPR = 1;
   const resize = () => {
-    DPR = Math.min(2, window.devicePixelRatio || 1);
+    DPR = Math.min(1.5, window.devicePixelRatio || 1);
     W = el.clientWidth || window.innerWidth; H = el.clientHeight || window.innerHeight;
     cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
@@ -192,7 +192,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
     return { x: rnd(0, W), y: rnd(0, H), r: rnd(0.3, 1.5), v: rnd(0.15, 0.45), ph: rnd(0, 6.283), ds: rnd(0.2, 0.5) };   // toz zerresi
   };
   const rebuild = () => {
-    const base = { rain: 170, snow: 95, clouds: 7, fog: 8, clear: isDay ? 24 : 70 }[mode] || 30;
+    const base = { rain: 130, snow: 78, clouds: 7, fog: 8, clear: isDay ? 24 : 54 }[mode] || 30;
     const n = Math.max(6, Math.round(base * (mode === 'rain' || mode === 'snow' ? intensity : 1)));
     parts = []; for (let i = 0; i < n; i++) parts.push(spawn(true));
   };
@@ -223,37 +223,38 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
       .catch(() => { clearTimeout(to); });
   })();
 
-  const drawPart = (p) => {
-    if (mode === 'rain') {
-      ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = p.w; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.len * 0.18, p.y + p.len); ctx.stroke();
-      p.y += p.v; p.x -= p.v * 0.16; if (p.y > H + 24) Object.assign(p, spawn(false));
-    } else if (mode === 'snow') {
-      ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
-      p.ph += 0.02; p.y += p.v; p.x += Math.sin(p.ph) * p.ds; if (p.y > H + 10) Object.assign(p, spawn(false));
-    } else if (mode === 'clouds' || mode === 'fog') {
-      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
-      g.addColorStop(0, 'rgba(255,255,255,' + p.a + ')'); g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
-      p.x += p.v; if (p.x - p.r > W) { p.x = -p.r; }
-    } else if (!isDay) { // yıldız
-      p.ph += p.ts; const a = 0.25 + Math.abs(Math.sin(p.ph)) * 0.6;
-      ctx.fillStyle = 'rgba(255,255,255,' + a + ')'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
-    } else { // toz zerresi
-      ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
-      p.ph += 0.01; p.y -= p.v * 0.3; p.x += Math.sin(p.ph) * p.ds; if (p.y < -6) { p.y = H + 6; p.x = rnd(0, W); }
-    }
-  };
+  // Tek geçişte toplu çizim (kasmayı önler): mod başına tek path / tek fill
   const frame = () => {
     ctx.clearRect(0, 0, W, H);
-    const glow = (mode === 'snow' || mode === 'clouds' || mode === 'fog' || mode === 'clear');
-    ctx.globalCompositeOperation = glow ? 'lighter' : 'source-over';
-    for (let i = 0; i < parts.length; i++) drawPart(parts[i]);
+    const n = parts.length;
+    if (mode === 'rain') {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineCap = 'round'; ctx.lineWidth = 1.15;
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) { const p = parts[i]; ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.len * 0.18, p.y + p.len); p.y += p.v; p.x -= p.v * 0.16; if (p.y > H + 24) Object.assign(p, spawn(false)); }
+      ctx.stroke();
+    } else if (mode === 'snow') {
+      ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(255,255,255,.85)';
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) { const p = parts[i]; p.ph += 0.02; p.y += p.v; p.x += Math.sin(p.ph) * p.ds; if (p.y > H + 10) Object.assign(p, spawn(false)); ctx.moveTo(p.x + p.r, p.y); ctx.arc(p.x, p.y, p.r, 0, 6.2832); }
+      ctx.fill();
+    } else if (mode === 'clouds' || mode === 'fog') {
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < n; i++) { const p = parts[i]; const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r); g.addColorStop(0, 'rgba(255,255,255,' + p.a + ')'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill(); p.x += p.v; if (p.x - p.r > W) p.x = -p.r; }
+    } else if (!isDay) { // yıldız (parıldama: ayrı alfa)
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < n; i++) { const p = parts[i]; p.ph += p.ts; const a = 0.25 + Math.abs(Math.sin(p.ph)) * 0.6; ctx.fillStyle = 'rgba(255,255,255,' + a + ')'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill(); }
+    } else { // toz zerresi
+      ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(255,255,255,.5)';
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) { const p = parts[i]; p.ph += 0.01; p.y -= p.v * 0.3; p.x += Math.sin(p.ph) * p.ds; if (p.y < -6) { p.y = H + 6; p.x = rnd(0, W); } ctx.moveTo(p.x + p.r, p.y); ctx.arc(p.x, p.y, p.r, 0, 6.2832); }
+      ctx.fill();
+    }
     ctx.globalCompositeOperation = 'source-over';
     raf = requestAnimationFrame(frame);
   };
   raf = requestAnimationFrame(frame);
-  setTimeout(done, 3000);
+  setTimeout(done, 4800);
 })();
 ['online', 'offline'].forEach((ev) => window.addEventListener(ev, () => { if (ui.view === 'ayarlar' && !$overlay.innerHTML) render(); }));
 
