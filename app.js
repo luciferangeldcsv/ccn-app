@@ -2304,13 +2304,13 @@ function viewPersonnel() {
   const dv = (n, f) => esc((D[n] && D[n][f]) || '');
   const listCard = listed.length ? `<div class="card stack">
     <div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Vardiya listesindeki isimler</div><h2 style="font-size:22px">${listed.length} kişi · ${listed.length - missing.length} hesap açık · ${missing.length} bekliyor</h2></div>
-      ${missing.length ? `<button class="btn" data-act="miss-toggle">${ui.missOpen ? 'Gizle' : 'Hesap aç'}</button>` : ''}</div>
-    ${missing.length ? `<p class="small muted" style="margin:0">Listede olup hesabı olmayan kişiler. Tek tek ya da toptan hesap açın; isim listedekiyle aynı kaydedilir, kişi ad soyad ve kendi belirleyeceği şifreyle girer.</p>` : '<p class="small muted" style="margin:0">Listedeki herkesin hesabı açık.</p>'}
+      ${missing.length ? `<div class="row" style="gap:6px;flex:0 0 auto"><button class="btn primary" data-act="miss-all">Hepsinin hesabını aç (${missing.length})</button><button class="btn" data-act="miss-toggle">${ui.missOpen ? 'Gizle' : 'Tek tek'}</button></div>` : ''}</div>
+    ${missing.length ? `<p class="small muted" style="margin:0">Vardiya listesinde olup hesabı olmayan kişiler. “Hepsinin hesabını aç”a basınca hepsi ad soyadıyla eklenir; her biri <b>ilk girişinde kendi şifresini</b> belirler. Tek tek eklemek için “Tek tek”.</p>` : '<p class="small muted" style="margin:0">Listedeki herkesin hesabı açık.</p>'}
     ${missing.length && ui.missOpen ? `<div class="tablewrap"><table class="grid plist miss"><thead><tr><th class="name">Ad soyad</th><th></th></tr></thead><tbody>
       ${missing.map((x) => `<tr><td class="name">${esc(x.name)}${x.group ? ` <span class="gtag k-${x.group}">${x.group}</span>` : ''}</td>
         <td class="nowrap"><button class="btn small" data-act="miss-add" data-n="${esc(x.name)}">Hesap aç</button></td></tr>`).join('')}
-    </tbody></table></div>
-    <div class="row"><button class="btn primary" data-act="miss-all">Hepsinin hesabını aç (${missing.length})</button><span class="small muted" id="miss-res"></span></div>` : ''}
+    </tbody></table></div>` : ''}
+    ${missing.length ? `<div class="row"><span class="small muted" id="miss-res"></span></div>` : ''}
   </div>` : `<div class="card"><p class="small muted" style="margin:0">Vardiya listesi yüklenince listedeki isimler burada görünür ve tek tek hesap açılabilir.</p></div>`;
   const left = listCard + `<div class="card stack">
     <div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Yönetim</div><h2 style="font-size:24px">Personel · ${srv.personel.length} kişi</h2></div>
