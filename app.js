@@ -2316,7 +2316,7 @@ function viewPersonnel() {
     <div class="row"><div style="flex:1;min-width:0"><div class="eyebrow">Yönetim</div><h2 style="font-size:24px">Personel · ${srv.personel.length} kişi</h2></div>
       <button class="btn primary" data-act="per-add">${ICON_PLUS}Kişi ekle</button><button class="btn" data-act="per-bulk">Toplu ekle</button></div>
     <div class="chips">${roleChips}</div>
-    <p class="small muted" style="margin:0">${lv >= 4 ? 'Yönetici olarak herkesi yönetebilir; Müdür, Şef ve Personel unvanı verebilirsiniz.' : lv === 3 ? 'Müdür olarak Şef ve Personel unvanı verebilir, sizden alt unvandakileri ekleyip çıkarabilirsiniz.' : 'Şef olarak yeni kişi ekleyip çıkarabilirsiniz; eklenen herkes Personel olur.'} Kişiler ad soyadlarıyla girer; ilk girişte kendi şifresini belirler. Sildiğiniz kişi uygulamadan hemen çıkarılır.</p>
+    <p class="small muted" style="margin:0">${lv >= 4 ? 'Yönetici olarak herkesi yönetebilir; <b>Yönetici dahil</b> tüm unvanları (Yönetici, Müdür, Şef, Personel) verebilirsiniz. Yöneticiler birbirine Yönetici verebilir.' : lv === 3 ? 'Müdür olarak yalnızca <b>Şef ve Personel</b> unvanı verebilirsiniz (müdür müdür veremez); sizden alt unvandakileri ekleyip çıkarabilirsiniz.' : 'Şef olarak yeni kişi ekleyip çıkarabilirsiniz; eklenen herkes Personel olur (şef şef veremez).'} Kişiler ad soyadlarıyla girer; ilk girişte kendi şifresini belirler. Sildiğiniz kişi uygulamadan hemen çıkarılır.</p>
     <input type="search" id="pq" placeholder="İsim ara" value="${esc(ui.pq || '')}" aria-label="Personel ara">
   </div>
   <div class="tablewrap"><table class="grid plist"><thead><tr><th class="name">Ad soyad</th><th>Listede</th><th>Unvan</th><th>Durum</th><th></th></tr></thead><tbody>

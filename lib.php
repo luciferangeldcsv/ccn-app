@@ -32,10 +32,13 @@ const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev
 function level_of(?string $t): int { return LEVELS[$t ?? ''] ?? 1; }
 // liste hazırlama/yayınlama yetkisi müdür ve üstünde
 function role_of(string $t): string { return level_of($t) >= 3 ? 'admin' : 'staff'; }
-// kim hangi unvanı verebilir: DEV hepsini; yönetici müdür/şef/personel; müdür şef/personel; şef yalnızca personel
+// kim hangi unvanı verebilir:
+//  - Yönetici (ve DEV): Yönetici dahil tüm alt unvanları verebilir (yöneticiler birbirine yönetici verebilir)
+//  - Müdür: yalnızca Şef ve Personel (müdür müdür veremez)
+//  - Şef: yalnızca Personel (şef şef veremez)
+//  - Personel: hiçbir yetki yok
 function grantable(string $t): array {
-  // Yönetici unvanı sitede/uygulamada verilemez; yalnızca DEV panelinden (/livadmin) verilir
-  return ['dev' => ['mudur', 'sef', 'personel'], 'yonetici' => ['mudur', 'sef', 'personel'], 'mudur' => ['sef', 'personel'], 'sef' => ['personel']][$t] ?? [];
+  return ['dev' => ['yonetici', 'mudur', 'sef', 'personel'], 'yonetici' => ['yonetici', 'mudur', 'sef', 'personel'], 'mudur' => ['sef', 'personel'], 'sef' => ['personel']][$t] ?? [];
 }
 // kişiye dokunabilir mi (düzenle / sil): yalnızca kendinden alt seviyedekiler; DEV'e kimse dokunamaz
 function can_touch(array $u, array $target): bool {

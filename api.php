@@ -1033,8 +1033,7 @@ function save_person(array $in, array $u, bool $bulk = false): array {
     // telefon değişikliği sistemsel: yalnızca yönetici (ve DEV)
     $sysChange = ($tel !== '' && !hash_equals($old['phone_hash'], hmac('tel:' . $tel)));
     if ($sysChange && $me < 4) $err('Telefon değişikliğini yalnızca yöneticiler yapabilir.');
-    if ($title !== $old['title'] && $title === 'yonetici') $err('Yönetici unvanı yalnızca DEV panelinden verilir.');
-    elseif ($title !== $old['title'] && !in_array($title, $grant, true)) $err('Bu unvanı verme yetkiniz yok.');
+    if ($title !== $old['title'] && !in_array($title, $grant, true)) $err('Bu unvanı verme yetkiniz yok.');
     $sets = ['name = ?' => $name ?: $old['name'], 'role = ?' => role_of($title), 'title = ?' => $title];
     if ($tel !== '') { $sets['phone_hash = ?'] = hmac('tel:' . $tel); $sets['phone_last4 = ?'] = substr($tel, -4); }
     db()->prepare('UPDATE personnel SET ' . implode(', ', array_keys($sets)) . ' WHERE id = ?')->execute([...array_values($sets), $id]);
