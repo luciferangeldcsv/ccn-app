@@ -13,4 +13,9 @@ return [
   'setup_key' => 'BURAYA-KURULUM-ANAHTARI',
   // web paneli farklı bir adresten açılacaksa (gerekmez)
   'origins' => [],
+  // Fotoğraftan isim okuma için yapay zekâ (Anthropic). Anahtar girilirse yüklenen
+  // vardiya listelerindeki isimler sunucuda yapay zekâ ile okunur (çok daha doğru).
+  // Boş bırakılırsa yalnızca cihazdaki zayıf okuma kullanılır. console.anthropic.com'dan alınır.
+  'ai_key' => '',
+  'ai_model' => 'claude-3-5-sonnet-20241022',
 ];

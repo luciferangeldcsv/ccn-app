@@ -17,7 +17,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -29,7 +29,8 @@ function versions(): array {
   $dc = (int)(db()->query('SELECT COUNT(*) FROM announcements')->fetchColumn() ?: 0);
   // appSurum: yayınlanan sürüm (native uygulama eski ise açılışta "güncelleme geldi" uyarısı gösterir)
   $as = @file_get_contents(__DIR__ . '/surum.txt'); $as = $as !== false ? trim($as) : '';
-  return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc, 'ayar' => (int)(meta_get('ayar_surum') ?? 0), 'taslak' => (int)(meta_get('taslak_surum') ?? 0), 'bildirim' => (int)(db()->query('SELECT MAX(id) FROM bildirimler')->fetchColumn() ?: 0), 'appSurum' => $as];
+  return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc, 'ayar' => (int)(meta_get('ayar_surum') ?? 0), 'taslak' => (int)(meta_get('taslak_surum') ?? 0), 'bildirim' => (int)(db()->query('SELECT MAX(id) FROM bildirimler')->fetchColumn() ?: 0), 'appSurum' => $as,
+    'aiOcr' => trim((string)(cfg()['ai_key'] ?? '')) !== '']; // sunucuda AI okuma anahtarı varsa isimler AI ile okunur
 }
 function utc(string $t): string { return str_replace(' ', 'T', $t) . 'Z'; }
 function me_out(array $u): array {
@@ -296,6 +297,36 @@ switch ($r) {
     } catch (PDOException $e) { fail(409, 'Bu kullanıcı adı başkası tarafından alınmış. Başka bir ad seçin.'); }
     $st = db()->prepare('SELECT * FROM personnel WHERE id = ?'); $st->execute([$u['id']]); $p = $st->fetch();
     ok(['ben' => me_out($p)]); // not: bilerek audit YOK — profil loglara yazılmaz
+  }
+
+  // Vardiya listesi görsellerinden isimleri AI ile oku (sunucu anahtarıyla). İstemci numaralı isim-şeritlerini gönderir.
+  case 'isim-oku': {
+    $u = require_level(2, 'Liste okuma yetkiniz yok.');
+    $key = trim((string)(cfg()['ai_key'] ?? '')); if ($key === '') fail(501, 'AI okuma yapılandırılmamış (sunucuya ai_key eklenmeli).', ['aiYok' => true]);
+    $imgs = body()['gorseller'] ?? null; $prompt = (string)(body()['komut'] ?? '');
+    if (!is_array($imgs) || !$imgs || $prompt === '') fail(400, 'Görsel gerekli.');
+    $content = [];
+    foreach (array_slice($imgs, 0, 12) as $im) {
+      $b = (string)$im; if (preg_match('#^data:image/[\w.+-]+;base64,(.+)$#s', $b, $m)) $b = $m[1];
+      $b = preg_replace('/\s+/', '', $b); if ($b === '' || strlen($b) > 5000000) continue;
+      $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => $b]];
+    }
+    if (!$content) fail(400, 'Geçerli görsel yok.');
+    $content[] = ['type' => 'text', 'text' => $prompt];
+    $payload = ['model' => (string)(cfg()['ai_model'] ?? 'claude-3-5-sonnet-20241022'), 'max_tokens' => 2000, 'messages' => [['role' => 'user', 'content' => $content]]];
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+      CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
+      CURLOPT_POSTFIELDS => json_encode($payload)]);
+    $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
+    if ($resp === false) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
+    $j = json_decode($resp, true);
+    if ($code !== 200) fail(502, 'AI okuma hatası (' . $code . '): ' . mb_substr((string)($j['error']['message'] ?? $resp), 0, 160));
+    $text = ''; foreach (($j['content'] ?? []) as $blk) if (($blk['type'] ?? '') === 'text') $text .= $blk['text'];
+    if (preg_match('/\{.*\}/s', $text, $m)) $text = $m[0];
+    $out = json_decode($text, true);
+    if (!is_array($out)) fail(502, 'AI yanıtı çözümlenemedi.');
+    ok(['sonuc' => $out]);
   }
 
   case 'personel': {
