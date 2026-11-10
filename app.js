@@ -542,6 +542,43 @@ function installApp() {
     <div class="row"><button class="btn primary" data-x="1">Tamam</button></div>`);
 }
 const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toLocaleUpperCase('tr');
+// avatar: profil fotoğrafı varsa resim, yoksa baş harfler (yalnızca kişinin kendisine gösterilir)
+const avHtml = (b, cls) => (b && b.avatar) ? `<img class="av ${cls || ''}" src="${esc(b.avatar)}" alt="">` : `<span class="av ${cls || ''}">${esc(initials(b && b.ad))}</span>`;
+async function prepAvatar(file) {
+  if (!/^image\//.test(file.type)) throw new Error('Yalnızca fotoğraf seçin.');
+  const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('Fotoğraf açılamadı.')); im.src = URL.createObjectURL(file); });
+  const S = 256, s = Math.min(img.naturalWidth, img.naturalHeight), cv = document.createElement('canvas'); cv.width = S; cv.height = S;
+  cv.getContext('2d').drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, 0, 0, S, S);
+  URL.revokeObjectURL(img.src);
+  return cv.toDataURL('image/jpeg', 0.85);
+}
+function profilSheet() {
+  const b = auth.ben; const pref = b.girisTercihi || 'ad';
+  sheet(`<h3>Profilim</h3>
+    <p class="small muted" style="margin:0">Profiliniz <b>yalnızca size</b> görünür; yöneticiler, diğer kişiler ve sistem kayıtları dahil hiç kimse göremez.</p>
+    <div class="row" style="align-items:center;gap:14px"><span id="pf-av">${avHtml(b, 'big')}</span>
+      <div class="row" style="gap:8px"><button class="btn" type="button" id="pf-pick">Fotoğraf seç</button><button class="btn" type="button" id="pf-del" ${b.avatar ? '' : 'hidden'}>Kaldır</button></div>
+      <input type="file" id="pf-file" accept="image/*" hidden></div>
+    <label class="field">Kullanıcı adı<input id="pf-user" value="${esc(b.kullaniciAdi || '')}" maxlength="32" autocapitalize="off" autocomplete="off" placeholder="örn. ahmet.yilmaz"></label>
+    <div class="field"><span>Giriş nasıl olsun?</span>
+      <label class="row" style="gap:8px;font-weight:400"><input type="radio" name="pf-pref" value="ad" ${pref === 'ad' ? 'checked' : ''}> Yalnızca ad soyad</label>
+      <label class="row" style="gap:8px;font-weight:400"><input type="radio" name="pf-pref" value="kullanici" ${pref === 'kullanici' ? 'checked' : ''}> Yalnızca kullanıcı adı</label>
+      <label class="row" style="gap:8px;font-weight:400"><input type="radio" name="pf-pref" value="ikisi" ${pref === 'ikisi' ? 'checked' : ''}> İkisi de</label></div>
+    <div class="row"><button class="btn primary" id="pf-save">Kaydet</button><button class="btn" data-x="1">Vazgeç</button></div>`, (bg) => {
+    let newAvatar; // undefined=değiştirme, null=kaldır, string=yeni data url
+    const file = bg.querySelector('#pf-file'); const delBtn = bg.querySelector('#pf-del');
+    bg.querySelector('#pf-pick').addEventListener('click', () => file.click());
+    file.addEventListener('change', async () => { const f = file.files[0]; if (!f) return; try { newAvatar = await prepAvatar(f); bg.querySelector('#pf-av').innerHTML = `<img class="av big" src="${newAvatar}" alt="">`; delBtn.hidden = false; } catch (e) { toast(e.message); } });
+    delBtn.addEventListener('click', () => { newAvatar = null; bg.querySelector('#pf-av').innerHTML = `<span class="av big">${esc(initials(b.ad))}</span>`; delBtn.hidden = true; });
+    bg.querySelector('#pf-save').addEventListener('click', async (e) => {
+      const btn = e.currentTarget; btn.disabled = true;
+      const body = { kullaniciAdi: bg.querySelector('#pf-user').value.trim(), girisTercihi: (bg.querySelector('input[name=pf-pref]:checked') || {}).value || 'ad' };
+      if (newAvatar !== undefined) body.avatar = newAvatar;
+      try { const j = await api('profil-kaydet', body); auth.ben = j.ben; saveAuth(); closeSheet(); toast('Profil kaydedildi'); render(); }
+      catch (err) { btn.disabled = false; toast(err.message); }
+    });
+  });
+}
 const srv = { v: null, duyurular: [], personel: null, kayitlar: null, conflict: false, loading: false };
 const serverPage = (f) => (API_URL.startsWith('http') ? API_URL.replace(/api\.php$/, f) : f);
 
@@ -815,7 +852,7 @@ const $prof = document.createElement('button'); $prof.id = 'prof'; $prof.type = 
 // bildirim zili (sağ üst): duyurular, liste, şikayet, güvenlik ve uygulama güncellemeleri
 const $bell = document.createElement('button'); $bell.id = 'bell'; $bell.type = 'button'; $bell.hidden = true; $bell.setAttribute('aria-label', 'Bildirimler'); $prof.before($bell);
 $bell.addEventListener('click', () => openBell());
-$prof.addEventListener('click', () => go('ayarlar'));
+$prof.addEventListener('click', () => { if (SERVER && auth && auth.ben) profilSheet(); else go('ayarlar'); });
 function renderTabs() {
   const show = !SERVER || !!auth; $tabs.hidden = !show; document.body.classList.toggle('no-tabs', !show);
   // yönetim paneli: yönetici / müdür girişinde solda menü (geniş ekranda), üstte profil
@@ -825,11 +862,11 @@ function renderTabs() {
   $prof.hidden = !(SERVER && auth);
   $bell.hidden = !(SERVER && auth);
   if (SERVER && auth) { const n = bellUnread(); $bell.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>${n ? `<span class="badge">${n > 99 ? '99+' : n}</span>` : ''}`; $bell.setAttribute('aria-label', n ? `Bildirimler, ${n} okunmamış` : 'Bildirimler'); }
-  if (SERVER && auth) $prof.innerHTML = `<span class="av">${esc(initials(auth.ben.ad))}</span><span class="pn"><b>${esc(auth.ben.ad)}</b><small>${esc(titleOf(auth.ben))}</small></span>`;
+  if (SERVER && auth) $prof.innerHTML = `${avHtml(auth.ben)}<span class="pn"><b>${esc(auth.ben.ad)}</b><small>${esc(titleOf(auth.ben))}</small></span>`;
   if (side) {
     const un = unreadCount();
     $side.innerHTML = `<div class="side-title">Yönetim paneli</div>
-      <div class="side-prof"><span class="av">${esc(initials(auth.ben.ad))}</span><div><b>${esc(auth.ben.ad)}</b><span class="role-badge">${esc(titleOf(auth.ben))}</span></div></div>
+      <button type="button" class="side-prof" data-act="profil">${avHtml(auth.ben)}<div><b>${esc(auth.ben.ad)}</b><span class="role-badge">${esc(titleOf(auth.ben))}</span></div></button>
       <div class="side-search"><input type="search" id="side-q" placeholder="Kişi ara (ad soyad)" autocomplete="off" value="${esc(ui.sideQ || '')}" aria-label="Kişi ara"><div id="side-res">${sideResults()}</div></div>
       <nav class="side-nav">${tabList().filter((v) => v !== 'personel').map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}${v === 'sikayet' && srv.sikayetAcik ? `<span class="badge">${srv.sikayetAcik}</span>` : ''}</button>`).join('')}</nav>
       ${canPeople() ? `<div class="side-sub">Kişiler</div><nav class="side-nav">${[['all', 'Tüm kişiler', 2], ['yonetici', 'Yöneticiler', 4], ['mudur', 'Müdürler', 3], ['sef', 'Şefler', 2], ['personel', 'Personeller', 2]].filter(([, , m]) => myLevel() >= m).map(([k, l]) => {
@@ -1606,7 +1643,7 @@ function viewSettings() {
   const admin = !SERVER || isAdmin();
   const roleNote = SERVER ? '<span class="sect-note">Herkese uygulanır</span>' : '';
   const account = SERVER && auth ? `<div class="card stack">
-    <div class="setrow"><span class="acc"><span class="av">${esc(initials(auth.ben.ad))}</span><span><b>${esc(auth.ben.ad)}</b><small>${esc(titleOf(auth.ben))} · ${auth.hatirla ? 'oturum açık kalır' : 'uygulama kapanınca oturum kapanır'}</small></span></span><button class="btn" data-act="logout">Çıkış yap</button></div>
+    <div class="setrow"><span class="acc">${avHtml(auth.ben)}<span><b>${esc(auth.ben.ad)}</b><small>${esc(titleOf(auth.ben))}${auth.ben.kullaniciAdi ? ' · @' + esc(auth.ben.kullaniciAdi) : ''} · ${auth.hatirla ? 'oturum açık kalır' : 'uygulama kapanınca oturum kapanır'}</small></span></span><span class="row" style="gap:8px"><button class="btn" data-act="profil">Profili düzenle</button><button class="btn" data-act="logout">Çıkış yap</button></span></div>
     ${store.pub ? `<p class="small muted" style="margin:0">Yayındaki liste: ${fmtWhen(store.pub.tarih)}${store.pub.yayinlayan ? ' · ' + esc(store.pub.yayinlayan) : ''}</p>` : ''}
   </div>` : '';
   const personal = `<h2 class="sect">${SERVER ? 'Görünüm ve paylaşım<span class="sect-note">Yalnızca sizin için · hesabınıza kaydedilir, her cihazda aynı</span>' : 'Kişisel ayarlar'}</h2>
@@ -1954,6 +1991,7 @@ const actions = {
     if (id && matchMedia('(max-width: 1199px)').matches) { ui.pSel = id; sheet('<div id="psheet">Yükleniyor…</div><div class="row"><button class="btn" data-x="1">Kapat</button></div>', async (bg) => { try { srv.kisi = await api('kisi&id=' + id); bg.querySelector('#psheet').innerHTML = personSide(); bg.querySelectorAll('[data-act="per-edit"]').forEach((b) => b.addEventListener('click', () => { closeSheet(); personnelSheet(id); })); bg.querySelectorAll('[data-act="per-sel"]').forEach((b) => b.addEventListener('click', () => closeSheet())); } catch (e) { bg.querySelector('#psheet').textContent = e.message; } ui.pSel = null; }); return; }
     render();
   },
+  'profil': () => profilSheet(),
   'logout': () => confirmSheet('Çıkış yapılsın mı?', 'Bu cihazdaki oturum kapanır. Yeniden girmek için ad soyad ve şifreniz gerekir.', 'Çıkış yap', async () => { try { await pushDisable(true); } catch (e) { /* yoksay */ } try { await api('cikis', {}); } catch (e) { /* yoksay */ } signOut(''); }),
   'sample': async (el) => {
     const ns = el.dataset.n === 'all' ? ['1', '2', '3'] : [el.dataset.n];
@@ -2010,7 +2048,7 @@ function viewLogin() {
   else if (L.step === 'yenile') form = `<p style="margin:0">Merhaba <b>${esc(L.ad || '')}</b>. Unvanınız için şifre kuralı farklı; devam etmek için yeni bir şifre belirleyin.</p>
       ${newPw}
       <div class="row"><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Kaydediliyor…' : 'Şifreyi güncelle ve gir'}</button><button class="btn" type="button" data-act="login-back">Geri</button></div>`;
-  else form = `<label class="field">Ad Soyad<input id="lg-kimlik" autocomplete="name" autocapitalize="words" value="${esc(L.kimlik || '')}" placeholder="Örn. Ahmet Yılmaz" required></label>
+  else form = `<label class="field">Ad Soyad veya Kullanıcı Adı<input id="lg-kimlik" autocomplete="username" autocapitalize="none" value="${esc(L.kimlik || '')}" placeholder="Ad soyad ya da kullanıcı adı" required></label>
       <label class="field">Şifre<input id="lg-pin" type="password" maxlength="64" autocomplete="current-password" required></label>
       <label class="row" style="gap:8px"><input type="checkbox" id="lg-remember" ${L.hatirla !== false ? 'checked' : ''}> <span>Beni hatırla <span class="small muted">(uygulama kapansa da oturum açık kalır)</span></span></label>
       <div class="row"><button class="btn primary" type="submit" ${L.busy ? 'disabled' : ''}>${L.busy ? 'Giriş yapılıyor…' : 'Giriş yap'}</button><button class="btn" type="button" data-act="login-create" ${L.busy ? 'disabled' : ''}>Şifrem yok · Şifre oluştur</button></div>`;
