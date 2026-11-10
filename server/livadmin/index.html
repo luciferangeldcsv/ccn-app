@@ -307,7 +307,7 @@ async function duy() {
 async function dos() {
   let sayfa = 1;
   // üst sekmeler: her biri gönderilen (yüklenen) dosyalar üzerinde bir filtredir
-  const SEK = [['tumu', 'Tümü', '', ''], ['secilen', 'Seçilenler (resimler)', '', 'foto'], ['gonderilen', 'Gönderilenler (eğitim/not)', 'egitim', ''], ['atilan', 'Atılanlar (duyuru)', 'duyuru', ''], ['sikayet', 'Şikayete atılanlar', 'sikayet', '']];
+  const SEK = [['tumu', 'Tümü', '', ''], ['secilen', 'Seçilenler (resimler)', '', 'foto'], ['pp', 'Profil (PP)', 'pp', ''], ['gonderilen', 'Gönderilenler (eğitim/not)', 'egitim', ''], ['atilan', 'Atılanlar (duyuru)', 'duyuru', ''], ['sikayet', 'Şikayete atılanlar', 'sikayet', '']];
   let sek = fsek || 'tumu';
   M(`<div class="top"><h2>Yüklenen dosyalar</h2><span class="mut" id="fdt"></span></div>
     <div class="ftabs" id="ftabs">${SEK.map(([k, l]) => `<button class="ftab${k === sek ? ' on' : ''}" data-sek="${k}">${l}</button>`).join('')}</div>
@@ -326,7 +326,7 @@ async function dos() {
       const who = f.yukleyenId ? `${esc(f.yukleyen || '—')} ${tag(f.unvan)}${f.askida ? ' <span class="badge-ban">askıda</span>' : f.uyari ? ` <span class="badge-uyari">${f.uyari} uyarı</span>` : ''}` : '<span class="mut">bilinmiyor</span>';
       const net = (f.ip ? f.ip : '') + (f.cihaz ? (f.ip ? ' · ' : '') + f.cihaz : '');
       return `<div class="fcard"><div data-full="${esc(f.url)}">${thumb}</div><div class="meta"><b>${esc(f.bolum)}</b><span class="who">${who}</span><span class="mut">${when(f.tarih)} · ${(f.boyut / 1024 | 0)} KB</span>${net ? `<span class="mut mono" style="font-size:11px">${esc(net)}</span>` : ''}</div>
-        <div class="acts">${f.kaynak === 'dosya' ? `<button class="btn red" data-fbad="${f.id}" data-adi="${esc(f.yukleyen || '')}" title="Dosyayı sil ve kişiye uyarı say (3. uyarıda otomatik askıya alınır)">Uygunsuz · sil</button>` : `<button class="btn" data-fdel="${f.kaynak}:${f.id}">Sil</button>`}</div>
+        <div class="acts">${(f.kaynak === 'dosya' || f.kaynak === 'pp') ? `<button class="btn red" data-fbad="${f.id}" data-kaynak="${f.kaynak}" data-adi="${esc(f.yukleyen || '')}" title="${f.kaynak === 'pp' ? 'Profil fotoğrafını kaldır ve kişiye uyarı say' : 'Dosyayı sil ve kişiye uyarı say'} (3. uyarıda otomatik askıya alınır)">Uygunsuz · ${f.kaynak === 'pp' ? 'kaldır' : 'sil'}</button><button class="btn" data-fdel="${f.kaynak}:${f.id}" title="Sadece kaldır (uyarı sayma)">${f.kaynak === 'pp' ? 'Kaldır' : 'Sil'}</button>` : `<button class="btn" data-fdel="${f.kaynak}:${f.id}">Sil</button>`}</div>
         <div class="acts">${f.yukleyenId && f.unvan !== 'dev' && !f.askida ? `<button class="btn" data-ban2="${f.yukleyenId}" data-adi="${esc(f.yukleyen || '')}">Askıya al</button>` : ''}${f.ip ? `<button class="btn" data-ipban="${esc(f.ip)}">IP engelle</button>` : ''}${f.kaynak === 'dosya' ? '' : `<button class="btn" data-fdel="${f.kaynak}:${f.id}">Sil</button>`}</div></div>`;
     }).join('') || '<p class="mut">Bu filtreye uyan dosya yok.</p>';
   };
@@ -336,7 +336,7 @@ async function dos() {
     const ib = e.target.closest('[data-ipban]');
     if (ib) { const ip = ib.dataset.ipban; const h = prompt(`${ip} engellensin mi? Kaç saat? (0 = kalıcı)`, '0'); if (h === null) return; try { await api('dev-ban', { ip, sebep: 'Uygunsuz içerik', saat: parseInt(h, 10) || 0 }); alert(`${ip} engellendi`); } catch (err) { alert(err.message); } return; }
     const bad = e.target.closest('[data-fbad]');
-    if (bad) { if (!confirm(`Bu dosya silinsin ve ${bad.dataset.adi || 'yükleyen'} için uygunsuz içerik uyarısı sayılsın mı? (3. uyarıda otomatik askıya alınır)`)) return; try { const j = await api('dev-dosya-sil', { kaynak: 'dosya', id: +bad.dataset.fbad, uygunsuz: true }); if (j.askiya) alert('Dosya silindi ve kişi otomatik askıya alındı (3 uyarı).'); else if (j.uyari) alert(`Dosya silindi · ${bad.dataset.adi}: ${j.uyari}. uyarı.`); load(); } catch (err) { alert(err.message); } return; }
+    if (bad) { const pp = bad.dataset.kaynak === 'pp'; if (!confirm(`${pp ? 'Bu profil fotoğrafı kaldırılsın' : 'Bu dosya silinsin'} ve ${bad.dataset.adi || 'kişi'} için uygunsuz içerik uyarısı sayılsın mı? (3. uyarıda otomatik askıya alınır)`)) return; try { const j = await api('dev-dosya-sil', { kaynak: bad.dataset.kaynak || 'dosya', id: +bad.dataset.fbad, uygunsuz: true }); if (j.askiya) alert('İçerik kaldırıldı ve kişi otomatik askıya alındı (3 uyarı).'); else if (j.uyari) alert(`İçerik kaldırıldı · ${bad.dataset.adi}: ${j.uyari}. uyarı.`); load(); } catch (err) { alert(err.message); } return; }
     const fd = e.target.closest('[data-fdel]');
     if (fd) { if (!confirm('Dosya silinsin mi?')) return; const [k, id] = fd.dataset.fdel.split(':'); try { await api('dev-dosya-sil', { kaynak: k, id: +id }); load(); } catch (err) { alert(err.message); } }
   });

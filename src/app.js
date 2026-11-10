@@ -555,11 +555,11 @@ async function prepAvatar(file) {
 function profilSheet() {
   const b = auth.ben; const pref = b.girisTercihi || 'ad';
   sheet(`<h3>Profilim</h3>
-    <p class="small muted" style="margin:0">Profiliniz <b>yalnızca size</b> görünür; yöneticiler, diğer kişiler ve sistem kayıtları dahil hiç kimse göremez.</p>
+    <p class="small muted" style="margin:0">Profiliniz size <b>özeldir</b>, kimse görmez. Kullanıcı adınız ve fotoğrafınız yöneticiler, diğer kişiler ve sistem kayıtları dahil <b>hiç kimseye görünmez</b>.</p>
     <div class="row" style="align-items:center;gap:14px"><span id="pf-av">${avHtml(b, 'big')}</span>
       <div class="row" style="gap:8px"><button class="btn" type="button" id="pf-pick">Fotoğraf seç</button><button class="btn" type="button" id="pf-del" ${b.avatar ? '' : 'hidden'}>Kaldır</button></div>
       <input type="file" id="pf-file" accept="image/*" hidden></div>
-    <label class="field">Kullanıcı adı<input id="pf-user" value="${esc(b.kullaniciAdi || '')}" maxlength="32" autocapitalize="off" autocomplete="off" placeholder="örn. ahmet.yilmaz"></label>
+    <label class="field">Kullanıcı adı<input id="pf-user" value="${esc(b.kullaniciAdi || '')}" maxlength="32" autocapitalize="off" autocomplete="off" placeholder="örn. ahmet.yilmaz"><small class="muted">Benzersizdir; başkası aynı kullanıcı adını alamaz.</small></label>
     <div class="field"><span>Giriş nasıl olsun?</span>
       <label class="row" style="gap:8px;font-weight:400"><input type="radio" name="pf-pref" value="ad" ${pref === 'ad' ? 'checked' : ''}> Yalnızca ad soyad</label>
       <label class="row" style="gap:8px;font-weight:400"><input type="radio" name="pf-pref" value="kullanici" ${pref === 'kullanici' ? 'checked' : ''}> Yalnızca kullanıcı adı</label>
