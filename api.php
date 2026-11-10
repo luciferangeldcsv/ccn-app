@@ -32,7 +32,7 @@ function versions(): array {
 function utc(string $t): string { return str_replace(' ', 'T', $t) . 'Z'; }
 function me_out(array $u): array {
   $t = $u['title'] ?? ($u['role'] === 'admin' ? 'yonetici' : 'personel'); $lv = level_of($t);
-  return ['id' => $u['id'], 'ad' => $u['name'], 'rol' => $lv >= 3 ? 'admin' : 'staff', 'unvan' => $t, 'seviye' => $lv, 'sicil' => $u['sicil'],
+  return ['id' => $u['id'], 'ad' => $u['name'], 'rol' => $lv >= 3 ? 'admin' : 'staff', 'unvan' => $t, 'seviye' => $lv,
     'verebilir' => grantable($t), 'yetki' => ['liste' => $lv >= 2, 'yayin' => $lv >= 3, 'kisi' => $lv >= 2, 'sistem' => $lv >= 4, 'taslak' => $lv >= 2],
     'tercih' => json_decode((string)($u['prefs'] ?? ''), true) ?: null];
 }
@@ -128,7 +128,7 @@ switch ($r) {
       }
     }
     audit(['id' => $p['id'], 'name' => $p['name']], 'giris');
-    ok(['token' => $tok, 'ben' => me_out(['id' => (int)$p['id'], 'name' => $p['name'], 'role' => $p['role'], 'title' => $p['title'] ?? null, 'prefs' => $p['prefs'] ?? null, 'sicil' => $p['sicil']]), 'hatirla' => $hatirla]);
+    ok(['token' => $tok, 'ben' => me_out(['id' => (int)$p['id'], 'name' => $p['name'], 'role' => $p['role'], 'title' => $p['title'] ?? null, 'prefs' => $p['prefs'] ?? null]), 'hatirla' => $hatirla]);
   }
 
   // "Şifrem yok": yazılan Personel ID'nin şifresi var mı (varsa uyarı), şifre kuralı ne
@@ -273,14 +273,14 @@ switch ($r) {
   case 'personel': {
     $u = require_level(2);
     $me = level_of($u['title']); $sys = $me >= 4;
-    $rows = db()->query('SELECT id, name, sicil, tc_last2, phone_last4, role, title, banned, pin_hash IS NOT NULL has_pin, locked_until, last_login, created_at FROM personnel ORDER BY name')->fetchAll();
+    $rows = db()->query('SELECT id, name, tc_last2, phone_last4, role, title, banned, pin_hash IS NOT NULL has_pin, locked_until, last_login, created_at FROM personnel ORDER BY name')->fetchAll();
     $out = []; $keys = [];
     foreach ($rows as $p) {
       $keys[] = name_key($p['name']); // hesabı olan isimler (gizli hesap dahil): listedeki isimlerle eşleştirmek için
       // DEV hesabı herkese (kendisine de) sıradan Personel olarak görünür; DEV yalnızca /livadmin'de belli olur
       $mask = $p['title'] === 'dev';
       $touch = can_touch($u, $p);
-      $out[] = ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'telefon' => $p['phone_last4'] !== '' ? '•••••• ' . $p['phone_last4'] : '',
+      $out[] = ['id' => (int)$p['id'], 'ad' => $p['name'], 'telefon' => $p['phone_last4'] !== '' ? '•••••• ' . $p['phone_last4'] : '',
         'rol' => $mask ? 'staff' : (level_of($p['title']) >= 3 ? 'admin' : 'staff'), 'unvan' => $mask ? 'personel' : $p['title'], 'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(),
         'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'ben' => (int)$p['id'] === $u['id'], 'askida' => (bool)$p['banned'],
         'duzenle' => $touch && $me >= 3, 'sil' => $touch, 'sifirla' => $touch, 'sistem' => $touch && $sys];
@@ -612,7 +612,7 @@ switch ($r) {
   case 'kisi': {
     $u = require_level(2);
     $id = (int)($_GET['id'] ?? 0);
-    $st = db()->prepare('SELECT id, name, sicil, title, phone_last4, tc_last2, pin_hash IS NOT NULL has_pin, failed, locked_until, last_login, seen_roster, seen_at, created_at FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
+    $st = db()->prepare('SELECT id, name, title, phone_last4, tc_last2, pin_hash IS NOT NULL has_pin, failed, locked_until, last_login, seen_roster, seen_at, created_at FROM personnel WHERE id = ?'); $st->execute([$id]); $p = $st->fetch();
     if (!$p) fail(404, 'Kişi bulunamadı.');
     $me = level_of($u['title']); $mask = $p['title'] === 'dev' && $me < 5; $tl = $mask ? 1 : level_of($p['title']);
     $own = (int)$p['id'] === $u['id'];
@@ -627,7 +627,7 @@ switch ($r) {
       $q->execute(['%' . $p['name'] . '%', $id]);
       foreach ($q->fetchAll() as $a) if (log_visible($u, $a)) $about[] = ['kim' => $a['who'], 'islem' => $a['action'], 'detay' => $a['detail'], 'tarih' => utc($a['at'])];
     }
-    ok(['kisi' => ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'unvan' => $p['title'] === 'dev' ? 'personel' : $p['title'], 'telefon' => $p['phone_last4'] !== '' ? '•••••• ' . $p['phone_last4'] : '',
+    ok(['kisi' => ['id' => (int)$p['id'], 'ad' => $p['name'], 'unvan' => $p['title'] === 'dev' ? 'personel' : $p['title'], 'telefon' => $p['phone_last4'] !== '' ? '•••••• ' . $p['phone_last4'] : '',
       'sifreVar' => (bool)$p['has_pin'], 'kilitli' => $p['locked_until'] && $p['locked_until'] > now(), 'hatali' => (int)$p['failed'],
       'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'eklenme' => utc($p['created_at']), 'acikOturum' => $sess,
       'sonListe' => $last, 'listeyiGordu' => $last && (int)$p['seen_roster'] === $last, 'gordugu' => $p['seen_at'] ? utc($p['seen_at']) : null],
@@ -711,13 +711,13 @@ switch ($r) {
 
   case 'dev-kullanicilar': {
     dev_only();
-    $rows = db()->query('SELECT p.id, p.name, p.sicil, p.title, p.banned, p.ban_reason, p.phone_last4, p.pin_hash IS NOT NULL has_pin, p.failed, p.locked_until, p.last_login, p.created_at, p.seen_at,
+    $rows = db()->query('SELECT p.id, p.name, p.title, p.banned, p.ban_reason, p.phone_last4, p.pin_hash IS NOT NULL has_pin, p.failed, p.locked_until, p.last_login, p.created_at, p.seen_at,
       (SELECT COUNT(*) FROM sessions s WHERE s.personnel_id = p.id AND s.expires_at > UTC_TIMESTAMP()) oturum,
       (SELECT COUNT(*) FROM audit a WHERE a.personnel_id = p.id) islem,
       (SELECT a.ip FROM audit a WHERE a.personnel_id = p.id AND a.action = \'giris\' ORDER BY a.id DESC LIMIT 1) son_ip,
       (SELECT a.ua FROM audit a WHERE a.personnel_id = p.id AND a.action = \'giris\' ORDER BY a.id DESC LIMIT 1) son_ua
       FROM personnel p ORDER BY FIELD(p.title, \'dev\', \'yonetici\', \'mudur\', \'sef\', \'personel\'), p.name')->fetchAll();
-    ok(['kullanicilar' => array_map(fn($p) => ['id' => (int)$p['id'], 'ad' => $p['name'], 'sicil' => $p['sicil'], 'unvan' => $p['title'], 'telefon' => '••' . $p['phone_last4'], 'sifreVar' => (bool)$p['has_pin'],
+    ok(['kullanicilar' => array_map(fn($p) => ['id' => (int)$p['id'], 'ad' => $p['name'], 'unvan' => $p['title'], 'telefon' => '••' . $p['phone_last4'], 'sifreVar' => (bool)$p['has_pin'],
       'kilitli' => $p['locked_until'] && $p['locked_until'] > now(), 'hatali' => (int)$p['failed'], 'sonGiris' => $p['last_login'] ? utc($p['last_login']) : null, 'eklenme' => utc($p['created_at']),
       'listeGordu' => $p['seen_at'] ? utc($p['seen_at']) : null, 'oturum' => (int)$p['oturum'], 'islem' => (int)$p['islem'], 'sonIp' => $p['son_ip'], 'sonCihaz' => $p['son_ua'] ? ua_text((string)$p['son_ua']) : null, 'askida' => (bool)$p['banned'], 'askiSebep' => $p['ban_reason']], $rows)]);
   }
@@ -999,7 +999,7 @@ function gorev_out(array $g, array $u, int $lv, bool $can): array {
     'maddeler' => array_map(fn($x, $i) => ['metin' => $x, 'yapan' => isset($d[$i]) ? $d[$i]['who'] : null, 'benim' => isset($d[$i]) && (int)$d[$i]['personnel_id'] === $u['id'], 'zaman' => isset($d[$i]) ? utc($d[$i]['at']) : null], $m, array_keys($m))];
 }
 
-// Yeni kişi ekle ya da var olanı güncelle. Toplu eklemede sicil/TC ile eşleşen kişi güncellenir.
+// Yeni kişi ekle ya da var olanı güncelle. Toplu eklemede aynı ada sahip kişi güncellenir.
 // isim karşılaştırma: büyük/küçük harf ve Türkçe karakter farkı yok sayılır (uygulamadaki nameKey ile aynı)
 function name_key(string $s): string {
   $s = mb_strtolower(str_replace(['I', 'İ'], ['ı', 'i'], $s), 'UTF-8');
@@ -1044,8 +1044,8 @@ function save_person(array $in, array $u, bool $bulk = false): array {
   }
   if ($name === '') $err('Ad soyad gerekli.');
   if ($bulk || !in_array($title, $grant, true)) $title = 'personel'; // yeni eklenen herkes Personel; üst unvanı yalnızca yetkili verir
-  db()->prepare('INSERT INTO personnel (name, sicil, tc_hash, tc_last2, phone_hash, phone_last4, role, title, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-    ->execute([$name, null, null, null, $tel !== '' ? hmac('tel:' . $tel) : '', $tel !== '' ? substr($tel, -4) : '', role_of($title), $title, now()]);
+  db()->prepare('INSERT INTO personnel (name, tc_hash, tc_last2, phone_hash, phone_last4, role, title, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    ->execute([$name, null, null, $tel !== '' ? hmac('tel:' . $tel) : '', $tel !== '' ? substr($tel, -4) : '', role_of($title), $title, now()]);
   $nid = (int)db()->lastInsertId();
   if (!$bulk) audit($u, 'personel-eklendi', $name . ($title !== 'personel' ? ' (' . TITLES[$title] . ')' : ''));
   return ['id' => $nid, 'yeni' => true];
