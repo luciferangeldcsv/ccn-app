@@ -1656,9 +1656,10 @@ function viewReview() {
   const toCheck = M.rows.filter((m) => !isSkipped(m) && m.check && !m.edited).length;
   const warn = R.parts.flatMap((P) => P.warnings.map((w) => `<div class="note"><b>${esc(P.file)}:</b> ${esc(w)}</div>`)).join('');
   const cs = R.parts.map((P) => P.claude || { status: 'off' });
-  const claudeNote = !window.claude ? '' : cs.every((c) => c.status === 'ok')
-    ? `<div class="aiok">${ICON_CHECK}<span>İsimler Claude ile okundu. Yanlış bir isim görürseniz üzerine dokunup düzeltin; düzeltme hatırlanır.</span></div>`
-    : `<div class="aibad"><span><b>İsimler Claude ile okunamadı</b>${cs.find((c) => c.code) ? ` (${esc(cs.find((c) => c.code).code)})` : ''}; daha zayıf olan cihaz okuması kullanıldı. Claude'a izin verip görselleri yeniden yükleyin.</span><button class="btn" data-act="perm-manage">İzinleri aç</button></div>`;
+  const tried = cs.filter((c) => c.status === 'ok' || c.status === 'err'); const errc = cs.find((c) => c.code);
+  const claudeNote = !tried.length ? '' : tried.every((c) => c.status === 'ok')
+    ? `<div class="aiok">${ICON_CHECK}<span>İsimler yapay zekâ ile okundu. Yanlış bir isim görürseniz üzerine dokunup düzeltin; düzeltme hatırlanır.</span></div>`
+    : `<div class="aibad"><span><b>İsimler yapay zekâ ile okunamadı</b>${errc ? ` (${esc(errc.code)})` : ''}; daha zayıf olan cihaz okuması kullanıldı.${window.claude ? ' Yapay zekâya izin verip görselleri yeniden yükleyin.' : ''}</span>${window.claude ? '<button class="btn" data-act="perm-manage">İzinleri aç</button>' : ''}</div>`;
   const parts = R.parts.map((P) => `<div class="part">
       <canvas id="rv-cv-${P.id}" class="thumb"></canvas>
       <div class="stack" style="gap:8px;min-width:0">
@@ -3100,6 +3101,72 @@ function getSampler() {
   return samplerP;
 }
 let claudeStatus = { status: 'off' };
+// İsim okuma istemi (hem claude.ai Sampler hem sunucu yapay zekâsı aynı metni kullanır)
+function namePrompt(withHead) {
+  let p = 'These images come from a Turkish hospital staff shift roster (vardiya listesi). '
+    + 'Each image shows numbered rows; on the far left of every row is its row number, then that person\'s NAME cell. '
+    + 'For EVERY numbered row, read the full name EXACTLY as written — keep the Turkish letters Ç Ğ I İ Ö Ş Ü Â and copy them exactly; do NOT translate, correct, guess or complete a name. '
+    + 'If a row has no readable person name (a header like ADI SOYADI, a section title such as "2. VARDİYA", or an empty cell), skip that row. ';
+  if (withHead) {
+    p += 'The FIRST image is the TOP of the roster (title and header row). From it also read: '
+      + '"shift" = the shift number if the title states it (1. VARDİYA -> "1", 2. -> "2", 3. -> "3"), otherwise ""; '
+      + '"first_day" = the full date (DD.MM.YYYY) of the first day column, otherwise "". '
+      + 'Reply with ONLY this JSON: {"shift":"1","first_day":"01.11.2026","names":{"1":"AYŞE YILMAZ","2":"MEHMET DEMİR"}}.';
+  } else {
+    p += 'Reply with ONLY one JSON object mapping each row number (as a string) to its name, for example {"1":"AYŞE YILMAZ","2":"MEHMET DEMİR"}.';
+  }
+  return p;
+}
+// Sunucudaki yapay zekâ (Anthropic) ile isim okuma: claude.ai dışında (gerçek site / Android) kullanılır.
+// İsim şeritleri readNamesWithClaude ile birebir aynı biçimde kurulur, farkı: base64 PNG olarak 'isim-oku' ucuna POST edilir.
+async function readNamesWithServer(src, rowsB, [x0, x1], include, progress, head) {
+  const idx = rowsB.map((_, r) => r).filter((r) => include[r]); if (!idx.length) return null;
+  const rh = 48, label = 48; const cw = x1 - x0;
+  const imgs = []; let chunk = [];
+  const flush = () => {
+    if (!chunk.length) return;
+    const width = Math.min(1000, label + Math.round(cw * rh / Math.max(1, (rowsB[chunk[0]][1] - rowsB[chunk[0]][0]))));
+    const c = document.createElement('canvas'); c.width = width; c.height = chunk.length * (rh + 6) + 6;
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingQuality = 'high';
+    chunk.forEach((r, i) => {
+      const [y0, y1] = rowsB[r]; const y = 6 + i * (rh + 6);
+      g.fillStyle = '#000'; g.font = 'bold 20px sans-serif'; g.fillText(String(r + 1), 6, y + rh * 0.68);
+      g.drawImage(src, x0, y0, cw, y1 - y0, label, y, width - label - 4, rh);
+      g.strokeStyle = '#999'; g.strokeRect(label - 2, y - 1, width - label, rh + 2);
+    });
+    imgs.push(c); chunk = [];
+  };
+  for (const r of idx) { chunk.push(r); if ((chunk.length + 1) * (rh + 6) * 1000 > 1100000) flush(); }
+  flush();
+  progress('İsimler, vardiya ve tarih yapay zekâ ile okunuyor', 0.5);
+  const out = rowsB.map(() => null); const meta = { shift: '', firstDay: '' };
+  const toB64 = (c) => new Promise((resolve) => c.toBlob((b) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result).split(',')[1]); fr.readAsDataURL(b); }, 'image/png'));
+  try {
+    const per = 5; // istek başına en çok 5 şerit (+başlık): yük/istek süresi dengesi
+    for (let i = 0; i < imgs.length; i += per) {
+      const part = imgs.slice(i, i + per);
+      const withHead = i === 0 && !!head;
+      const b64 = await Promise.all((withHead ? [head, ...part] : part).map(toB64));
+      progress(`İsimler yapay zekâ ile okunuyor (${Math.min(imgs.length, i + per)}/${imgs.length})`, 0.5);
+      const j = await api('isim-oku', { gorseller: b64, komut: namePrompt(withHead) });
+      const res = j && j.sonuc;
+      const names = res && typeof res === 'object' ? (res.names && typeof res.names === 'object' ? res.names : res) : {};
+      for (const [k, v] of Object.entries(names)) { const r = parseInt(k, 10) - 1; if (r >= 0 && r < out.length && typeof v === 'string') out[r] = v.replace(/\s+/g, ' ').trim(); }
+      if (withHead && res) {
+        if (/^[123]$/.test(String(res.shift || ''))) meta.shift = String(res.shift);
+        const m = String(res.first_day || '').match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+        if (m) { const d = new Date(+m[3], +m[2] - 1, +m[1]); if (!isNaN(d) && Math.abs(d - new Date()) < 400 * 864e5) meta.firstDay = iso(d); }
+      }
+    }
+    claudeStatus = { status: 'ok' };
+    out.meta = meta;
+  } catch (e) {
+    const aiYok = !!(e && e.data && e.data.aiYok);
+    console.warn('Sunucu isim okuma', aiYok ? 'aiYok' : (e && e.message)); claudeStatus = { status: 'err', code: aiYok ? 'aiYok' : 'srv' };
+    return out.some((x) => x != null) ? out : null;
+  }
+  return out;
+}
 async function readNamesWithClaude(src, rowsB, [x0, x1], include, progress, head) {
   const S = await getSampler(); if (!S) { claudeStatus = { status: 'off' }; return null; }
   const idx = rowsB.map((_, r) => r).filter((r) => include[r]); if (!idx.length) return null;
@@ -3129,17 +3196,7 @@ async function readNamesWithClaude(src, rowsB, [x0, x1], include, progress, head
       const part = imgs.slice(i, i + per);
       const withHead = i === 0 && !!head;
       const blobs = await Promise.all((withHead ? [head, ...part] : part).map((c) => new Promise((res) => c.toBlob(res, 'image/png'))));
-      const res = await S.sm.json((withHead
-        ? 'Image 1 shows the TOP of a Turkish hospital staff shift roster table: its title and the header row with the day numbers or dates of each day column. The other images show numbered rows cut from the NAME column of the same table. '
-        : 'These images show numbered rows cut from the NAME column of a Turkish hospital staff shift roster table. ')
-        + 'In each row, the number on the left is the row number and the box next to it is that row\'s name cell. '
-        + 'Read the person\'s full name in every row exactly as written, letter by letter, keeping Turkish letters (Ç Ğ I İ Ö Ş Ü). '
-        + 'Do not guess or correct spelling; copy what is written. If a row has no person name (empty, a column header such as "ADI SOYADI", a shift label, or a code like OFF), use an empty string. '
-        + 'Reply with only one JSON object: {"shift": "1", "first_day": "02.11.2026", "names": {"3": "AYŞE YILMAZ", "4": ""}} where '
-        + '"shift" is the shift this table is for if its title says so (1. VARDİYA / SABAH / 08-16 -> "1", 2. VARDİYA / AKŞAM / 16-24 -> "2", 3. VARDİYA / GECE / 24-08 -> "3"), otherwise ""; '
-        + '"first_day" is the date of the FIRST (leftmost) day column as DD.MM.YYYY, taking month and year from the title if the header shows only day numbers, otherwise ""; '
-        + '"names" maps each row number (as a string) to the name.' + (withHead ? '' : ' Use "" for shift and first_day in this reply.'),
-        { images: blobs.length === 1 ? blobs[0] : blobs });
+      const res = await S.sm.json(namePrompt(withHead), { images: blobs.length === 1 ? blobs[0] : blobs });
       const names = res && typeof res === 'object' ? (res.names && typeof res.names === 'object' ? res.names : res) : {};
       for (const [k, v] of Object.entries(names)) { const r = parseInt(k, 10) - 1; if (r >= 0 && r < out.length && typeof v === 'string') out[r] = v.replace(/\s+/g, ' ').trim(); }
       if (withHead && res) {
@@ -3809,7 +3866,10 @@ async function analyzeTable(img, progress) {
     const headY = rowsB[Math.min(1, rowsB.length - 1)][1] + 2;
     const head = document.createElement('canvas'); const hs = Math.min(1, 1000 / w); head.width = Math.round(w * hs); head.height = Math.round(headY * hs);
     head.getContext('2d').drawImage(cv, 0, 0, w, headY, 0, 0, head.width, head.height);
-    const ai = await readNamesWithClaude(cv, rowsB, colsB[nameCol], rowsB.map((_, r) => !(grayRow[r] || all[r][nameCol].gray)), progress, head);
+    const include = rowsB.map((_, r) => !(grayRow[r] || all[r][nameCol].gray));
+    let ai = await readNamesWithClaude(cv, rowsB, colsB[nameCol], include, progress, head);
+    // claude.ai dışında (gerçek site / Android) Sampler yok: sunucu yapay zekâsı yapılandırılmışsa ona okut
+    if (!ai && SERVER && srv.v && srv.v.aiOcr) ai = await readNamesWithServer(cv, rowsB, colsB[nameCol], include, progress, head);
     if (ai && ai.meta) aiMeta = ai.meta;
     if (ai) { ai.forEach((t, r) => { if (t != null) { names[r] = t; aiRow[r] = true; } }); best = names.slice(); }
     claudeInfo = claudeStatus;
