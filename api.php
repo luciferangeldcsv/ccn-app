@@ -27,7 +27,9 @@ function versions(): array {
   $l = (int)(db()->query('SELECT MAX(id) FROM rosters')->fetchColumn() ?: 0);
   $d = (int)(db()->query('SELECT MAX(id) FROM announcements')->fetchColumn() ?: 0);
   $dc = (int)(db()->query('SELECT COUNT(*) FROM announcements')->fetchColumn() ?: 0);
-  return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc, 'ayar' => (int)(meta_get('ayar_surum') ?? 0), 'taslak' => (int)(meta_get('taslak_surum') ?? 0), 'bildirim' => (int)(db()->query('SELECT MAX(id) FROM bildirimler')->fetchColumn() ?: 0)];
+  // appSurum: yayınlanan sürüm (native uygulama eski ise açılışta "güncelleme geldi" uyarısı gösterir)
+  $as = @file_get_contents(__DIR__ . '/surum.txt'); $as = $as !== false ? trim($as) : '';
+  return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc, 'ayar' => (int)(meta_get('ayar_surum') ?? 0), 'taslak' => (int)(meta_get('taslak_surum') ?? 0), 'bildirim' => (int)(db()->query('SELECT MAX(id) FROM bildirimler')->fetchColumn() ?: 0), 'appSurum' => $as];
 }
 function utc(string $t): string { return str_replace(' ', 'T', $t) . 'Z'; }
 function me_out(array $u): array {
