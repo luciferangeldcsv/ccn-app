@@ -1,0 +1,64 @@
+Yeni bir iPhone uygulamasını App Store'a yükleyeceğiz. Mac'im yok; derleme GitHub Actions'ın Mac makinesinde yapılacak. Aşağıdaki hesaplar ve ayarlar HAZIR, yeniden sorma; ne gerekiyorsa adım adım, link vererek söyle. Benim yapmam gereken şeyleri tek tek, tıklanacak linkleriyle yaz.
+
+=== HESAPLAR (hazır) ===
+• Apple Developer Program: aktif (Bireysel, Abdullah TUGAY), 31 Ekim 2027'ye kadar geçerli.
+  - Team ID: ZT67S2LPV2
+  - Developer: https://developer.apple.com/account
+  - Bundle ID kaydı: https://developer.apple.com/account/resources/identifiers/list
+  - App Store Connect: https://appstoreconnect.apple.com/apps
+• App Store Connect API anahtarı (Admin):
+  - Key ID: XSN73M763K
+  - Issuer ID: de2ddb00-9229-4f41-8c19-cf625d3d175c
+  - Anahtar dosyası AuthKey_XSN73M763K.p8 bende. Sohbete yapıştırmayacağım; GitHub deposunda "ASC_KEY_P8" adlı gizli kayda (Settings → Secrets and variables → Actions) ben gireceğim.
+• GitHub hesabı: luciferangeldcsv (derlemeler bu hesapta çalışıyor).
+  - 20arrow20 hesabını KULLANMA: ödeme kilidi var, Actions işleri hiç başlamıyor.
+  - Örnek çalışan proje (herkese açık, kopyala): https://github.com/luciferangeldcsv/ccn-app
+    → .github/workflows/ios-testflight.yml dosyası çalışan TestFlight yüklemesidir; aynısını kullan.
+• İletişim: destek/gizlilik e-postası abdullahtugay00@gmail.com · App Review iletişim: Abdullah Tugay, abdtgy98@icloud.com
+
+=== BİLİNEN KISITLAR (daha önce yaşandı, zaman kaybetme) ===
+• Bu Claude oturumu App Store Connect API'ye (api.appstoreconnect.apple.com) bağlanamıyor; Apple tarafını ben tarayıcıdan yapıyorum, sen bana tarif et.
+• Claude GitHub'da depo AÇAMIYOR ve gizli kayıt (secret) EKLEYEMİYOR. Depoyu ben açarım, ASC_KEY_P8'i ben eklerim.
+• Claude'un yeni depoya yazabilmesi için:
+  1) Depoyu https://github.com/new adresinden luciferangeldcsv hesabında PUBLIC aç (public depoda Mac derlemesi ücretsiz). README ekleme.
+  2) Claude GitHub uygulamasına depoyu ekle: https://github.com/apps/claude/installations/select_target → luciferangeldcsv → depoyu seç → Save.
+  3) Claude bağlantısını bu hesapla yenile: https://claude.ai/customize/connectors?auth_start=github&auth_start_force=1
+  Sonra Claude add_repo ile depoyu push yetkisiyle bağlasın. Bağlanamazsa kodu herkese açık bir depoya koyup ben https://github.com/new/import ile içe aktarırım.
+• Aynı oturuma aynı isimli iki depo bağlanamıyor; depo adı benzersiz olsun.
+
+=== TEKNİK TARİF (Capacitor uygulaması için çalışan yöntem) ===
+• Capacitor iOS platformu (npx cap add ios). Info.plist'e:
+  - NSPhotoLibraryUsageDescription ve NSCameraUsageDescription (Türkçe açıklama; fotoğraf seçen uygulamada şart)
+  - ITSAppUsesNonExemptEncryption = false (şifreleme sorusu çıkmasın)
+• AppIcon: tek 1024x1024 PNG, saydamlıksız (RGB).
+• Sürüm: MARKETING_VERSION = package.json sürümü; derleme numarası her yüklemede artmalı (100 + GITHUB_RUN_NUMBER).
+• İMZALAMA (çok önemli): ekipte kayıtlı cihaz YOK. Arşiv imzasız alınmalı:
+  xcodebuild archive ... CODE_SIGNING_ALLOWED=NO DEVELOPMENT_TEAM=ZT67S2LPV2
+  Sonra -exportArchive ile ExportOptions: method=app-store-connect, destination=upload, signingStyle=automatic, teamID=ZT67S2LPV2,
+  -allowProvisioningUpdates -authenticationKeyPath/-authenticationKeyID/-authenticationKeyIssuerID. Bu adım imzalayıp doğrudan TestFlight'a yükler.
+  (CODE_SIGN_STYLE=Automatic ile arşivlersen "Your team has no devices" hatası verir.)
+• İş, commit mesajında [testflight] olunca ve Actions'taki "Run workflow" düğmesiyle çalışsın (workflow_dispatch).
+• İsteğe bağlı: sadece iPhone olacaksa TARGETED_DEVICE_FAMILY = 1 yap; yoksa Apple 13" iPad ekran görüntüsü de ister.
+
+=== APPLE TARAFINDA BENİM YAPACAKLARIM (bana adım adım söyle) ===
+1) Bundle ID kaydı (Identifiers → + → App IDs → App → Explicit, açıklamada Türkçe harf kullanma).
+2) App Store Connect → Apps → + → New App (iOS, Turkish, Bundle ID, SKU, Full Access).
+3) Depoya ASC_KEY_P8 gizli kaydı.
+4) Yükleme bitince sürüm sayfası:
+   - Ekran görüntüleri "Header and Search Results ⌄" menüsünden "App Previews and Screenshots" seçilince çıkıyor.
+     iPhone sekmesi "iPhone with Dynamic Island (medium display)": 1206x2622 ya da 1179x2556.
+     iPad 13": 2048x2732 ya da 2064x2752. Header / Search Results / Routing App Coverage File alanlarına HİÇBİR ŞEY koyma.
+   - Promotional Text, Description, Keywords (≤100), Support URL, Copyright, Build seç, App Review notu + örnek dosya.
+   - "Automatically release this version" seçili kalsın.
+5) App Information: Category'de ÜSTTEKİ kutu (Primary) seçilmeli; Subtitle (≤30); Age Ratings anketi (hepsine None/No → 4+); Content Rights.
+6) Pricing and Availability: Free; Availability → "Specific Countries" → sadece Türkiye ("Pre-Order" SEÇME; AB ülkeleri Digital Services Act formu istiyor).
+7) App Privacy: https://appstoreconnect.apple.com/apps/<APPLE_ID>/distribution/privacy → Privacy Policy URL (herkese açık sayfa) → Get Started → "No, we do not collect data" → Publish.
+   (Bu bölümü yalnızca ben yapabilirim; API ile doldurulamıyor.)
+8) Add for Review → Submit. İnceleme genelde 24-48 saat.
+
+=== SENDEN İSTEDİĞİM ===
+• Ekran görüntülerini doğru boyutlarda sen üret (örnek/sahte verilerle, gerçek isim olmasın).
+• Mağaza metinlerini (Türkçe) ve gizlilik politikası sayfasını sen hazırla; gizlilik sayfası herkese açık bir bağlantı olmalı.
+• Her adımda bana sadece ne yapacağımı, hangi linke gideceğimi ve neyi seçeceğimi kısa yaz.
+
+Yeni uygulama: [BURAYA UYGULAMANIN ADINI, NE YAPTIĞINI VE KODUN NEREDE OLDUĞUNU YAZ]

@@ -1,0 +1,69 @@
+CCN VARDIYA PROGRAMI - APP STORE CONNECT ALANLARI
+(appstoreconnect.apple.com > Apps > CCN Vardiya Programı)
+
+=== iOS App Version 1.0 sayfası ===
+
+EKRAN GÖRÜNTÜLERİ (iPhone 6.9" / 6.7" bölümüne, 1290x2796):
+iphone-1-gunluk.png, iphone-2-liste.png, iphone-3-kisi-ara.png, iphone-4-cizelge.png, iphone-5-liste-yukle.png
+(isimler örnektir: "Personel XX")
+
+PROMOTIONAL TEXT (en fazla 170):
+Vardiya listesinin fotoğrafını seçin; 1., 2. ve 3. vardiyada kimin çalıştığı, kimin OFF, raporlu ya da izinli olduğu tek ekranda.
+
+DESCRIPTION (Açıklama):
+CCN Vardiya Programı, işyerinizin gönderdiği vardiya listesi görsellerini okuyup her gün için 1., 2. ve 3. vardiya listelerini hazırlar.
+
+Nasıl çalışır?
+• Vardiya listesi görsellerini (ekran görüntüsü ya da fotoğraf) birlikte seçin.
+• Uygulama tabloyu, tarihleri ve isimleri okur; kırmızı hücreleri OFF olarak tanır, R (rapor) ve Yİ (yıllık izin) yazılarını ayırır.
+• Kaydetmeden önce her şeyi kontrol edip yanlış hücreye dokunarak düzeltebilirsiniz.
+
+Günlük liste
+• Tarih ve vardiya seçin: o vardiyada çalışanlar, OFF olanlar, raporlular ve izinliler ayrı ayrı listelenir.
+• Her vardiya için toplam kişi, çalışan, OFF, raporlu ve izinli sayıları görünür.
+• Listeyi WhatsApp veya istediğiniz uygulamayla paylaşın; kalın başlık, numaralı ya da maddeli liste seçilebilir.
+
+Kişi ara
+• İsim yazın; kişinin seçtiğiniz gündeki durumu ve tüm çalışma günleri tarihleriyle görünsün.
+
+Çizelge
+• 14 günlük tabloyu görün, rapor veya izin değişikliklerini hücreye dokunarak güncelleyin.
+
+Gizlilik
+• Veriler yalnızca telefonunuzda saklanır. Görseller ve isimler hiçbir sunucuya gönderilmez.
+• Reklam, hesap açma veya izleme yoktur.
+
+KEYWORDS (en fazla 100, virgülle):
+vardiya,nöbet,çizelge,personel,off,izin,rapor,hastane,mesai,liste
+
+SUPPORT URL:
+https://claude.ai/artifact/GB3d6ZXRJ1XwoSHm3Mr7KF
+(sayfayı herkese açık yapın; içinde iletişim e-postası olmalı)
+
+MARKETING URL: boş bırakın
+
+COPYRIGHT:
+2026 Abdullah Tugay
+
+BUILD: "+" > 2.5.9 (102) seçin
+
+APP REVIEW INFORMATION:
+• Sign-in required: işaretlemeyin (giriş yok)
+• Contact: ad, soyad, telefon, e-posta
+• Notes:
+Uygulama hesap gerektirmez. Ekteki örnek vardiya listesi görselini (ornek-vardiya-listesi.png) cihazın Fotoğraflar'ına kaydedin, ardından "Liste Yükle" sekmesinden seçin; uygulama tabloyu cihaz üzerinde okuyup isimleri ve günleri listeler, "Hepsini kaydet" ile Günlük sekmesinde 1-2-3 vardiya listeleri görünür. Veriler yalnızca cihazda saklanır.
+• Attachment: ornek-vardiya-listesi.png dosyasını ekleyin
+
+=== App Information (sol menü) ===
+• Subtitle (en fazla 30): Vardiya, OFF ve izin listesi
+• Category: Primary = Productivity
+• Content Rights: "No, it does not contain, show, or access third-party content"
+• Age Rating > Edit: tüm sorulara None / No > sonuç 4+
+
+=== Pricing and Availability ===
+• Price: Free (0)
+• Availability: Türkiye (ya da tüm ülkeler)
+
+=== App Privacy ===
+• Privacy Policy URL: https://claude.ai/artifact/GB3d6ZXRJ1XwoSHm3Mr7KF
+• Get Started > "Do you or your third-party partners collect data from this app?" > No, we do not collect data from this app > Publish
