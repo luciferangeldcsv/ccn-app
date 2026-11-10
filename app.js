@@ -823,6 +823,37 @@ const $app = document.getElementById('app');
 const $overlay = document.getElementById('overlay');
 
 function allPeople(src) { return Object.entries(src || store.people).map(([key, p]) => ({ key, ...p })); }
+// OCR bozuk isimleri sistemdeki GERÇEK isimlere en yakınıyla eşleştirir (bilinen küçük küme → çok daha isabetli)
+function editDist(a, b) {
+  const m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+function knownNames() {
+  const out = [];
+  for (const k in store.people) { const p = store.people[k]; if (p && p.name) out.push(p.name); }
+  if (SERVER && srv && srv.personel) for (const p of srv.personel) if (p && p.ad) out.push(p.ad);
+  return out;
+}
+function bestKnownName(ocr) {
+  const key = nameKey(ocr); if (key.length < 4) return null;
+  let best = null, bestD = 99, second = 99;
+  for (const nm of knownNames()) {
+    const nk = nameKey(nm); if (nk.length < 4) continue;
+    if (nk === key) return nm;
+    const d = editDist(key, nk);
+    if (d < bestD) { second = bestD; bestD = d; best = nm; } else if (d < second) second = d;
+  }
+  if (!best) return null;
+  const nk = nameKey(best), ratio = bestD / Math.max(key.length, nk.length);
+  // yakın (≤4 harf fark, oran ≤ 0.4) VE belirsiz değil (ikinci adaydan ileride) → öner
+  return (bestD <= 4 && ratio <= 0.4 && bestD < second) ? best : null;
+}
 function dataRange(src) {
   let min = null, max = null;
   for (const p of Object.values(src || store.people)) for (const d of Object.keys(p.days)) { if (!min || d < min) min = d; if (!max || d > max) max = d; }
@@ -1573,7 +1604,10 @@ function mergedReview() {
       const al = (store.aliases || {})[nameKey(name)];
       const ex = al && store.people[al] ? al : store.people[nameKey(name)] ? nameKey(name) : Object.keys(store.people).find((k) => sameStrict(store.people[k].name, name));
       // aynı tablodaki başka bir satır zaten bu kayda eşlendiyse bu satır ayrı kişidir
-      if (ex && (store.people[ex].fixed || !ai) && !(map.get(ex) && map.get(ex).parts.has(part))) name = store.people[ex].name;
+      let matched = false;
+      if (ex && (store.people[ex].fixed || !ai) && !(map.get(ex) && map.get(ex).parts.has(part))) { name = store.people[ex].name; matched = true; }
+      // birebir eşleşme yoksa ve isim OCR'dan geldiyse: sistemdeki gerçek isimlere BULANIK eşleştir (yakınsa düzelt, kontrol için işaretli bırak)
+      if (!matched && ai) { const g = bestKnownName(name); if (g && nameKey(g) !== nameKey(name)) { name = g; check = true; } }
     }
     let key = name ? nameKey(name) : '?' + src;
     // benzer isim yalnızca başka bir görseldeki satırla birleşir (aynı kişi iki görselde); aynı tablodaki iki satır iki kişidir
