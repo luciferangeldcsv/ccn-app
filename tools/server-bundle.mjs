@@ -13,7 +13,7 @@ for (const f of readdirSync(root + 'server/pwa/')) cpSync(root + 'server/pwa/' +
 {
   let html = readFileSync(out + 'index.html', 'utf8');
   const ver = (html.match(/app\.js\?v=([a-z0-9]+)/) || [])[1] || String(Date.now());
-  const tags = '<link rel="manifest" href="manifest.json">\n<link rel="apple-touch-icon" href="apple-touch-icon.png">\n<meta name="mobile-web-app-capable" content="yes">\n<meta name="apple-mobile-web-app-capable" content="yes">\n<meta name="apple-mobile-web-app-title" content="Vardiya Listesi">\n<meta name="apple-mobile-web-app-status-bar-style" content="default">\n';
+  const tags = '<link rel="manifest" href="manifest.json">\n<link rel="apple-touch-icon" href="apple-touch-icon.png?v=3">\n<meta name="mobile-web-app-capable" content="yes">\n<meta name="apple-mobile-web-app-capable" content="yes">\n<meta name="apple-mobile-web-app-title" content="Vardiya Listesi">\n<meta name="apple-mobile-web-app-status-bar-style" content="default">\n';
   if (!html.includes('rel="manifest"')) html = html.replace('</head>', tags + '</head>');
   writeFileSync(out + 'index.html', html);
   writeFileSync(out + 'sw.js', readFileSync(out + 'sw.js', 'utf8').replace('__SW_VERSION__', ver));
