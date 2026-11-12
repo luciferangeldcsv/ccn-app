@@ -289,7 +289,8 @@ function ai_http(string $url, array $headers, ?string $body, int $timeout): arra
 }
 // Denenecek Gemini modelleri: önce seçili/varsayılan, sonra yedekler (Google modelleri sık kaldırıyor/yoğunluk yaşıyor)
 function gemini_models(): array {
-  return array_values(array_unique(array_filter([ai_model(), 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-flash-lite-latest'])));
+  // en son başarılı model önce denenir (yoğun modelde her seferinde beklenmesin)
+  return array_values(array_unique(array_filter([(string)(meta_get('ai_model_son') ?? ''), ai_model(), 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-flash-lite-latest'])));
 }
 // Gemini'den üretim iste. Yoğunlukta (429/500/503/504) bekleyip bir kez daha dener, sonra sıradaki modele geçer;
 // model kaldırılmışsa (404) ya da cevap gelmezse doğrudan sıradakine geçer; 400'de düşünme ve JSON ayarlarını sırayla
@@ -302,10 +303,11 @@ function gemini_generate(string $key, array $payload, int $budget = 55): array {
     for ($try = 0; $try < 4; $try++) {
       $left = $budget - (microtime(true) - $t0); if ($left < 4) { if ($last !== '') $errs[] = $last; return [null, mb_substr(implode(' | ', $errs) ?: 'süre doldu', 0, 500), $model]; }
       [$code, $resp, $err] = ai_http('https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent',
-        ['content-type: application/json', 'x-goog-api-key: ' . $key], json_encode($p), (int)min(35, $left));
+        ['content-type: application/json', 'x-goog-api-key: ' . $key], json_encode($p), (int)min(60, $left));
       if ($code === 200 && $resp !== null) {
         $j = json_decode($resp, true); $text = '';
         foreach (($j['candidates'][0]['content']['parts'] ?? []) as $part) if (isset($part['text']) && empty($part['thought'])) $text .= (string)$part['text'];
+        if ($model !== (string)(meta_get('ai_model_son') ?? '')) meta_set('ai_model_son', $model);
         return [$text, '', $model];
       }
       $msg = $resp === null ? 'cevap yok (' . $err . ')' : mb_substr((string)(json_decode($resp, true)['error']['message'] ?? $resp), 0, 160);

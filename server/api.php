@@ -320,8 +320,8 @@ switch ($r) {
       $parts[] = ['text' => $prompt];
       // thinkingBudget 0: "düşünme" kapalı (OCR için gerekmez; hız + zaman aşımını önler)
       $payload = ['contents' => [['parts' => $parts]], 'generationConfig' => ['maxOutputTokens' => 8192, 'temperature' => 0, 'responseMimeType' => 'application/json', 'thinkingConfig' => ['thinkingBudget' => 0]]];
-      @set_time_limit(90);
-      [$text, $gerr] = gemini_generate($key, $payload, 55); // yoğunlukta tekrar dener, gerekirse yedek modele geçer
+      @set_time_limit(150);
+      [$text, $gerr] = gemini_generate($key, $payload, 85); // yoğunlukta tekrar dener, gerekirse yedek modele geçer
       if ($text === null) fail(502, 'AI okuma hatası: ' . $gerr);
     } else { // Anthropic Claude
       $content = [];
@@ -966,7 +966,7 @@ switch ($r) {
     $u = dev_only();
     $m = trim((string)(body()['model'] ?? ''));
     if ($m !== '' && !preg_match('#^[A-Za-z0-9._/-]{3,60}$#', $m)) fail(400, 'Geçersiz model adı.');
-    meta_set('ai_model', $m);
+    meta_set('ai_model', $m); meta_set('ai_model_son', ''); // elle seçilen model önce denensin
     audit($u, 'ai-model', $m !== '' ? $m : 'varsayılan');
     ok(['model' => ai_model()]);
   }

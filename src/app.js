@@ -3686,6 +3686,18 @@ async function analyzeImage(img, progress) {
   // gerçek site / uygulama: sunucuda yapay zekâ anahtarı varsa fotoğrafın tamamı ona okutulur (claude.ai'de kendi yolu var)
   srvAiDown = false; srvAiErr = null;
   if (!window.claude) { const whole = await readWholeTableWithServer(img, progress); if (whole) return [whole]; }
+  const res = await analyzeImageLocal(img, progress);
+  // yapay zekâ neden kullanılamadı: fotoğraf kartının üstünde görünsün (isimler zayıf okumayla geldi)
+  if (!window.claude && SERVER) {
+    const why = !(srv.v && srv.v.aiOcr) ? 'Yapay zekâ okuması kapalı (sunucuda anahtar tanımlı değil)'
+      : srvAiErr ? 'Yapay zekâ bu fotoğrafı okuyamadı: ' + srvAiErr.code : '';
+    if (why) res.forEach((r) => { r.warnings = [why + ' — telefonun kendi okuması kullanıldı, isimleri kontrol edin.', ...(r.warnings || [])]; });
+  }
+  return res;
+}
+
+// Cihazda okuma: tablo çizgilerini bulup hücreleri tek tek okur (yapay zekâ yoksa ya da okuyamadıysa)
+async function analyzeImageLocal(img, progress) {
   let regions = [];
   try { regions = findTables(img); } catch (e) { console.warn(e); }
   if (regions.length <= 1) return [await analyzeTable(img, progress)];
