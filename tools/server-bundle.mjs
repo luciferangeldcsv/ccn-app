@@ -17,6 +17,8 @@ for (const f of readdirSync(root + 'server/pwa/')) cpSync(root + 'server/pwa/' +
   if (!html.includes('rel="manifest"')) html = html.replace('</head>', tags + '</head>');
   writeFileSync(out + 'index.html', html);
   writeFileSync(out + 'sw.js', readFileSync(out + 'sw.js', 'utf8').replace('__SW_VERSION__', ver));
+  // yayındaki web derlemesinin kimliği: açık kalmış eski sekmeler bunu görüp kendini yeniler
+  writeFileSync(out + 'web.txt', ver);
 }
 // yayınlanan sürüm (native güncelleme uyarısı için): sunucu bu sürümü bildirir
 writeFileSync(out + 'surum.txt', JSON.parse(readFileSync(root + 'package.json', 'utf8')).version);
