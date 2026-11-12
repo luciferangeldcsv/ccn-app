@@ -319,13 +319,9 @@ switch ($r) {
       $parts[] = ['text' => $prompt];
       // thinkingBudget 0: "düşünme" kapalı (OCR için gerekmez; hız + zaman aşımını önler)
       $payload = ['contents' => [['parts' => $parts]], 'generationConfig' => ['maxOutputTokens' => 2000, 'temperature' => 0, 'responseMimeType' => 'application/json', 'thinkingConfig' => ['thinkingBudget' => 0]]];
-      $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent';
-      // Anahtar başlıkla gönderilir (yeni "AQ." auth anahtarları ?key= ile değil, x-goog-api-key ile çalışır)
-      [$code, $resp, $cerr] = ai_http($url, ['content-type: application/json', 'x-goog-api-key: ' . $key], json_encode($payload), 35);
-      if ($resp === null) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
-      $j = json_decode($resp, true);
-      if ($code !== 200) fail(502, 'AI okuma hatası (' . $code . '): ' . mb_substr((string)($j['error']['message'] ?? $resp), 0, 160));
-      $text = ''; foreach (($j['candidates'][0]['content']['parts'] ?? []) as $blk) if (isset($blk['text'])) $text .= (string)$blk['text'];
+      @set_time_limit(90);
+      [$text, $gerr] = gemini_generate($key, $payload, 55); // yoğunlukta tekrar dener, gerekirse yedek modele geçer
+      if ($text === null) fail(502, 'AI okuma hatası: ' . $gerr);
     } else { // Anthropic Claude
       $content = [];
       foreach ($b64s as $b) $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => $b]];
@@ -984,9 +980,13 @@ switch ($r) {
       // 1) bağlantı + anahtar: hafif "model listesi" isteği (üretim yapmaz)
       [$c1, $r1, $e1, $t1] = ai_http('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', ['x-goog-api-key: ' . $key], null, 15);
       $adim1 = $c1 === 200 ? "✅ bağlantı + anahtar tamam ($t1 sn)" : "❌ bağlantı/anahtar: " . ($c1 ?: '-') . ' ' . $msg($r1, $e1) . " ($t1 sn)";
-      // 2) gerçek üretim
+      // 2) gerçek üretim (okumadaki gibi: yoğunlukta tekrar, gerekirse yedek model)
       $payload = ['contents' => [['parts' => [['text' => 'Reply with exactly this JSON and nothing else: {"ok":true}']]]], 'generationConfig' => ['maxOutputTokens' => 20, 'responseMimeType' => 'application/json', 'thinkingConfig' => ['thinkingBudget' => 0]]];
-      [$c2, $r2, $e2, $t2] = ai_http('https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent', ['content-type: application/json', 'x-goog-api-key: ' . $key], json_encode($payload), 25);
+      @set_time_limit(90); $t = microtime(true);
+      [$txt, $gerr, $used] = gemini_generate($key, $payload, 50);
+      $t2 = round(microtime(true) - $t, 1);
+      $adim2 = $txt !== null ? "✅ okuma çalışıyor — model: $used ($t2 sn)" : "❌ okuma: $gerr ($t2 sn)";
+      ok(['ok' => $txt !== null, 'saglayici' => $prov, 'model' => $txt !== null ? $used : $model, 'adim1' => $adim1, 'adim2' => $adim2, 'hata' => $txt !== null ? '' : $adim2]);
     } else {
       $adim1 = '';
       $payload = ['model' => $model, 'max_tokens' => 20, 'messages' => [['role' => 'user', 'content' => 'Reply with {"ok":true}']]];
