@@ -305,24 +305,43 @@ switch ($r) {
     $key = ai_key(); if ($key === '') fail(501, 'AI okuma yapılandırılmamış (sunucuya ai_key eklenmeli).', ['aiYok' => true]);
     $imgs = body()['gorseller'] ?? null; $prompt = (string)(body()['komut'] ?? '');
     if (!is_array($imgs) || !$imgs || $prompt === '') fail(400, 'Görsel gerekli.');
-    $content = [];
+    $b64s = [];
     foreach (array_slice($imgs, 0, 12) as $im) {
       $b = (string)$im; if (preg_match('#^data:image/[\w.+-]+;base64,(.+)$#s', $b, $m)) $b = $m[1];
       $b = preg_replace('/\s+/', '', $b); if ($b === '' || strlen($b) > 5000000) continue;
-      $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => $b]];
+      $b64s[] = $b;
     }
-    if (!$content) fail(400, 'Geçerli görsel yok.');
-    $content[] = ['type' => 'text', 'text' => $prompt];
-    $payload = ['model' => ai_model(), 'max_tokens' => 2000, 'messages' => [['role' => 'user', 'content' => $content]]];
-    $ch = curl_init('https://api.anthropic.com/v1/messages');
-    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
-      CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
-      CURLOPT_POSTFIELDS => json_encode($payload)]);
-    $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
-    if ($resp === false) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
-    $j = json_decode($resp, true);
-    if ($code !== 200) fail(502, 'AI okuma hatası (' . $code . '): ' . mb_substr((string)($j['error']['message'] ?? $resp), 0, 160));
-    $text = ''; foreach (($j['content'] ?? []) as $blk) if (($blk['type'] ?? '') === 'text') $text .= $blk['text'];
+    if (!$b64s) fail(400, 'Geçerli görsel yok.');
+    $model = ai_model();
+    if (ai_provider() === 'gemini') { // Google Gemini (ücretsiz katman)
+      $parts = [];
+      foreach ($b64s as $b) $parts[] = ['inline_data' => ['mime_type' => 'image/png', 'data' => $b]];
+      $parts[] = ['text' => $prompt];
+      $payload = ['contents' => [['parts' => $parts]], 'generationConfig' => ['maxOutputTokens' => 2000, 'temperature' => 0, 'responseMimeType' => 'application/json']];
+      $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent?key=' . urlencode($key);
+      $ch = curl_init($url);
+      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+        CURLOPT_HTTPHEADER => ['content-type: application/json'], CURLOPT_POSTFIELDS => json_encode($payload)]);
+      $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
+      if ($resp === false) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
+      $j = json_decode($resp, true);
+      if ($code !== 200) fail(502, 'AI okuma hatası (' . $code . '): ' . mb_substr((string)($j['error']['message'] ?? $resp), 0, 160));
+      $text = ''; foreach (($j['candidates'][0]['content']['parts'] ?? []) as $blk) if (isset($blk['text'])) $text .= (string)$blk['text'];
+    } else { // Anthropic Claude
+      $content = [];
+      foreach ($b64s as $b) $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => $b]];
+      $content[] = ['type' => 'text', 'text' => $prompt];
+      $payload = ['model' => $model, 'max_tokens' => 2000, 'messages' => [['role' => 'user', 'content' => $content]]];
+      $ch = curl_init('https://api.anthropic.com/v1/messages');
+      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+        CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
+        CURLOPT_POSTFIELDS => json_encode($payload)]);
+      $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
+      if ($resp === false) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
+      $j = json_decode($resp, true);
+      if ($code !== 200) fail(502, 'AI okuma hatası (' . $code . '): ' . mb_substr((string)($j['error']['message'] ?? $resp), 0, 160));
+      $text = ''; foreach (($j['content'] ?? []) as $blk) if (($blk['type'] ?? '') === 'text') $text .= $blk['text'];
+    }
     if (preg_match('/\{.*\}/s', $text, $m)) $text = $m[0];
     $out = json_decode($text, true);
     if (!is_array($out)) fail(502, 'AI yanıtı çözümlenemedi.');
@@ -946,7 +965,8 @@ switch ($r) {
     dev_only();
     $k = ai_key(); $fromCfg = trim((string)(cfg()['ai_key'] ?? '')) !== '';
     ok(['tanimli' => $k !== '', 'maske' => $k === '' ? '' : (mb_substr($k, 0, 7) . '…' . mb_substr($k, -4)),
-      'kaynak' => $k === '' ? '' : ($fromCfg ? 'config' : 'panel'), 'configKilit' => $fromCfg, 'model' => ai_model()]);
+      'kaynak' => $k === '' ? '' : ($fromCfg ? 'config' : 'panel'), 'configKilit' => $fromCfg,
+      'saglayici' => $k === '' ? '' : (ai_provider() === 'gemini' ? 'Gemini (Google)' : 'Claude (Anthropic)'), 'model' => ai_model()]);
   }
 
   // Yapay zekâ anahtarını panelden kaydet/sil (sunucu dosyasına erişemeyen DEV için). Değer veritabanında saklanır, loglanmaz.
@@ -955,7 +975,7 @@ switch ($r) {
     if (trim((string)(cfg()['ai_key'] ?? '')) !== '') fail(409, 'Anahtar ccn-config.php dosyasında tanımlı; panelden değiştirilemez.');
     $key = trim((string)(body()['anahtar'] ?? ''));
     if ($key === '') { meta_set('ai_key', ''); audit($u, 'ai-anahtar', 'silindi'); ok(['tanimli' => false, 'maske' => '']); }
-    if (!preg_match('/^sk-ant-[A-Za-z0-9_-]{20,}$/', $key)) fail(400, 'Geçersiz anahtar. Anthropic anahtarı "sk-ant-" ile başlar.');
+    if (!preg_match('/^(sk-ant-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{30,})$/', $key)) fail(400, 'Geçersiz anahtar. Claude anahtarı "sk-ant-", Gemini anahtarı "AIza" ile başlar.');
     meta_set('ai_key', $key);
     $model = trim((string)(body()['model'] ?? '')); if ($model !== '') meta_set('ai_model', $model);
     audit($u, 'ai-anahtar', 'güncellendi'); // anahtar değeri loglanmaz
