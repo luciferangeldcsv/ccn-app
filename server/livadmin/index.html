@@ -109,6 +109,7 @@ aside #install { color: var(--ok); } aside #install[hidden] { display: none; }
     <button data-v="duy">📣 Duyurular</button>
     <button data-v="dos">🖼️ Dosyalar</button>
     <button data-v="guv">🛡️ Güvenlik</button>
+    <button data-v="ai">🤖 Yapay zekâ</button>
     <div class="sp"></div>
     <button id="install" hidden>⬇️ Ana ekrana ekle</button>
     <button id="out">⎋ Çıkış</button>
@@ -169,7 +170,7 @@ async function start() {
 function show(v) {
   view = v; location.hash = v; clearInterval(timer); $('#m').onclick = null; $('#m').onchange = null;
   document.querySelectorAll('aside [data-v]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.v === v)));
-  ({ ozet, log: logView, den, kul, dos, ot, yay, duy, guv }[v] || ozet)();
+  ({ ozet, log: logView, den, kul, dos, ot, yay, duy, guv, ai }[v] || ozet)();
 }
 const M = (h) => { $('#m').innerHTML = h; };
 const fail = (e) => M(`<div class="card err">${esc(e.message)}</div>`);
@@ -361,6 +362,38 @@ async function guv() {
     </div>`);
   $('#bgo').addEventListener('click', async () => { try { await api('dev-ban', { ip: $('#bip').value.trim(), sebep: $('#bwhy').value.trim(), saat: +$('#bh').value }); guv(); } catch (e) { alert(e.message); } });
   $('#m').onclick = async (e) => { const u = e.target.closest('[data-unban]'); if (u) { try { await api('dev-ban-sil', { ip: u.dataset.unban }); guv(); } catch (err) { alert(err.message); } return; } if (e.target.closest('[data-ban]')) { await banClick(e); guv(); } };
+}
+async function ai() {
+  M('<p class="mut">Yükleniyor…</p>'); let d; try { d = await api('dev-ai'); } catch (e) { return fail(e); }
+  const durum = d.tanimli
+    ? `<div class="card ok"><b>✅ Anahtar tanımlı</b> <span class="mono">${esc(d.maske)}</span> — fotoğraftan isimler yapay zekâ ile okunuyor.${d.kaynak === 'config' ? ' <span class="mut">(Kaynak: ccn-config.php — panelden değiştirilemez.)</span>' : ''}</div>`
+    : `<div class="card err"><b>⚠️ Anahtar yok</b> — şu an isimler zayıf cihaz okumasıyla çıkarılıyor (hatalı olabilir). Aşağıya Anthropic anahtarını yapıştırıp kaydet.</div>`;
+  M(`<div class="top"><h2>Yapay zekâ (isim okuma)</h2></div>
+    ${durum}
+    <div class="card">
+      <h3>Anthropic API anahtarı</h3>
+      <p class="mut">Fotoğraftaki vardiya listesinde isimleri doğru okumak için gerekir. Anahtarı <b>console.anthropic.com → API Keys</b> adresinden alırsın (<span class="mono">sk-ant-…</span> ile başlar). Sunucuda güvenli saklanır, kimseye gösterilmez.</p>
+      ${d.configKilit ? '<p class="mut">Not: Anahtar sunucu dosyasında tanımlı olduğundan buradan düzenlenemez.</p>' : `
+      <div class="filters">
+        <input id="aik" type="password" placeholder="sk-ant-..." class="mono" autocomplete="off" style="min-width:260px">
+        <button class="btn pri" id="aisave">Kaydet</button>
+        ${d.tanimli && d.kaynak === 'panel' ? '<button class="btn red" id="aidel">Anahtarı sil</button>' : ''}
+      </div>
+      <p class="mut" id="aimsg"></p>`}
+      <p class="mut">Model: <span class="mono">${esc(d.model)}</span></p>
+    </div>
+    <div class="card"><h3>Test</h3><p class="mut">Kaydettikten sonra uygulamadan/siteden bir vardiya listesi fotoğrafı yükle. İsimlerin üstünde <b>“İsimler yapay zekâ ile okundu”</b> yazısını görürsen çalışıyor demektir.</p></div>`);
+  if (d.configKilit) return;
+  $('#aisave').addEventListener('click', async () => {
+    const v = $('#aik').value.trim(); const msg = $('#aimsg');
+    if (!v) { msg.textContent = 'Önce anahtarı yapıştır.'; return; }
+    msg.textContent = 'Kaydediliyor…';
+    try { await api('dev-ai-kaydet', { anahtar: v }); msg.textContent = 'Kaydedildi.'; ai(); } catch (e) { msg.textContent = e.message; }
+  });
+  const del = $('#aidel'); if (del) del.addEventListener('click', async () => {
+    if (!confirm('Anahtar silinsin mi? İsim okuma tekrar zayıflar.')) return;
+    try { await api('dev-ai-kaydet', { anahtar: '' }); ai(); } catch (e) { alert(e.message); }
+  });
 }
 if (tok) start();
 </script>
