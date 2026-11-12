@@ -386,7 +386,12 @@ async function ai() {
         ${d.tanimli && d.kaynak === 'panel' ? '<button class="btn red" id="aidel">Anahtarı sil</button>' : ''}
       </div>
       <p class="mut" id="aimsg"></p>`}
-      <p class="mut">Model: <span class="mono">${esc(d.model)}</span></p>
+      <div class="filters" style="margin-top:8px">
+        <input id="aimodel" class="mono" value="${esc(d.model)}" placeholder="model adı" autocomplete="off" style="min-width:220px">
+        <button class="btn" id="aimodelsave">Modeli kaydet</button>
+      </div>
+      <p class="mut">Hızlı seçenekler (dokunup kaydet): <a href="#" data-model="gemini-3.8-flash">gemini-3.8-flash</a> · <a href="#" data-model="gemini-2.5-flash">gemini-2.5-flash</a> · <a href="#" data-model="gemini-flash-latest">gemini-flash-latest</a></p>
+      <p class="mut" id="aimodelmsg"></p>
     </div>
     <div class="card"><h3>Test</h3><p class="mut">Kaydettikten sonra uygulamadan/siteden bir vardiya listesi fotoğrafı yükle. İsimlerin üstünde <b>“İsimler yapay zekâ ile okundu”</b> yazısını görürsen çalışıyor demektir.</p></div>`);
   if (d.configKilit) return;
@@ -405,6 +410,12 @@ async function ai() {
         : `❌ Hata${r.kod ? ' (' + r.kod + ')' : ''}: ${r.hata || 'bilinmiyor'}${r.model ? ' · model: ' + r.model : ''}`;
     } catch (e) { msg.textContent = e.message; }
   });
+  const saveModel = async (m) => {
+    const mm = $('#aimodelmsg'); mm.textContent = 'Kaydediliyor…';
+    try { const r = await api('dev-ai-model', { model: m }); mm.textContent = 'Model kaydedildi: ' + r.model + '. Şimdi "Test et"e bas.'; const inp = $('#aimodel'); if (inp) inp.value = r.model; } catch (e) { mm.textContent = e.message; }
+  };
+  const ms = $('#aimodelsave'); if (ms) ms.addEventListener('click', () => saveModel($('#aimodel').value.trim()));
+  document.querySelectorAll('[data-model]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); const inp = $('#aimodel'); if (inp) inp.value = a.dataset.model; saveModel(a.dataset.model); }));
   const del = $('#aidel'); if (del) del.addEventListener('click', async () => {
     if (!confirm('Anahtar silinsin mi? İsim okuma tekrar zayıflar.')) return;
     try { await api('dev-ai-kaydet', { anahtar: '' }); ai(); } catch (e) { alert(e.message); }
