@@ -281,7 +281,7 @@ function ai_provider(): string { return str_starts_with(ai_key(), 'sk-ant-') ? '
 function ai_model(): string {
   $m = trim((string)(cfg()['ai_model'] ?? '')); if ($m === '') $m = trim((string)(meta_get('ai_model') ?? ''));
   if ($m !== '') return $m;
-  return ai_provider() === 'gemini' ? 'gemini-2.0-flash' : 'claude-3-5-sonnet-20241022';
+  return ai_provider() === 'gemini' ? 'gemini-3.8-flash' : 'claude-3-5-sonnet-20241022';
 }
 function audit(?array $who, string $action, string $detail = ''): void {
   db()->prepare('INSERT INTO audit (personnel_id, who, action, detail, ip, ua, at) VALUES (?,?,?,?,?,?,?)')

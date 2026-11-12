@@ -21,6 +21,6 @@ return [
   // Boş bırakılırsa yalnızca cihazdaki zayıf okuma kullanılır.
   // Not: Anahtarı dosyaya yazmak yerine DEV panelinden (/livadmin → Yapay zekâ) de girebilirsin.
   'ai_key' => '',
-  // İsteğe bağlı: model. Boşsa Gemini için gemini-2.0-flash, Claude için claude-3-5-sonnet kullanılır.
+  // İsteğe bağlı: model. Boşsa Gemini için gemini-3.8-flash, Claude için claude-3-5-sonnet kullanılır.
   'ai_model' => '',
 ];
