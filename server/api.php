@@ -17,7 +17,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -962,6 +962,41 @@ switch ($r) {
       'saglayici' => $k === '' ? '' : (ai_provider() === 'gemini' ? 'Gemini (Google)' : 'Claude (Anthropic)'), 'model' => ai_model()]);
   }
 
+  // DEV: hazır liste dosyasını (isim, vardiya, günler) içe aktarıp DUYURUSUZ yayınla. Eski yayının ayarları, kuralları ve
+  // kişilerin çalışma alanları korunur; listede olmayan kişiler yeni yayında yer almaz. "kontrol" ile yalnız önizleme döner.
+  case 'dev-liste-aktar': {
+    $u = dev_only();
+    $liste = body()['liste'] ?? null;
+    if (!is_array($liste) || !$liste) fail(400, 'Dosyada liste yok.');
+    $last = db()->query('SELECT data FROM rosters ORDER BY id DESC LIMIT 1')->fetchColumn();
+    $old = $last ? (json_decode((string)$last, true) ?: []) : [];
+    $people = []; $alan = 0; $gelen = 0; $tekrar = [];
+    foreach ($liste as $p) {
+      if (!is_array($p)) continue;
+      $name = (string)($p['name'] ?? ''); $k = name_key($name); if ($k === '') continue;
+      if (isset($people[$k])) $tekrar[] = $name;
+      $row = ['name' => $name, 'group' => (string)($p['group'] ?? ''), 'days' => (array)($p['days'] ?? [])];
+      if (isset($old['people'][$k]['area']) && is_string($old['people'][$k]['area'])) { $row['area'] = $old['people'][$k]['area']; $alan++; }
+      $people[$k] = $row; $gelen += count($row['days']);
+    }
+    [$data, $cnt, $min, $max] = clean_roster(['people' => $people, 'rules' => $old['rules'] ?? [], 'settings' => $old['settings'] ?? []]);
+    $kalan = 0; $gruplar = ['1' => 0, '2' => 0, '3' => 0, '' => 0];
+    foreach ($data['people'] as $p) { $kalan += count($p['days']); $gruplar[$p['group']] = ($gruplar[$p['group']] ?? 0) + 1; }
+    $eski = $old ? count($old['people'] ?? []) : 0; $cikan = 0;
+    foreach (array_keys($old['people'] ?? []) as $k) if (!isset($data['people'][$k])) $cikan++;
+    $ozet = ['kisi' => $cnt, 'from' => $min, 'to' => $max, 'gruplar' => $gruplar, 'hucre' => $kalan, 'atlananHucre' => $gelen - $kalan,
+      'eskiKisi' => $eski, 'cikanKisi' => $cikan, 'alanTasindi' => $alan, 'tekrar' => $tekrar];
+    if (!empty(body()['kontrol'])) ok(['onizleme' => true] + $ozet);
+    db()->prepare('INSERT INTO rosters (data, note, people, range_from, range_to, published_by, published_name, published_at) VALUES (?,?,?,?,?,?,?,?)')
+      ->execute([json_encode($data, JSON_UNESCAPED_UNICODE), 'İçe aktarıldı (duyurusuz)', $cnt, $min, $max, $u['id'], shown_name($u), now()]);
+    $id = (int)db()->lastInsertId();
+    db()->prepare('DELETE FROM rosters WHERE id < ?')->execute([$id - 30]);
+    db()->prepare("DELETE FROM meta WHERE k = 'taslak'")->execute();
+    meta_set('taslak_surum', (string)((int)(meta_get('taslak_surum') ?? 0) + 1));
+    audit($u, 'liste-yayinlandi', "$cnt kişi, " . tr_date($min) . ' – ' . tr_date($max) . ' (içe aktarma, duyurusuz)');
+    ok(['id' => $id] + $ozet); // bildirim/duyuru gönderilmez
+  }
+
   // Model adını panelden ayarla (ör. gemini-3.8-flash / gemini-2.5-flash). Boş → varsayılana döner.
   case 'dev-ai-model': {
     $u = dev_only();
@@ -1015,8 +1050,8 @@ switch ($r) {
     fail(404, 'Bilinmeyen işlem.');
 }
 
-function clean_roster(): array {
-    $in = body()['veri'] ?? null;
+function clean_roster(?array $in = null): array {
+    $in = $in ?? (body()['veri'] ?? null);
     if (!is_array($in) || !is_array($in['people'] ?? null)) fail(400, 'Liste verisi eksik.');
     $people = []; $min = null; $max = null;
     foreach ($in['people'] as $k => $p) {

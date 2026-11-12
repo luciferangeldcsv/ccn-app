@@ -287,9 +287,36 @@ async function ot() {
 async function yay() {
   M('<p class="mut">Yükleniyor…</p>'); let d; try { d = await api('dev-yayinlar'); } catch (e) { return fail(e); }
   const tr = (s) => s ? s.split('-').reverse().join('.') : '';
-  M(`<div class="top"><h2>Yayın geçmişi · ${d.yayinlar.length}</h2></div><div class="tw"><table><thead><tr><th>#</th><th>Yayınlayan</th><th>Tarih</th><th>Kişi</th><th>Liste aralığı</th><th></th></tr></thead><tbody>
+  M(`<div class="top"><h2>Yayın geçmişi · ${d.yayinlar.length}</h2></div>
+    <div class="card"><h3>Liste içe aktar (duyurusuz)</h3>
+      <p class="mut" style="margin:0 0 8px">Hazır liste dosyasını (.json) seç: önce ne değişeceği gösterilir, onaylarsan yeni liste <b>duyuru ve bildirim gönderilmeden</b> yayınlanır. Eski listenin yerine geçer; çalışma saatleri ve kişilerin çalışma alanları korunur. Gerekirse aşağıdaki geçmişten eski yayın görülebilir.</p>
+      <div class="filters"><input type="file" id="ia-f" accept=".json,application/json"></div><div id="ia-out" class="mut"></div></div>
+    <div class="tw"><table><thead><tr><th>#</th><th>Yayınlayan</th><th>Tarih</th><th>Kişi</th><th>Liste aralığı</th><th></th></tr></thead><tbody>
     ${d.yayinlar.map((y) => `<tr><td>${y.id}</td><td>${esc(y.kim)}</td><td class="nw">${when(y.tarih)}</td><td>${y.kisi}</td><td class="nw">${tr(y.aralik[0])} – ${tr(y.aralik[1])}</td><td><button class="btn sm" data-yay="${y.id}">Listeyi aç</button></td></tr>`).join('') || '<tr><td colspan="6" class="mut">Yayın yok</td></tr>'}</tbody></table></div>`);
+  // içe aktarma: dosya → önizleme → onay → duyurusuz yayın
+  let iaListe = null;
+  const iaOzet = (r) => `<b>${r.kisi} kişi</b> · ${tr(r.from)} – ${tr(r.to)} · 1. vardiya ${r.gruplar['1'] || 0}, 2. vardiya ${r.gruplar['2'] || 0}, 3. vardiya ${r.gruplar['3'] || 0}${r.gruplar[''] ? ', vardiyasız ' + r.gruplar[''] : ''} · ${r.hucre} gün kaydı`
+    + (r.atlananHucre ? ` · <span style="color:var(--red,#e5484d)">${r.atlananHucre} geçersiz kod atlandı</span>` : '')
+    + `<br>Şu anki yayında ${r.eskiKisi} kişi var; ${r.cikanKisi} kişi yeni listede yok (listeden çıkar). ${r.alanTasindi} kişinin çalışma alanı korunur.`
+    + (r.tekrar && r.tekrar.length ? `<br><span style="color:var(--red,#e5484d)">Aynı isim iki kez: ${r.tekrar.map(esc).join(', ')}</span>` : '');
+  $('#ia-f').addEventListener('change', async (ev) => {
+    const out = $('#ia-out'); iaListe = null; const f = ev.target.files[0]; if (!f) { out.textContent = ''; return; }
+    try {
+      const j = JSON.parse(await f.text()); const liste = Array.isArray(j) ? j : j.liste;
+      if (!Array.isArray(liste) || !liste.length) throw new Error('Bu dosyada liste yok.');
+      out.textContent = 'Kontrol ediliyor…';
+      const r = await api('dev-liste-aktar', { liste, kontrol: 1 }); iaListe = liste;
+      out.innerHTML = `<div class="card" style="margin-top:8px">${iaOzet(r)}<div class="filters" style="margin-top:10px"><button class="btn pri" id="ia-ok">Yayınla (duyurusuz)</button><button class="btn" id="ia-no">Vazgeç</button></div></div>`;
+    } catch (err) { out.textContent = err.message; }
+  });
   $('#m').onclick = async (e) => {
+    if (e.target.closest('#ia-no')) { iaListe = null; $('#ia-out').textContent = ''; $('#ia-f').value = ''; return; }
+    if (e.target.closest('#ia-ok')) {
+      if (!iaListe || !confirm('Yeni liste duyurusuz yayınlansın mı? Şu anki listenin yerine geçer.')) return;
+      const out = $('#ia-out'); out.textContent = 'Yayınlanıyor…';
+      try { const r = await api('dev-liste-aktar', { liste: iaListe }); iaListe = null; alert(`Yayınlandı (#${r.id}) · ${r.kisi} kişi · ${tr(r.from)} – ${tr(r.to)}. Duyuru gönderilmedi.`); yay(); } catch (err) { out.textContent = err.message; }
+      return;
+    }
     const b = e.target.closest('[data-yay]'); if (!b) return;
     try {
       const y = (await api('dev-yayinlar&id=' + b.dataset.yay)).yayin; const people = Object.values(y.veri.people || {}).sort((a, b2) => (a.group || '9').localeCompare(b2.group || '9') || a.name.localeCompare(b2.name, 'tr'));
