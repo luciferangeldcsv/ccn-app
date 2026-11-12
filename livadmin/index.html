@@ -380,7 +380,7 @@ async function ai() {
       <p class="mut">Anahtar sunucuda güvenli saklanır, kimseye gösterilmez.</p>
       ${d.configKilit ? '<p class="mut">Not: Anahtar sunucu dosyasında tanımlı olduğundan buradan düzenlenemez.</p>' : `
       <div class="filters">
-        <input id="aik" type="password" placeholder="AIza... veya sk-ant-..." class="mono" autocomplete="off" style="min-width:260px">
+        <input id="aik" type="text" placeholder="AIza... veya sk-ant-..." class="mono" name="ccn-ai-anahtar-x" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-lpignore="true" data-1p-ignore="true" style="min-width:260px">
         <button class="btn pri" id="aisave">Kaydet</button>
         ${d.tanimli && d.kaynak === 'panel' ? '<button class="btn red" id="aidel">Anahtarı sil</button>' : ''}
       </div>
@@ -392,6 +392,7 @@ async function ai() {
   $('#aisave').addEventListener('click', async () => {
     const v = $('#aik').value.trim(); const msg = $('#aimsg');
     if (!v) { msg.textContent = 'Önce anahtarı yapıştır.'; return; }
+    if (!/^AIza/.test(v) && !/^sk-ant-/.test(v)) { msg.textContent = 'Bu bir API anahtarı değil (' + v.slice(0, 4) + '…). Gemini anahtarı AIza, Claude anahtarı sk-ant- ile BAŞLAMALI. Yanlış yerden kopyalamışsın — aistudio.google.com/apikey → Create API key.'; return; }
     msg.textContent = 'Kaydediliyor…';
     try { await api('dev-ai-kaydet', { anahtar: v }); msg.textContent = 'Kaydedildi.'; ai(); } catch (e) { msg.textContent = e.message; }
   });
