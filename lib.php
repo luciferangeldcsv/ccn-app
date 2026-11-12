@@ -276,6 +276,17 @@ function meta_set(string $k, string $v): void { db()->prepare('REPLACE INTO meta
 // Yapay zekâ (isim okuma) anahtarı: önce ccn-config.php, yoksa DEV panelinden kaydedilen (meta) değer.
 // Böylece sunucu dosyasına erişemeyen DEV, anahtarı /livadmin'den telefonundan da girebilir.
 function ai_key(): string { $k = trim((string)(cfg()['ai_key'] ?? '')); return $k !== '' ? $k : trim((string)(meta_get('ai_key') ?? '')); }
+// Yapay zekâ servislerine istek: IPv4 zorunlu (paylaşımlı sunucularda IPv6 çıkışı takılabiliyor),
+// bağlantı süresi ayrı sınırlı, "Expect: 100-continue" kapalı. Dönüş: [http kodu, gövde|null, curl hatası, saniye]
+function ai_http(string $url, array $headers, ?string $body, int $timeout): array {
+  $t0 = microtime(true); $ch = curl_init($url);
+  $o = [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_HTTPHEADER => array_merge($headers, ['Expect:'])];
+  if (defined('CURL_IPRESOLVE_V4')) $o[CURLOPT_IPRESOLVE] = CURL_IPRESOLVE_V4;
+  if ($body !== null) { $o[CURLOPT_POST] = true; $o[CURLOPT_POSTFIELDS] = $body; }
+  curl_setopt_array($ch, $o);
+  $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch); curl_close($ch);
+  return [$code, $resp === false ? null : (string)$resp, $err, round(microtime(true) - $t0, 1)];
+}
 // Sağlayıcı: yalnızca "sk-ant-" ile başlayan anahtar Anthropic Claude'dur; diğer her şey (AIza, AQ…, vb.) Google Gemini.
 function ai_provider(): string { return str_starts_with(ai_key(), 'sk-ant-') ? 'claude' : 'gemini'; }
 function ai_model(): string {

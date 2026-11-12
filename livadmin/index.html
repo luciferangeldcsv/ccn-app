@@ -405,9 +405,8 @@ async function ai() {
     const msg = $('#aimsg'); msg.textContent = 'Test ediliyor…';
     try {
       const r = await api('dev-ai-test');
-      msg.textContent = r.ok
-        ? `✅ Çalışıyor — ${r.saglayici} / ${r.model}. Artık fotoğraftan isimler okunabilir.`
-        : `❌ Hata${r.kod ? ' (' + r.kod + ')' : ''}: ${r.hata || 'bilinmiyor'}${r.model ? ' · model: ' + r.model : ''}`;
+      msg.textContent = (r.adim1 ? '1) ' + r.adim1 + ' — ' : '') + '2) ' + (r.adim2 || r.hata || '') + ` · ${r.model}`
+        + (r.ok ? ' — Artık fotoğraftan isimler okunabilir.' : '');
     } catch (e) { msg.textContent = e.message; }
   });
   const saveModel = async (m) => {
