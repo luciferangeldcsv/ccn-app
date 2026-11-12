@@ -94,7 +94,7 @@ function defaultStore() {
 let store = load();
 
 // ---------- Cihaz tercihleri (tema, izinler) ve hata günlüğü: "Tüm verileri sil" bunlara dokunmaz ----------
-const APP_VERSION = /^\d/.test('2.9.2') ? '2.9.2' : 'web';
+const APP_VERSION = /^\d/.test('2.9.3') ? '2.9.3' : 'web';
 const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.vardiyapanosu.app';
 const PREFS_KEY = 'ccn-vardiya-prefs', ERR_KEY = 'ccn-vardiya-hatalar';
 const readLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
@@ -312,23 +312,30 @@ async function checkForUpdate(manual) {
   if (!AppUpdate || !(window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) { if (manual) window.open(PLAY_URL, '_blank'); return; }
   let info;
   try { info = await AppUpdate.getAppUpdateInfo(); } catch (e) { logError('güncelleme denetimi', e); if (manual) AppUpdate.openAppStore().catch(() => window.open(PLAY_URL, '_blank')); return; }
-  // 2: yeni sürüm var, 3: güncelleme yarım kaldı
-  if (info.updateAvailability === 2 || info.updateAvailability === 3) updateSheet(info);
-  else if (manual) toast(`Uygulama güncel (${APP_VERSION})`);
+  // 2: yeni sürüm var, 3: güncelleme yarım kaldı → güncelleme ZORUNLU (çevrimiçiyken)
+  if (info.updateAvailability === 2 || info.updateAvailability === 3) {
+    // Play güncellemeyi gerçekten sunuyorsa tam ekran, atlanamaz (immediate) akışı başlat.
+    // Bu akış yalnızca güncelleme yayına çıktıysa gelir; çıkmadıysa kimse kilitlenmez.
+    if (info.immediateUpdateAllowed) {
+      try { const r = await AppUpdate.performImmediateUpdate(); if (r && r.code === 0) return; } catch (e) { logError('güncelleme', e); }
+    }
+    forcedUpdateSheet(info); // immediate yoksa (ör. iOS) ya da başlatılamadıysa: atlanamaz "güncelleme gerekli" ekranı
+  } else if (manual) toast(`Uygulama güncel (${APP_VERSION})`);
 }
-function updateSheet(info) {
-  const v = info.availableVersionName ? ` (${esc(info.availableVersionName)})` : '';
-  sheet(`<div class="permhead">${ICON_UPLOAD}<h3>Yeni sürüm hazır${v}</h3></div>
-    <p class="muted" style="margin:0">Vardiya Listesi'nin yeni sürümü Google Play'de. Yenilikler ve düzeltmeler için şimdi güncelleyin. Kayıtlı listeleriniz silinmez.</p>
-    <div class="row"><button class="btn primary" id="up-ok">Güncelle</button><button class="btn" data-x="1">Sonra</button></div>`, (bg) => {
+// Zorunlu güncelleme: atlanamaz pencere. Yalnızca çevrimiçiyken ve güncelleme hazırsa gösterilir;
+// internet yoksa hiç gelmez (uygulama eski haliyle çalışmaya devam eder).
+function forcedUpdateSheet(info) {
+  const v = info && info.availableVersionName ? ` (${esc(info.availableVersionName)})` : '';
+  sheet(`<div class="permhead">${ICON_UPLOAD}<h3>Güncelleme gerekli${v}</h3></div>
+    <p class="muted" style="margin:0">Devam etmek için Vardiya Listesi'nin yeni sürümüne güncellemelisiniz. Kayıtlı listeleriniz silinmez. İnternetiniz yokken uygulamayı önceki haliyle kullanmaya devam edebilirsiniz.</p>
+    <div class="row"><button class="btn primary" id="up-ok">Şimdi güncelle</button></div>`, (bg) => {
     bg.querySelector('#up-ok').addEventListener('click', async () => {
-      closeSheet();
       try {
-        if (info.immediateUpdateAllowed) { const r = await AppUpdate.performImmediateUpdate(); if (r && r.code === 0) return; }
+        if (info && info.immediateUpdateAllowed) { const r = await AppUpdate.performImmediateUpdate(); if (r && r.code === 0) return; }
         await AppUpdate.openAppStore();
       } catch (e) { logError('güncelleme', e); window.open(PLAY_URL, '_blank'); }
     });
-  });
+  }, true); // locked: atlanamaz
 }
 
 // Sunucu tabanlı güncelleme uyarısı: yayınlanan sürüm, yüklü native sürümden yeniyse açılışta "güncelleme geldi" der (Android)
@@ -2582,17 +2589,17 @@ async function doShare(text, title) {
 }
 
 // ---------- Alt sayfalar ----------
-function sheet(html, onBind) {
-  $overlay.innerHTML = `<div class="sheet-bg" data-close="1"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
+function sheet(html, onBind, locked) {
+  $overlay.innerHTML = `<div class="sheet-bg"${locked ? ' data-locked="1"' : ' data-close="1"'}><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
   const bg = $overlay.firstElementChild;
-  bg.addEventListener('click', (e) => { if (e.target.dataset.close) closeSheet(); });
+  bg.addEventListener('click', (e) => { if (e.target.dataset.close) closeSheet(); }); // locked'ta data-close yok → arka plana tıklayınca kapanmaz
   bg.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', closeSheet));
   onBind && onBind(bg);
   // telefonda klavye açılmasın diye metin kutusuna değil pencereye odaklan
   const sh = bg.querySelector('.sheet'); sh.tabIndex = -1; sh.focus();
 }
 function closeSheet() { $overlay.innerHTML = ''; }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $overlay.innerHTML) closeSheet(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $overlay.innerHTML && !($overlay.firstElementChild && $overlay.firstElementChild.dataset.locked)) closeSheet(); });
 
 function pickCode(current, title, cb) {
   sheet(`<h3>${esc(title)}</h3><div class="codegrid">${CODE_ORDER.map((c) => `<button class="k-${c}" data-code="${c}" aria-pressed="${c === current}">${CODES[c].short}<small>${CODES[c].label.replace(' (Hafta tatili)', '')}</small></button>`).join('')}</div><button class="btn" data-x="1">Kapat</button>`,
