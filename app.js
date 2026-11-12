@@ -94,7 +94,7 @@ function defaultStore() {
 let store = load();
 
 // ---------- Cihaz tercihleri (tema, izinler) ve hata günlüğü: "Tüm verileri sil" bunlara dokunmaz ----------
-const APP_VERSION = /^\d/.test('2.9.1') ? '2.9.1' : 'web';
+const APP_VERSION = /^\d/.test('2.9.2') ? '2.9.2' : 'web';
 const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.vardiyapanosu.app';
 const PREFS_KEY = 'ccn-vardiya-prefs', ERR_KEY = 'ccn-vardiya-hatalar';
 const readLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
