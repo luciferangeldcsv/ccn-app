@@ -3388,7 +3388,8 @@ function aiTableResult(rows, shift, dates, progress) {
     const cellsIn = Array.isArray(v.cells) ? v.cells : [];
     const sec = shiftFromTitle(String(v.name || '')); if (!looksLikeName(name) && sec) { section = sec; continue; }
     if (!name) continue;
-    const cells = Array.from({ length: ncols }, (_, k) => toCode(cellsIn[k]));
+    // yapay zekâ satırın sonunu atladıysa eksik günler boş değil "?" (okunamadı) görünür: gözden kaçmasın
+    const cells = Array.from({ length: ncols }, (_, k) => (k < cellsIn.length ? toCode(cellsIn[k]) : { code: 'Q', raw: '', fill: 'white' }));
     cells.forEach((c) => { if (digitCount[c.code] != null) digitCount[c.code]++; });
     out.push({ name, skip: !looksLikeName(name), cells, group: section, ai: true });
   }
@@ -3409,10 +3410,12 @@ let srvAiErr = null; let srvAiDown = false; // bu görselde sunucu yapay zekâs�
 async function readWholeTableWithServer(img, progress) {
   if (!(SERVER && srv.v && srv.v.aiOcr)) return null;
   const W0 = img.naturalWidth || img.width, H0 = img.naturalHeight || img.height;
-  const sc = Math.min(1, 2000 / Math.max(W0, H0));
+  const sc = Math.min(1, 2600 / Math.max(W0, H0)); // en sağdaki küçük gün hücreleri de okunabilsin
   const c = document.createElement('canvas'); c.width = Math.round(W0 * sc); c.height = Math.round(H0 * sc);
   const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, c.width, c.height);
   const prompt = 'This image is a photo of a Turkish hospital staff shift roster table (vardiya listesi). It may be a photo of a computer screen, tilted, cropped or with glare. Read the WHOLE table carefully. '
+    + 'FIRST count the day columns in the header (dates or day numbers) all the way to the RIGHT EDGE of the table; the last columns at the right edge are often small or blurry — read them too. '
+    + 'Then for each row read every cell from the first day column to the LAST one; never skip a cell, write "" for an empty cell so the values stay under the right day. '
     + 'For EVERY person row return the full name exactly as written (keep Turkish letters Ç Ğ I İ Ö Ş Ü; copy, do not correct, guess or complete names) and one value per day column, in column order: '
     + '"1", "2" or "3" for a shift number (also S/SABAH or 08-16 -> "1", A/AKŞAM or 16-24 -> "2", G/GECE or 24-08 -> "3"); '
     + '"OFF" for a red or pink filled cell or a cell that says OFF; "R" for rapor; "YI" for yıllık izin (Yİ); "MI" for any other leave (İ, İZİN, MAZERET, ÜCRETSİZ); '
@@ -3428,6 +3431,23 @@ async function readWholeTableWithServer(img, progress) {
   catch (e) { const kod = e && e.data && e.data.aiYok ? 'aiYok' : (e && e.message ? e.message.replace(/\s+/g, ' ').slice(0, 90) : 'srv'); srvAiDown = true; claudeStatus = srvAiErr = { status: 'err', code: kod }; console.warn('Sunucu tablo okuma', kod); return null; }
   if (!res || typeof res !== 'object' || !Array.isArray(res.rows) || !res.rows.length) { claudeStatus = srvAiErr = { status: 'err', code: 'boş yanıt' }; return null; }
   const rows = {}; res.rows.forEach((v, i) => { if (v && typeof v === 'object') rows[i] = v; });
+  // Eksik satırlar: bazı satırlar gün sayısından az değerle döndüyse yalnız onlar bir kez daha okutulur
+  {
+    const n = Array.isArray(res.dates) && res.dates.length ? res.dates.length : Math.max(0, ...res.rows.map((v) => (v && Array.isArray(v.cells) ? v.cells.length : 0)));
+    const short = res.rows.filter((v) => v && Array.isArray(v.cells) && v.cells.length && v.cells.length < n && looksLikeName(String(v.name || '')));
+    if (n && short.length) {
+      progress(`Eksik kalan ${short.length} satır yeniden okunuyor`, 0.7);
+      const p2 = `This image is the same Turkish shift roster table. The table has ${n} day columns${Array.isArray(res.dates) && res.dates.length ? ' (' + res.dates[0] + ' … ' + res.dates[res.dates.length - 1] + ')' : ''}. `
+        + `For ONLY these people, read their row again from the first to the LAST (rightmost) day column — exactly ${n} values each, never skip a cell, "" for an empty cell: ${short.map((v) => JSON.stringify(String(v.name))).join(', ')}. `
+        + 'Use the same values: "1","2","3" shift; "OFF" red/pink cell or OFF; "R" rapor; "YI" yıllık izin; "MI" other leave; "-" gray cell; "" empty. '
+        + 'Reply with ONLY this JSON: {"rows":[{"name":"AYŞE YILMAZ","cells":["1","OFF"]}]}';
+      try {
+        const r2 = (await api('isim-oku', { gorseller: [c.toDataURL('image/jpeg', 0.9)], komut: p2 })).sonuc;
+        const fix = {}; (r2 && Array.isArray(r2.rows) ? r2.rows : []).forEach((v) => { if (v && Array.isArray(v.cells) && v.cells.length === n) fix[nameKey(String(v.name || ''))] = v.cells; });
+        res.rows.forEach((v) => { if (v && short.includes(v) && fix[nameKey(String(v.name || ''))]) v.cells = fix[nameKey(String(v.name || ''))]; });
+      } catch (e) { console.warn('eksik satır okuma', e && e.message); }
+    }
+  }
   const shift = /^[123]$/.test(String(res.shift || '')) ? String(res.shift) : '';
   const dates = Array.isArray(res.dates) ? res.dates.map((d) => { const m = String(d).match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/); if (!m) return null; const x = new Date(+m[3], +m[2] - 1, +m[1]); return isNaN(x) ? null : iso(x); }) : [];
   const out = aiTableResult(rows, shift, dates, progress);
