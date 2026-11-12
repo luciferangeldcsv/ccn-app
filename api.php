@@ -30,6 +30,7 @@ function versions(): array {
   // appSurum: yayınlanan sürüm (native uygulama eski ise açılışta "güncelleme geldi" uyarısı gösterir)
   $as = @file_get_contents(__DIR__ . '/surum.txt'); $as = $as !== false ? trim($as) : '';
   return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc, 'ayar' => (int)(meta_get('ayar_surum') ?? 0), 'taslak' => (int)(meta_get('taslak_surum') ?? 0), 'bildirim' => (int)(db()->query('SELECT MAX(id) FROM bildirimler')->fetchColumn() ?: 0), 'appSurum' => $as,
+    'web' => trim((string)@file_get_contents(__DIR__ . '/web.txt')), // yayındaki web derlemesi (eski sekme kendini yeniler)
     'aiOcr' => ai_key() !== '']; // AI okuma anahtarı (config ya da DEV panelinden) varsa isimler AI ile okunur
 }
 function utc(string $t): string { return str_replace(' ', 'T', $t) . 'Z'; }
