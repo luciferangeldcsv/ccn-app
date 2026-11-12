@@ -292,14 +292,15 @@ function gemini_models(): array {
   return array_values(array_unique(array_filter([ai_model(), 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-flash-lite-latest'])));
 }
 // Gemini'den üretim iste. Yoğunlukta (429/500/503/504) bekleyip bir kez daha dener, sonra sıradaki modele geçer;
-// model kaldırılmışsa (404) ya da cevap gelmezse doğrudan sıradakine geçer; anahtar/istek hatasında (400/401/403) durur.
+// model kaldırılmışsa (404) ya da cevap gelmezse doğrudan sıradakine geçer; 400'de düşünme ve JSON ayarlarını sırayla
+// kaldırıp aynı modeli tekrar dener; anahtar hatasında (401/403) durur. Hata metni her modelin sonucunu içerir.
 // Dönüş: [metin|null, son hata, kullanılan model]
 function gemini_generate(string $key, array $payload, int $budget = 55): array {
-  $t0 = microtime(true); $last = 'bilinmeyen hata';
+  $t0 = microtime(true); $errs = [];
   foreach (gemini_models() as $model) {
-    $p = $payload;
-    for ($try = 0; $try < 3; $try++) {
-      $left = $budget - (microtime(true) - $t0); if ($left < 4) return [null, $last, $model];
+    $p = $payload; $last = '';
+    for ($try = 0; $try < 4; $try++) {
+      $left = $budget - (microtime(true) - $t0); if ($left < 4) { if ($last !== '') $errs[] = $last; return [null, mb_substr(implode(' | ', $errs) ?: 'süre doldu', 0, 500), $model]; }
       [$code, $resp, $err] = ai_http('https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent',
         ['content-type: application/json', 'x-goog-api-key: ' . $key], json_encode($p), (int)min(35, $left));
       if ($code === 200 && $resp !== null) {
@@ -307,15 +308,20 @@ function gemini_generate(string $key, array $payload, int $budget = 55): array {
         foreach (($j['candidates'][0]['content']['parts'] ?? []) as $part) if (isset($part['text']) && empty($part['thought'])) $text .= (string)$part['text'];
         return [$text, '', $model];
       }
-      $msg = $resp === null ? 'cevap yok (' . $err . ')' : mb_substr((string)(json_decode($resp, true)['error']['message'] ?? $resp), 0, 200);
+      $msg = $resp === null ? 'cevap yok (' . $err . ')' : mb_substr((string)(json_decode($resp, true)['error']['message'] ?? $resp), 0, 160);
       $last = $model . ': ' . ($code ?: '-') . ' ' . $msg;
-      if ($resp === null || $code === 404) break;                                                       // sıradaki model
-      if ($code === 400 && stripos($msg, 'thinking') !== false && isset($p['generationConfig']['thinkingConfig'])) { unset($p['generationConfig']['thinkingConfig']); continue; } // bu model düşünme ayarını kabul etmiyor
+      if ($resp === null || $code === 404) break;                                                        // sıradaki model
+      if ($code === 400) {                                                                                // bu model bir ayarı kabul etmiyor: ayarları sırayla kaldırıp tekrar dene
+        if (isset($p['generationConfig']['thinkingConfig'])) { unset($p['generationConfig']['thinkingConfig']); continue; }
+        if (isset($p['generationConfig']['responseMimeType'])) { unset($p['generationConfig']['responseMimeType']); continue; }
+        break;
+      }
       if (in_array($code, [429, 500, 503, 504], true)) { if ($try >= 1) break; usleep(2000000); continue; } // yoğunluk: 2 sn bekle, 1 kez daha dene
-      return [null, $last, $model];                                                                      // anahtar/istek hatası
+      $errs[] = $last; return [null, mb_substr(implode(' | ', $errs), 0, 500), $model];                  // anahtar hatası (401/403): dur
     }
+    if ($last !== '') $errs[] = $last;
   }
-  return [null, $last, ''];
+  return [null, mb_substr(implode(' | ', $errs) ?: 'bilinmeyen hata', 0, 500), ''];
 }
 // Sağlayıcı: yalnızca "sk-ant-" ile başlayan anahtar Anthropic Claude'dur; diğer her şey (AIza, AQ…, vb.) Google Gemini.
 function ai_provider(): string { return str_starts_with(ai_key(), 'sk-ant-') ? 'claude' : 'gemini'; }
