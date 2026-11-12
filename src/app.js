@@ -697,12 +697,14 @@ function maybeWebReload(v) {
   if (NATIVE || !SERVER || !WEB_BUILD || !v || !v.web || v.web === WEB_BUILD) return;
   let tried = ''; try { tried = sessionStorage.getItem('ccn-web-yenile') || ''; } catch (e) { /* yoksay */ }
   const idle = !ui.busy && !ui.review && !$overlay.innerHTML;
-  if (idle && tried !== v.web) { try { sessionStorage.setItem('ccn-web-yenile', v.web); } catch (e) { /* yoksay */ } location.reload(); return; }
+  // önbellekteki eski sayfa gelmesin diye adrese sürüm eklenerek açılır (aynı adreste yenileme eski kopyayı getirebiliyor)
+  const fresh = () => location.replace(location.pathname + '?y=' + encodeURIComponent(v.web) + '-' + Date.now().toString(36) + location.hash);
+  if (idle && tried !== v.web) { try { sessionStorage.setItem('ccn-web-yenile', v.web); } catch (e) { /* yoksay */ } fresh(); return; }
   if (document.getElementById('web-yenile')) return;
   const d = document.createElement('div'); d.id = 'web-yenile';
   d.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:9999;background:#2563eb;color:#fff;border-radius:14px;padding:12px 14px;display:flex;gap:12px;align-items:center;box-shadow:0 8px 28px rgba(0,0,0,.4);font-size:15px;line-height:1.35';
-  d.innerHTML = '<span style="flex:1"><b>Sitenin yeni sürümü hazır.</b> Doğru çalışması için sayfayı yenileyin.</span><button type="button" style="background:#fff;color:#1e40af;border:0;border-radius:10px;padding:10px 16px;font:inherit;font-weight:700">Yenile</button>';
-  d.querySelector('button').addEventListener('click', () => location.reload());
+  d.innerHTML = `<span style="flex:1"><b>Sitenin yeni sürümü hazır.</b> Doğru çalışması için sayfayı yenileyin.<small style="display:block;opacity:.7;font-size:11px;margin-top:2px">açık ${esc(WEB_BUILD)} · yayında ${esc(v.web)}</small></span><button type="button" style="background:#fff;color:#1e40af;border:0;border-radius:10px;padding:10px 16px;font:inherit;font-weight:700">Yenile</button>`;
+  d.querySelector('button').addEventListener('click', fresh);
   document.body.appendChild(d);
 }
 async function syncData(force) {

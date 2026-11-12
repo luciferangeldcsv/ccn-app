@@ -29,6 +29,18 @@ RedirectMatch 404 /\.git
     Header set Cache-Control "no-cache"
   </IfModule>
 </FilesMatch>
+# sayfanın kendisi ve sürüm dosyaları hiçbir ara önbellekte (Hostinger/LiteSpeed, CDN, tarayıcı) saklanmaz:
+# yeni yayın açık sayfaya hemen ulaşsın
+<FilesMatch "^(index\.html|sw\.js|web\.txt|surum\.txt)$">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    Header set X-LiteSpeed-Cache-Control "no-cache"
+    Header set CDN-Cache-Control "no-store"
+  </IfModule>
+</FilesMatch>
+<IfModule LiteSpeed>
+  RewriteRule ^(index\.html)?$ - [E=Cache-Control:no-cache]
+</IfModule>
 <IfModule mod_expires.c>
   ExpiresActive On
   ExpiresByType text/html "access plus 0 seconds"
