@@ -374,8 +374,8 @@ async function ai() {
       <h3>API anahtarı</h3>
       <p class="mut">Fotoğraftaki vardiya listesinde isimleri doğru okumak için gerekir. İki seçenekten birini kullanabilirsin — anahtarın başına bakıp hangisi olduğunu kendi anlar:</p>
       <ul style="margin:0 0 8px;padding-left:18px">
-        <li><b>Gemini — ÜCRETSİZ:</b> <b>aistudio.google.com/apikey</b> → “Create API key”. Anahtar <span class="mono">AIza…</span> ile başlar. Ücretsiz katman çoğu kullanım için yeter.</li>
-        <li><b>Claude (Anthropic) — ücretli:</b> <b>console.anthropic.com → API Keys</b>. Anahtar <span class="mono">sk-ant-…</span> ile başlar.</li>
+        <li><b>Gemini — ÜCRETSİZ:</b> <b>aistudio.google.com/apikey</b> → “Create API key”. Google ne verirse onu yapıştır. Ücretsiz katman çoğu kullanım için yeter.</li>
+        <li><b>Claude (Anthropic) — ücretli:</b> <b>console.anthropic.com → API Keys</b> (<span class="mono">sk-ant-…</span>).</li>
       </ul>
       <p class="mut">Anahtar sunucuda güvenli saklanır, kimseye gösterilmez.</p>
       ${d.configKilit ? '<p class="mut">Not: Anahtar sunucu dosyasında tanımlı olduğundan buradan düzenlenemez.</p>' : `
@@ -392,7 +392,6 @@ async function ai() {
   $('#aisave').addEventListener('click', async () => {
     const v = $('#aik').value.trim(); const msg = $('#aimsg');
     if (!v) { msg.textContent = 'Önce anahtarı yapıştır.'; return; }
-    if (!/^AIza/.test(v) && !/^sk-ant-/.test(v)) { msg.textContent = 'Bu bir API anahtarı değil (' + v.slice(0, 4) + '…). Gemini anahtarı AIza, Claude anahtarı sk-ant- ile BAŞLAMALI. Yanlış yerden kopyalamışsın — aistudio.google.com/apikey → Create API key.'; return; }
     msg.textContent = 'Kaydediliyor…';
     try { await api('dev-ai-kaydet', { anahtar: v }); msg.textContent = 'Kaydedildi.'; ai(); } catch (e) { msg.textContent = e.message; }
   });
