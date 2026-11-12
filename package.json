@@ -1,6 +1,6 @@
 {
   "name": "vardiya-panosu",
-  "version": "2.9.3",
+  "version": "2.9.4",
   "description": "Vardiya listesi görsellerinden 1/2/3 vardiya, OFF, rapor ve izin listeleri",
   "scripts": {
     "build": "node tools/build.mjs",
