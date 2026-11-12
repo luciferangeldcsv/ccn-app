@@ -85,15 +85,6 @@
 body.intro-run .topbar, body.intro-run #app { opacity: 0; }
 body.intro-done .topbar { animation: introFade .35s ease both; }
 body.intro-done #app { animation: introAppIn .4s cubic-bezier(.2,.8,.2,1) .05s both; }
-/* 10 Kasım: önce NORMAL açılış (kar + VARDİYA LİSTESİ + hava + Powered + sürüm) oynar; sonra (.anma) normal içerik solar, Atatürk anması belirir-durur-kaybolur */
-.anma-center { position: absolute; inset: 0; display: grid; justify-items: center; align-content: center; gap: 13px; text-align: center; padding: 0 24px; pointer-events: none; opacity: 0; }
-.anma-dates { font: 500 13px/1 var(--font-body); letter-spacing: .5em; color: rgba(255,255,255,.55); padding-left: .5em; }
-.anma-name { font: 800 clamp(40px, 13vw, 92px)/1 var(--font-display); letter-spacing: .14em; color: #fff; text-shadow: 0 0 34px rgba(255,255,255,.22); padding-left: .14em; }
-.anma-line { width: 74px; height: 2px; background: rgba(255,255,255,.5); }
-.anma-sub { font: 500 clamp(12px, 3.4vw, 15px)/1.5 var(--font-body); letter-spacing: .06em; color: rgba(255,255,255,.75); max-width: 300px; }
-#intro.anma .intro-stage, #intro.anma .intro-sky, #intro.anma .intro-ver, #intro.anma .intro-by { transition: opacity .6s ease; opacity: 0 !important; }
-#intro.anma .anma-center { animation: anmaFade 2.6s ease .45s both; }
-@keyframes anmaFade { 0% { opacity: 0; transform: translateY(10px); } 18% { opacity: 1; transform: none; } 72% { opacity: 1; } 100% { opacity: 0; transform: translateY(-6px); } }
 @keyframes introPop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
 @keyframes introDot { from { opacity: 0; transform: translateY(-30px) scale(.4); } to { opacity: 1; transform: none; } }
 @keyframes introBar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
