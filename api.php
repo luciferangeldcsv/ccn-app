@@ -318,10 +318,11 @@ switch ($r) {
       foreach ($b64s as $b) $parts[] = ['inline_data' => ['mime_type' => 'image/png', 'data' => $b]];
       $parts[] = ['text' => $prompt];
       $payload = ['contents' => [['parts' => $parts]], 'generationConfig' => ['maxOutputTokens' => 2000, 'temperature' => 0, 'responseMimeType' => 'application/json']];
-      $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent?key=' . urlencode($key);
+      $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent';
       $ch = curl_init($url);
+      // Anahtar başlıkla gönderilir (yeni "AQ." auth anahtarları ?key= ile değil, x-goog-api-key ile çalışır)
       curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
-        CURLOPT_HTTPHEADER => ['content-type: application/json'], CURLOPT_POSTFIELDS => json_encode($payload)]);
+        CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-goog-api-key: ' . $key], CURLOPT_POSTFIELDS => json_encode($payload)]);
       $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
       if ($resp === false) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
       $j = json_decode($resp, true);
