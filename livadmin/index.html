@@ -382,6 +382,7 @@ async function ai() {
       <div class="filters">
         <input id="aik" type="text" placeholder="AIza... veya sk-ant-..." class="mono" name="ccn-ai-anahtar-x" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-lpignore="true" data-1p-ignore="true" style="min-width:260px">
         <button class="btn pri" id="aisave">Kaydet</button>
+        ${d.tanimli ? '<button class="btn" id="aitest">Test et</button>' : ''}
         ${d.tanimli && d.kaynak === 'panel' ? '<button class="btn red" id="aidel">Anahtarı sil</button>' : ''}
       </div>
       <p class="mut" id="aimsg"></p>`}
@@ -394,6 +395,15 @@ async function ai() {
     if (!v) { msg.textContent = 'Önce anahtarı yapıştır.'; return; }
     msg.textContent = 'Kaydediliyor…';
     try { await api('dev-ai-kaydet', { anahtar: v }); msg.textContent = 'Kaydedildi.'; ai(); } catch (e) { msg.textContent = e.message; }
+  });
+  const test = $('#aitest'); if (test) test.addEventListener('click', async () => {
+    const msg = $('#aimsg'); msg.textContent = 'Test ediliyor…';
+    try {
+      const r = await api('dev-ai-test');
+      msg.textContent = r.ok
+        ? `✅ Çalışıyor — ${r.saglayici} / ${r.model}. Artık fotoğraftan isimler okunabilir.`
+        : `❌ Hata${r.kod ? ' (' + r.kod + ')' : ''}: ${r.hata || 'bilinmiyor'}${r.model ? ' · model: ' + r.model : ''}`;
+    } catch (e) { msg.textContent = e.message; }
   });
   const del = $('#aidel'); if (del) del.addEventListener('click', async () => {
     if (!confirm('Anahtar silinsin mi? İsim okuma tekrar zayıflar.')) return;

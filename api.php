@@ -970,6 +970,29 @@ switch ($r) {
       'saglayici' => $k === '' ? '' : (ai_provider() === 'gemini' ? 'Gemini (Google)' : 'Claude (Anthropic)'), 'model' => ai_model()]);
   }
 
+  // Anahtarı gerçek sağlayıcıya karşı test et: küçük bir istek atıp dönen gerçek hatayı gösterir (teşhis için)
+  case 'dev-ai-test': {
+    dev_only();
+    $key = ai_key(); if ($key === '') ok(['ok' => false, 'hata' => 'Önce bir anahtar kaydet.']);
+    $model = ai_model(); $prov = ai_provider();
+    if ($prov === 'gemini') {
+      $payload = ['contents' => [['parts' => [['text' => 'Reply with exactly this JSON and nothing else: {"ok":true}']]]], 'generationConfig' => ['maxOutputTokens' => 20, 'responseMimeType' => 'application/json']];
+      $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent');
+      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-goog-api-key: ' . $key], CURLOPT_POSTFIELDS => json_encode($payload)]);
+    } else {
+      $payload = ['model' => $model, 'max_tokens' => 20, 'messages' => [['role' => 'user', 'content' => 'Reply with {"ok":true}']]];
+      $ch = curl_init('https://api.anthropic.com/v1/messages');
+      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'], CURLOPT_POSTFIELDS => json_encode($payload)]);
+    }
+    $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
+    if ($resp === false) ok(['ok' => false, 'saglayici' => $prov, 'model' => $model, 'hata' => 'Bağlantı hatası: ' . $cerr]);
+    $j = json_decode($resp, true);
+    if ($code !== 200) ok(['ok' => false, 'saglayici' => $prov, 'model' => $model, 'kod' => $code, 'hata' => mb_substr((string)($j['error']['message'] ?? $j['error']['status'] ?? $resp), 0, 300)]);
+    ok(['ok' => true, 'saglayici' => $prov, 'model' => $model]);
+  }
+
   // Yapay zekâ anahtarını panelden kaydet/sil (sunucu dosyasına erişemeyen DEV için). Değer veritabanında saklanır, loglanmaz.
   case 'dev-ai-kaydet': {
     $u = dev_only();

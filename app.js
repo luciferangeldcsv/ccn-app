@@ -3169,7 +3169,8 @@ async function readNamesWithServer(src, rowsB, [x0, x1], include, progress, head
     out.meta = meta;
   } catch (e) {
     const aiYok = !!(e && e.data && e.data.aiYok);
-    console.warn('Sunucu isim okuma', aiYok ? 'aiYok' : (e && e.message)); claudeStatus = { status: 'err', code: aiYok ? 'aiYok' : 'srv' };
+    const kod = aiYok ? 'aiYok' : (e && e.message ? e.message.replace(/\s+/g, ' ').slice(0, 90) : 'srv');
+    console.warn('Sunucu isim okuma', kod); claudeStatus = { status: 'err', code: kod };
     return out.some((x) => x != null) ? out : null;
   }
   return out;
