@@ -276,8 +276,8 @@ function meta_set(string $k, string $v): void { db()->prepare('REPLACE INTO meta
 // Yapay zekâ (isim okuma) anahtarı: önce ccn-config.php, yoksa DEV panelinden kaydedilen (meta) değer.
 // Böylece sunucu dosyasına erişemeyen DEV, anahtarı /livadmin'den telefonundan da girebilir.
 function ai_key(): string { $k = trim((string)(cfg()['ai_key'] ?? '')); return $k !== '' ? $k : trim((string)(meta_get('ai_key') ?? '')); }
-// Sağlayıcı anahtarın başına göre belirlenir: "AIza…" Google Gemini (ücretsiz katman var), yoksa Anthropic Claude.
-function ai_provider(): string { return str_starts_with(ai_key(), 'AIza') ? 'gemini' : 'claude'; }
+// Sağlayıcı: yalnızca "sk-ant-" ile başlayan anahtar Anthropic Claude'dur; diğer her şey (AIza, AQ…, vb.) Google Gemini.
+function ai_provider(): string { return str_starts_with(ai_key(), 'sk-ant-') ? 'claude' : 'gemini'; }
 function ai_model(): string {
   $m = trim((string)(cfg()['ai_model'] ?? '')); if ($m === '') $m = trim((string)(meta_get('ai_model') ?? ''));
   if ($m !== '') return $m;

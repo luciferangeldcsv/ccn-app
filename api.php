@@ -975,7 +975,7 @@ switch ($r) {
     if (trim((string)(cfg()['ai_key'] ?? '')) !== '') fail(409, 'Anahtar ccn-config.php dosyasında tanımlı; panelden değiştirilemez.');
     $key = trim((string)(body()['anahtar'] ?? ''));
     if ($key === '') { meta_set('ai_key', ''); audit($u, 'ai-anahtar', 'silindi'); ok(['tanimli' => false, 'maske' => '']); }
-    if (!preg_match('/^(sk-ant-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{30,})$/', $key)) fail(400, 'Geçersiz anahtar. Claude anahtarı "sk-ant-", Gemini anahtarı "AIza" ile başlar.');
+    if (mb_strlen($key) < 20 || preg_match('/\s/', $key)) fail(400, 'Bu bir API anahtarına benzemiyor (çok kısa ya da boşluk içeriyor). Gemini: aistudio.google.com/apikey, Claude: console.anthropic.com.');
     meta_set('ai_key', $key);
     $model = trim((string)(body()['model'] ?? '')); if ($model !== '') meta_set('ai_model', $model);
     audit($u, 'ai-anahtar', 'güncellendi'); // anahtar değeri loglanmaz
