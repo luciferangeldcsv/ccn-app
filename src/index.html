@@ -54,16 +54,29 @@
 /* hava durumu efekti: tam ekran canvas (yağmur / kar / bulut / sis / yıldız) */
 .intro-sky { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
 .intro-stage { position: relative; z-index: 3; display: grid; justify-items: center; text-align: center; padding: 0 20px; }
-.intro-vl { display: grid; gap: .08em; font-weight: 800; line-height: 1.04; letter-spacing: .06em; }
-.intro-vl span { display: block; font-size: clamp(44px, 15vw, 104px); color: #fff; opacity: 0; transform: translateY(16px); text-shadow: 0 0 18px rgba(255,255,255,.18); animation: introRise .75s cubic-bezier(.2,.8,.2,1) both; }
-.intro-vl span:nth-child(1) { animation-delay: .25s; }
-.intro-vl span:nth-child(2) { letter-spacing: .14em; animation-delay: .4s; }
-.intro-sub { margin-top: 20px; font: 500 clamp(10px, 2.8vw, 12px)/1 var(--font-body); letter-spacing: .42em; text-transform: uppercase; color: rgba(255,255,255,.42); opacity: 0; padding-left: .42em; animation: introFade .8s ease .85s both; }
+/* Logo: rozet belirir, üç satırın noktaları sırayla düşer, çubuklar soldan dolar (vardiya listesi yazılıyor gibi) */
+.intro-logo { width: clamp(76px, 22vw, 96px); aspect-ratio: 1; border-radius: 24%; box-shadow: 0 14px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.07); opacity: 0; transform: scale(.82); animation: introPop .7s cubic-bezier(.2,.9,.25,1.2) .1s both; }
+.intro-logo svg { display: block; width: 100%; height: 100%; }
+.intro-logo .il-d { transform-box: fill-box; transform-origin: center; opacity: 0; animation: introDot .45s cubic-bezier(.3,1.6,.5,1) both; }
+.intro-logo .il-b { transform-box: fill-box; transform-origin: left center; transform: scaleX(0); animation: introBar .55s cubic-bezier(.25,.8,.25,1) both; }
+.intro-logo .il-1 { animation-delay: .45s; } .intro-logo .il-2 { animation-delay: .62s; } .intro-logo .il-3 { animation-delay: .79s; }
+.intro-logo .il-b.il-1 { animation-delay: .55s; } .intro-logo .il-b.il-2 { animation-delay: .72s; } .intro-logo .il-b.il-3 { animation-delay: .89s; }
+.intro-title { margin-top: 22px; font: 700 clamp(34px, 10.5vw, 60px)/1 var(--font-display); letter-spacing: .015em; color: #fff; opacity: 0; transform: translateY(12px); animation: introRise .7s cubic-bezier(.2,.8,.2,1) .95s both; }
+.intro-greet { margin-top: 12px; min-height: 18px; font: 500 clamp(15px, 4.2vw, 17px)/1.2 var(--font-body); color: #f0c46a; opacity: 0; animation: introRise .6s ease 1.2s both; }
+.intro-sub { margin-top: 8px; font: 500 clamp(10px, 2.7vw, 11px)/1 var(--font-body); letter-spacing: .36em; text-transform: uppercase; color: rgba(255,255,255,.45); opacity: 0; padding-left: .36em; animation: introFade .7s ease 1.35s both; }
+/* Yükleniyor: bu haftanın şeridi — günler sırayla vardiya koduyla dolar */
+.intro-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: min(300px, 82vw); margin-top: 26px; opacity: 0; animation: introFade .5s ease 1.4s both; }
+.iw { display: grid; justify-items: center; gap: 5px; }
+.iw small { font: 600 10px/1 var(--font-body); letter-spacing: .06em; color: rgba(255,255,255,.4); text-transform: uppercase; }
+.iw b { display: grid; place-items: center; width: 100%; aspect-ratio: 1; max-width: 36px; border-radius: 9px; font: 700 13px/1 var(--font-display); color: transparent; background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
+.iw.on b { animation: introCell .42s cubic-bezier(.3,1.5,.5,1) both; color: #111; }
+.iw.c1.on b { background: #f0a63a; } .iw.c2.on b { background: #4fc9bd; } .iw.c3.on b { background: #9a9df2; } .iw.cO.on b { background: #ff6b6b; color: #fff; font-size: 10px; }
+.iw.today small { color: #fff; }
+.iw.today b { box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 0 0 2px rgba(255,255,255,.85); }
+.intro-status { margin-top: 14px; min-height: 14px; font: 500 12px/1 var(--font-body); letter-spacing: .08em; color: rgba(255,255,255,.55); opacity: 0; animation: introFade .5s ease 1.5s both; transition: color .3s ease; }
+.intro-status.ok { color: #7fd88a; }
 .intro-weather { margin-top: 14px; min-height: 12px; font: 500 11px/1 var(--font-body); letter-spacing: .3em; text-transform: uppercase; color: rgba(255,255,255,.55); opacity: 0; padding-left: .3em; transition: opacity .6s ease; }
 #intro.hava .intro-weather { opacity: 1; }
-.intro-load { width: 150px; height: 3px; margin-top: 26px; border-radius: 3px; background: rgba(255,255,255,.13); overflow: hidden; opacity: 0; animation: introFade .6s ease .9s both; }
-.intro-load > i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, rgba(255,255,255,.45), #fff); box-shadow: 0 0 10px rgba(255,255,255,.45); animation: introLoad 4.25s cubic-bezier(.45,.05,.35,1) .3s forwards; }
-@keyframes introLoad { from { width: 0; } to { width: 100%; } }
 .intro-ver { position: absolute; left: 0; right: 0; bottom: max(52px, calc(env(safe-area-inset-bottom) + 30px)); text-align: center; font: 500 11px/1 var(--font-body); letter-spacing: .26em; text-transform: uppercase; color: rgba(255,255,255,.5); opacity: 0; z-index: 3; animation: introFade .6s ease 1.15s both; }
 .intro-by { position: absolute; left: 0; right: 0; bottom: max(26px, env(safe-area-inset-bottom)); text-align: center; font: 600 12px/1 var(--font-display); letter-spacing: .22em; color: rgba(255,255,255,.72); opacity: 0; z-index: 3; animation: introFade .7s ease 1.3s both; }
 .intro-by b { color: #fff; }
@@ -78,9 +91,13 @@ body.intro-done #app { animation: introAppIn .4s cubic-bezier(.2,.8,.2,1) .05s b
 .anma-name { font: 800 clamp(40px, 13vw, 92px)/1 var(--font-display); letter-spacing: .14em; color: #fff; text-shadow: 0 0 34px rgba(255,255,255,.22); padding-left: .14em; }
 .anma-line { width: 74px; height: 2px; background: rgba(255,255,255,.5); }
 .anma-sub { font: 500 clamp(12px, 3.4vw, 15px)/1.5 var(--font-body); letter-spacing: .06em; color: rgba(255,255,255,.75); max-width: 300px; }
-#intro.anma .intro-stage, #intro.anma .intro-sky, #intro.anma .intro-ver, #intro.anma .intro-by, #intro.anma .intro-load { transition: opacity .6s ease; opacity: 0 !important; }
+#intro.anma .intro-stage, #intro.anma .intro-sky, #intro.anma .intro-ver, #intro.anma .intro-by { transition: opacity .6s ease; opacity: 0 !important; }
 #intro.anma .anma-center { animation: anmaFade 2.6s ease .45s both; }
 @keyframes anmaFade { 0% { opacity: 0; transform: translateY(10px); } 18% { opacity: 1; transform: none; } 72% { opacity: 1; } 100% { opacity: 0; transform: translateY(-6px); } }
+@keyframes introPop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
+@keyframes introDot { from { opacity: 0; transform: translateY(-30px) scale(.4); } to { opacity: 1; transform: none; } }
+@keyframes introBar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes introCell { 0% { transform: scale(.55); } 70% { transform: scale(1.12); } 100% { transform: none; } }
 @keyframes introRise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 @keyframes introFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes introOut { to { opacity: 0; } }
@@ -88,9 +105,8 @@ body.intro-done #app { animation: introAppIn .4s cubic-bezier(.2,.8,.2,1) .05s b
 @keyframes introAppIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   #intro *, #intro { animation-duration: .01s !important; animation-delay: 0s !important; }
-  #intro .intro-vl span { opacity: 1 !important; transform: none !important; }
-  #intro .intro-sub, #intro .intro-ver, #intro .intro-by, #intro .intro-load { opacity: 1 !important; }
-  #intro .intro-load > i { width: 100% !important; }
+  #intro .intro-logo, #intro .intro-logo .il-d, #intro .intro-title, #intro .intro-greet, #intro .intro-sub, #intro .intro-week, #intro .intro-status, #intro .intro-ver, #intro .intro-by { opacity: 1 !important; transform: none !important; }
+  #intro .intro-logo .il-b { transform: none !important; }
   #intro .intro-sky { display: none !important; }
   #intro.out { animation-duration: .3s !important; }
 }
@@ -579,10 +595,13 @@ h4.ph { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color
 <div id="intro" aria-hidden="true">
   <canvas class="intro-sky" id="intro-canvas" aria-hidden="true"></canvas>
   <div class="intro-stage">
-    <div class="intro-vl"><span>VARDİYA</span><span>LİSTESİ</span></div>
+    <div class="intro-logo"><svg viewBox="0 0 512 512"><defs><linearGradient id="ilbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1d1f25"/><stop offset=".55" stop-color="#101114"/><stop offset="1" stop-color="#07070a"/></linearGradient></defs><rect width="512" height="512" rx="116" fill="url(#ilbg)"/><g fill="#fff"><circle class="il-d il-1" cx="176" cy="176" r="19"/><rect class="il-b il-1" x="214" y="161" width="150" height="30" rx="15"/><g opacity=".8"><circle class="il-d il-2" cx="176" cy="256" r="19"/><rect class="il-b il-2" x="214" y="241" width="126" height="30" rx="15"/></g><g opacity=".6"><circle class="il-d il-3" cx="176" cy="336" r="19"/><rect class="il-b il-3" x="214" y="321" width="100" height="30" rx="15"/></g></g></svg></div>
+    <div class="intro-title">Vardiya Listesi</div>
+    <div class="intro-greet" id="intro-greet"></div>
     <div class="intro-sub">Vardiya Yönetim Sistemi</div>
     <div class="intro-weather" id="intro-weather"></div>
-    <div class="intro-load" aria-hidden="true"><i></i></div>
+    <div class="intro-week" id="intro-week" aria-hidden="true"></div>
+    <div class="intro-status" id="intro-status">Vardiyalar yerleşiyor…</div>
   </div>
   <div class="intro-ver" id="intro-ver"></div>
   <div class="intro-by">Powered by <b>Lucifer</b></div>
