@@ -273,6 +273,10 @@ function clean_sicil(string $s): string { return mb_substr(preg_replace('/[^\p{L
 
 function meta_get(string $k): ?string { $st = db()->prepare('SELECT v FROM meta WHERE k = ?'); $st->execute([$k]); $v = $st->fetchColumn(); return $v === false ? null : (string)$v; }
 function meta_set(string $k, string $v): void { db()->prepare('REPLACE INTO meta (k, v) VALUES (?, ?)')->execute([$k, $v]); }
+// Yapay zekâ (isim okuma) anahtarı: önce ccn-config.php, yoksa DEV panelinden kaydedilen (meta) değer.
+// Böylece sunucu dosyasına erişemeyen DEV, anahtarı /livadmin'den telefonundan da girebilir.
+function ai_key(): string { $k = trim((string)(cfg()['ai_key'] ?? '')); return $k !== '' ? $k : trim((string)(meta_get('ai_key') ?? '')); }
+function ai_model(): string { $m = trim((string)(cfg()['ai_model'] ?? '')); if ($m === '') $m = trim((string)(meta_get('ai_model') ?? '')); return $m !== '' ? $m : 'claude-3-5-sonnet-20241022'; }
 function audit(?array $who, string $action, string $detail = ''): void {
   db()->prepare('INSERT INTO audit (personnel_id, who, action, detail, ip, ua, at) VALUES (?,?,?,?,?,?,?)')
     ->execute([$who['id'] ?? null, $who['name'] ?? null, $action, mb_substr($detail, 0, 500), client_ip(), mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 200), now()]);

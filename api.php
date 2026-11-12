@@ -17,7 +17,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -30,7 +30,7 @@ function versions(): array {
   // appSurum: yayınlanan sürüm (native uygulama eski ise açılışta "güncelleme geldi" uyarısı gösterir)
   $as = @file_get_contents(__DIR__ . '/surum.txt'); $as = $as !== false ? trim($as) : '';
   return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc, 'ayar' => (int)(meta_get('ayar_surum') ?? 0), 'taslak' => (int)(meta_get('taslak_surum') ?? 0), 'bildirim' => (int)(db()->query('SELECT MAX(id) FROM bildirimler')->fetchColumn() ?: 0), 'appSurum' => $as,
-    'aiOcr' => trim((string)(cfg()['ai_key'] ?? '')) !== '']; // sunucuda AI okuma anahtarı varsa isimler AI ile okunur
+    'aiOcr' => ai_key() !== '']; // AI okuma anahtarı (config ya da DEV panelinden) varsa isimler AI ile okunur
 }
 function utc(string $t): string { return str_replace(' ', 'T', $t) . 'Z'; }
 function me_out(array $u): array {
@@ -302,7 +302,7 @@ switch ($r) {
   // Vardiya listesi görsellerinden isimleri AI ile oku (sunucu anahtarıyla). İstemci numaralı isim-şeritlerini gönderir.
   case 'isim-oku': {
     $u = require_level(2, 'Liste okuma yetkiniz yok.');
-    $key = trim((string)(cfg()['ai_key'] ?? '')); if ($key === '') fail(501, 'AI okuma yapılandırılmamış (sunucuya ai_key eklenmeli).', ['aiYok' => true]);
+    $key = ai_key(); if ($key === '') fail(501, 'AI okuma yapılandırılmamış (sunucuya ai_key eklenmeli).', ['aiYok' => true]);
     $imgs = body()['gorseller'] ?? null; $prompt = (string)(body()['komut'] ?? '');
     if (!is_array($imgs) || !$imgs || $prompt === '') fail(400, 'Görsel gerekli.');
     $content = [];
@@ -313,7 +313,7 @@ switch ($r) {
     }
     if (!$content) fail(400, 'Geçerli görsel yok.');
     $content[] = ['type' => 'text', 'text' => $prompt];
-    $payload = ['model' => (string)(cfg()['ai_model'] ?? 'claude-3-5-sonnet-20241022'), 'max_tokens' => 2000, 'messages' => [['role' => 'user', 'content' => $content]]];
+    $payload = ['model' => ai_model(), 'max_tokens' => 2000, 'messages' => [['role' => 'user', 'content' => $content]]];
     $ch = curl_init('https://api.anthropic.com/v1/messages');
     curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
       CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
@@ -939,6 +939,27 @@ switch ($r) {
     db()->prepare('DELETE FROM ip_bans WHERE ip = ?')->execute([$ip]);
     audit($u, 'ip-engeli-kalkti', $ip);
     ok();
+  }
+
+  // Yapay zekâ (isim okuma) anahtarı durumu — maskeli, değer asla döndürülmez
+  case 'dev-ai': {
+    dev_only();
+    $k = ai_key(); $fromCfg = trim((string)(cfg()['ai_key'] ?? '')) !== '';
+    ok(['tanimli' => $k !== '', 'maske' => $k === '' ? '' : (mb_substr($k, 0, 7) . '…' . mb_substr($k, -4)),
+      'kaynak' => $k === '' ? '' : ($fromCfg ? 'config' : 'panel'), 'configKilit' => $fromCfg, 'model' => ai_model()]);
+  }
+
+  // Yapay zekâ anahtarını panelden kaydet/sil (sunucu dosyasına erişemeyen DEV için). Değer veritabanında saklanır, loglanmaz.
+  case 'dev-ai-kaydet': {
+    $u = dev_only();
+    if (trim((string)(cfg()['ai_key'] ?? '')) !== '') fail(409, 'Anahtar ccn-config.php dosyasında tanımlı; panelden değiştirilemez.');
+    $key = trim((string)(body()['anahtar'] ?? ''));
+    if ($key === '') { meta_set('ai_key', ''); audit($u, 'ai-anahtar', 'silindi'); ok(['tanimli' => false, 'maske' => '']); }
+    if (!preg_match('/^sk-ant-[A-Za-z0-9_-]{20,}$/', $key)) fail(400, 'Geçersiz anahtar. Anthropic anahtarı "sk-ant-" ile başlar.');
+    meta_set('ai_key', $key);
+    $model = trim((string)(body()['model'] ?? '')); if ($model !== '') meta_set('ai_model', $model);
+    audit($u, 'ai-anahtar', 'güncellendi'); // anahtar değeri loglanmaz
+    ok(['tanimli' => true, 'maske' => mb_substr($key, 0, 7) . '…' . mb_substr($key, -4), 'model' => ai_model()]);
   }
 
   default:
