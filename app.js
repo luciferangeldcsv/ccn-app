@@ -94,7 +94,7 @@ function defaultStore() {
 let store = load();
 
 // ---------- Cihaz tercihleri (tema, izinler) ve hata günlüğü: "Tüm verileri sil" bunlara dokunmaz ----------
-const APP_VERSION = /^\d/.test('2.9.3') ? '2.9.3' : 'web';
+const APP_VERSION = /^\d/.test('2.9.4') ? '2.9.4' : 'web';
 const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.vardiyapanosu.app';
 const PREFS_KEY = 'ccn-vardiya-prefs', ERR_KEY = 'ccn-vardiya-hatalar';
 const readLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
@@ -1671,7 +1671,7 @@ function viewReview() {
       <canvas id="rv-cv-${P.id}" class="thumb"></canvas>
       <div class="stack" style="gap:8px;min-width:0">
         <div class="row" style="flex-wrap:nowrap"><b class="fname">${esc(P.file)}</b><span style="flex:1"></span><button class="iconbtn" data-act="rv-remove" data-id="${P.id}" aria-label="${esc(P.file)} görselini çıkar">${ICON_TRASH}</button></div>
-        <span class="small muted">${P.rows.filter((r) => !r.skip).length} kişi · ${P.ncols} gün · ${fmtShort(P.start)} – ${fmtShort(P.dates ? P.dates[P.dates.length - 1] : addDays(P.start, P.ncols - 1))}</span>
+        <span class="small muted">${P.rows.filter((r) => !r.skip).length} kişi · ${P.ncols} gün · ${fmtShort(P.start)} – ${fmtShort(P.dates ? P.dates[P.dates.length - 1] : addDays(P.start, P.ncols - 1))}<br>okuma: ${P.claude && P.claude.status === 'ok' ? 'yapay zekâ ✓' : 'telefon'} · ${NATIVE ? 'uygulama' : 'site'} ${esc(APP_VERSION)}</span>
         ${P.group || P.rows.every((r) => r.group) ? '' : '<span class="small" style="color:var(--off);font-weight:600">Bu tablonun vardiyası okunamadı: aşağıdan 1., 2. ya da 3. vardiyayı seçin. Seçmeden kaydedilmez.</span>'}
         <div class="settings-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">
           <label class="field">Vardiya<select class="rv-group" data-id="${P.id}">${[['1', '1. Vardiya'], ['2', '2. Vardiya'], ['3', '3. Vardiya'], ['', 'Karışık']].map(([v, l]) => `<option value="${v}" ${P.group === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
