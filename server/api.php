@@ -320,12 +320,9 @@ switch ($r) {
       // thinkingBudget 0: "düşünme" kapalı (OCR için gerekmez; hız + zaman aşımını önler)
       $payload = ['contents' => [['parts' => $parts]], 'generationConfig' => ['maxOutputTokens' => 2000, 'temperature' => 0, 'responseMimeType' => 'application/json', 'thinkingConfig' => ['thinkingBudget' => 0]]];
       $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent';
-      $ch = curl_init($url);
       // Anahtar başlıkla gönderilir (yeni "AQ." auth anahtarları ?key= ile değil, x-goog-api-key ile çalışır)
-      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 35,
-        CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-goog-api-key: ' . $key], CURLOPT_POSTFIELDS => json_encode($payload)]);
-      $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
-      if ($resp === false) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
+      [$code, $resp, $cerr] = ai_http($url, ['content-type: application/json', 'x-goog-api-key: ' . $key], json_encode($payload), 35);
+      if ($resp === null) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
       $j = json_decode($resp, true);
       if ($code !== 200) fail(502, 'AI okuma hatası (' . $code . '): ' . mb_substr((string)($j['error']['message'] ?? $resp), 0, 160));
       $text = ''; foreach (($j['candidates'][0]['content']['parts'] ?? []) as $blk) if (isset($blk['text'])) $text .= (string)$blk['text'];
@@ -334,12 +331,8 @@ switch ($r) {
       foreach ($b64s as $b) $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => $b]];
       $content[] = ['type' => 'text', 'text' => $prompt];
       $payload = ['model' => $model, 'max_tokens' => 2000, 'messages' => [['role' => 'user', 'content' => $content]]];
-      $ch = curl_init('https://api.anthropic.com/v1/messages');
-      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 35,
-        CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
-        CURLOPT_POSTFIELDS => json_encode($payload)]);
-      $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
-      if ($resp === false) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
+      [$code, $resp, $cerr] = ai_http('https://api.anthropic.com/v1/messages', ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'], json_encode($payload), 35);
+      if ($resp === null) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
       $j = json_decode($resp, true);
       if ($code !== 200) fail(502, 'AI okuma hatası (' . $code . '): ' . mb_substr((string)($j['error']['message'] ?? $resp), 0, 160));
       $text = ''; foreach (($j['content'] ?? []) as $blk) if (($blk['type'] ?? '') === 'text') $text .= $blk['text'];
@@ -986,22 +979,21 @@ switch ($r) {
     dev_only();
     $key = ai_key(); if ($key === '') ok(['ok' => false, 'hata' => 'Önce bir anahtar kaydet.']);
     $model = ai_model(); $prov = ai_provider();
+    $msg = fn($resp, $err) => $resp === null ? 'cevap yok: ' . $err : mb_substr((string)((json_decode($resp, true)['error']['message'] ?? null) ?? $resp), 0, 200);
     if ($prov === 'gemini') {
+      // 1) bağlantı + anahtar: hafif "model listesi" isteği (üretim yapmaz)
+      [$c1, $r1, $e1, $t1] = ai_http('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', ['x-goog-api-key: ' . $key], null, 15);
+      $adim1 = $c1 === 200 ? "✅ bağlantı + anahtar tamam ($t1 sn)" : "❌ bağlantı/anahtar: " . ($c1 ?: '-') . ' ' . $msg($r1, $e1) . " ($t1 sn)";
+      // 2) gerçek üretim
       $payload = ['contents' => [['parts' => [['text' => 'Reply with exactly this JSON and nothing else: {"ok":true}']]]], 'generationConfig' => ['maxOutputTokens' => 20, 'responseMimeType' => 'application/json', 'thinkingConfig' => ['thinkingBudget' => 0]]];
-      $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent');
-      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 25,
-        CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-goog-api-key: ' . $key], CURLOPT_POSTFIELDS => json_encode($payload)]);
+      [$c2, $r2, $e2, $t2] = ai_http('https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent', ['content-type: application/json', 'x-goog-api-key: ' . $key], json_encode($payload), 25);
     } else {
+      $adim1 = '';
       $payload = ['model' => $model, 'max_tokens' => 20, 'messages' => [['role' => 'user', 'content' => 'Reply with {"ok":true}']]];
-      $ch = curl_init('https://api.anthropic.com/v1/messages');
-      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 25,
-        CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'], CURLOPT_POSTFIELDS => json_encode($payload)]);
+      [$c2, $r2, $e2, $t2] = ai_http('https://api.anthropic.com/v1/messages', ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'], json_encode($payload), 25);
     }
-    $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
-    if ($resp === false) ok(['ok' => false, 'saglayici' => $prov, 'model' => $model, 'hata' => 'Bağlantı hatası: ' . $cerr]);
-    $j = json_decode($resp, true);
-    if ($code !== 200) ok(['ok' => false, 'saglayici' => $prov, 'model' => $model, 'kod' => $code, 'hata' => mb_substr((string)($j['error']['message'] ?? $j['error']['status'] ?? $resp), 0, 300)]);
-    ok(['ok' => true, 'saglayici' => $prov, 'model' => $model]);
+    $adim2 = $c2 === 200 ? "✅ okuma çalışıyor ($t2 sn)" : "❌ okuma: " . ($c2 ?: '-') . ' ' . $msg($r2, $e2) . " ($t2 sn)";
+    ok(['ok' => $c2 === 200, 'saglayici' => $prov, 'model' => $model, 'adim1' => $adim1, 'adim2' => $adim2, 'hata' => $c2 === 200 ? '' : $adim2]);
   }
 
   // Yapay zekâ anahtarını panelden kaydet/sil (sunucu dosyasına erişemeyen DEV için). Değer veritabanında saklanır, loglanmaz.
