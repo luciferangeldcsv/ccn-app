@@ -307,26 +307,27 @@ switch ($r) {
     if (!is_array($imgs) || !$imgs || $prompt === '') fail(400, 'Görsel gerekli.');
     $b64s = [];
     foreach (array_slice($imgs, 0, 12) as $im) {
-      $b = (string)$im; if (preg_match('#^data:image/[\w.+-]+;base64,(.+)$#s', $b, $m)) $b = $m[1];
+      $b = (string)$im; $mime = 'image/png';
+      if (preg_match('#^data:(image/(?:png|jpeg|webp));base64,(.+)$#s', $b, $m)) { $mime = $m[1]; $b = $m[2]; }
       $b = preg_replace('/\s+/', '', $b); if ($b === '' || strlen($b) > 5000000) continue;
-      $b64s[] = $b;
+      $b64s[] = ['mime' => $mime, 'data' => $b];
     }
     if (!$b64s) fail(400, 'Geçerli görsel yok.');
     $model = ai_model();
     if (ai_provider() === 'gemini') { // Google Gemini (ücretsiz katman)
       $parts = [];
-      foreach ($b64s as $b) $parts[] = ['inline_data' => ['mime_type' => 'image/png', 'data' => $b]];
+      foreach ($b64s as $b) $parts[] = ['inline_data' => ['mime_type' => $b['mime'], 'data' => $b['data']]];
       $parts[] = ['text' => $prompt];
       // thinkingBudget 0: "düşünme" kapalı (OCR için gerekmez; hız + zaman aşımını önler)
-      $payload = ['contents' => [['parts' => $parts]], 'generationConfig' => ['maxOutputTokens' => 2000, 'temperature' => 0, 'responseMimeType' => 'application/json', 'thinkingConfig' => ['thinkingBudget' => 0]]];
+      $payload = ['contents' => [['parts' => $parts]], 'generationConfig' => ['maxOutputTokens' => 8192, 'temperature' => 0, 'responseMimeType' => 'application/json', 'thinkingConfig' => ['thinkingBudget' => 0]]];
       @set_time_limit(90);
       [$text, $gerr] = gemini_generate($key, $payload, 55); // yoğunlukta tekrar dener, gerekirse yedek modele geçer
       if ($text === null) fail(502, 'AI okuma hatası: ' . $gerr);
     } else { // Anthropic Claude
       $content = [];
-      foreach ($b64s as $b) $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => $b]];
+      foreach ($b64s as $b) $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $b['mime'], 'data' => $b['data']]];
       $content[] = ['type' => 'text', 'text' => $prompt];
-      $payload = ['model' => $model, 'max_tokens' => 2000, 'messages' => [['role' => 'user', 'content' => $content]]];
+      $payload = ['model' => $model, 'max_tokens' => 8192, 'messages' => [['role' => 'user', 'content' => $content]]];
       [$code, $resp, $cerr] = ai_http('https://api.anthropic.com/v1/messages', ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'], json_encode($payload), 35);
       if ($resp === null) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
       $j = json_decode($resp, true);

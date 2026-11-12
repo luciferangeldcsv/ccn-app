@@ -3322,6 +3322,11 @@ async function readTableWithClaude(src, rowsB, colsB, progress) {
     if (e && ['not_granted', 'sampling_disabled', 'images_unavailable', 'capability_disabled', 'not_declared'].includes(e.code)) samplerP = Promise.resolve(null);
     return null;
   }
+  return aiTableResult(rows, shift, dates, progress);
+}
+
+// Yapay zekânın okuduğu tablo (satır numarası → {name, cells}, vardiya, sütun tarihleri) → inceleme ekranı biçimi
+function aiTableResult(rows, shift, dates, progress) {
   const keys = Object.keys(rows).map(Number).sort((a, b) => a - b);
   if (!keys.length) { claudeStatus = { status: 'err', code: 'empty' }; return null; }
   claudeStatus = { status: 'ok' };
@@ -3366,6 +3371,40 @@ async function readTableWithClaude(src, rowsB, colsB, progress) {
   if (out.some((r) => r.group)) { const secs = new Set(out.map((r) => r.group).filter(Boolean)); if (secs.size > 1) group = ''; else if (!group) group = [...secs][0]; groupFound = true; }
   progress('Bitti', 1);
   return { start, dates: colDates, group, cols: Array.from({ length: ncols }, (_, i) => i), rows: out, warnings, dateFound, groupFound, claude: { status: 'ok' } };
+}
+
+// Sunucu yapay zekâsıyla (Gemini/Claude) fotoğrafın TAMAMINI oku: isimler, gün hücreleri, tarihler, vardiya.
+// Telefonun tablo çizgisi bulmasına dayanmaz; ekran fotoğrafı, eğik ya da yansımalı çekimde de çalışır.
+let srvAiErr = null; let srvAiDown = false; // bu görselde sunucu yapay zekâsı hata verdiyse aynı görsel için bir daha sorulmaz (kullanıcı iki kez beklemesin)
+async function readWholeTableWithServer(img, progress) {
+  if (!(SERVER && srv.v && srv.v.aiOcr)) return null;
+  const W0 = img.naturalWidth || img.width, H0 = img.naturalHeight || img.height;
+  const sc = Math.min(1, 2000 / Math.max(W0, H0));
+  const c = document.createElement('canvas'); c.width = Math.round(W0 * sc); c.height = Math.round(H0 * sc);
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, c.width, c.height);
+  const prompt = 'This image is a photo of a Turkish hospital staff shift roster table (vardiya listesi). It may be a photo of a computer screen, tilted, cropped or with glare. Read the WHOLE table carefully. '
+    + 'For EVERY person row return the full name exactly as written (keep Turkish letters Ç Ğ I İ Ö Ş Ü; copy, do not correct, guess or complete names) and one value per day column, in column order: '
+    + '"1", "2" or "3" for a shift number (also S/SABAH or 08-16 -> "1", A/AKŞAM or 16-24 -> "2", G/GECE or 24-08 -> "3"); '
+    + '"OFF" for a red or pink filled cell or a cell that says OFF; "R" for rapor; "YI" for yıllık izin (Yİ); "MI" for any other leave (İ, İZİN, MAZERET, ÜCRETSİZ); '
+    + '"-" for a gray filled cell; "" for an empty white cell. '
+    + 'If the table has section title rows such as "2. VARDİYA", include them as a row whose name is that title and whose cells are empty. Do not include header rows like ADI SOYADI, SIRA, NO. '
+    + 'Reply with ONLY this JSON: {"shift":"1","dates":["31.10.2026","01.11.2026"],"rows":[{"name":"AYŞE YILMAZ","cells":["1","OFF"]}]} — '
+    + '"shift" is the shift of the whole table if the title says it (1. VARDİYA -> "1"), else ""; '
+    + '"dates" lists the full date (DD.MM.YYYY) of every day column left to right, taking month and year from the title when the header shows only day numbers ([] if not visible); '
+    + 'every "cells" array must have exactly one value per day column, in the same order as "dates". Rows top to bottom.';
+  progress('Liste yapay zekâ ile okunuyor', 0.2);
+  let res;
+  try { res = (await api('isim-oku', { gorseller: [c.toDataURL('image/jpeg', 0.88)], komut: prompt })).sonuc; }
+  catch (e) { const kod = e && e.data && e.data.aiYok ? 'aiYok' : (e && e.message ? e.message.replace(/\s+/g, ' ').slice(0, 90) : 'srv'); srvAiDown = true; claudeStatus = srvAiErr = { status: 'err', code: kod }; console.warn('Sunucu tablo okuma', kod); return null; }
+  if (!res || typeof res !== 'object' || !Array.isArray(res.rows) || !res.rows.length) { claudeStatus = srvAiErr = { status: 'err', code: 'boş yanıt' }; return null; }
+  const rows = {}; res.rows.forEach((v, i) => { if (v && typeof v === 'object') rows[i] = v; });
+  const shift = /^[123]$/.test(String(res.shift || '')) ? String(res.shift) : '';
+  const dates = Array.isArray(res.dates) ? res.dates.map((d) => { const m = String(d).match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/); if (!m) return null; const x = new Date(+m[3], +m[2] - 1, +m[1]); return isNaN(x) ? null : iso(x); }) : [];
+  const out = aiTableResult(rows, shift, dates, progress);
+  if (!out || !out.rows.length) { claudeStatus = srvAiErr = { status: 'err', code: 'isim bulunamadı' }; return null; }
+  const pv = document.createElement('canvas'); const ps = Math.min(1, 900 / W0); pv.width = Math.round(W0 * ps); pv.height = Math.round(H0 * ps);
+  pv.getContext('2d').drawImage(img, 0, 0, pv.width, pv.height); out.preview = pv;
+  return out;
 }
 
 // Birçok küçük görseli alt alta tek görsele dizip tek seferde oku; kelimeleri y konumuna göre geri dağıt.
@@ -3644,6 +3683,9 @@ function findTables(img) {
 
 // Görseldeki her tabloyu ayrı ayrı oku; sonuç dizisi döner
 async function analyzeImage(img, progress) {
+  // gerçek site / uygulama: sunucuda yapay zekâ anahtarı varsa fotoğrafın tamamı ona okutulur (claude.ai'de kendi yolu var)
+  srvAiDown = false; srvAiErr = null;
+  if (!window.claude) { const whole = await readWholeTableWithServer(img, progress); if (whole) return [whole]; }
   let regions = [];
   try { regions = findTables(img); } catch (e) { console.warn(e); }
   if (regions.length <= 1) return [await analyzeTable(img, progress)];
@@ -3877,10 +3919,10 @@ async function analyzeTable(img, progress) {
     const include = rowsB.map((_, r) => !(grayRow[r] || all[r][nameCol].gray));
     let ai = await readNamesWithClaude(cv, rowsB, colsB[nameCol], include, progress, head);
     // claude.ai dışında (gerçek site / Android) Sampler yok: sunucu yapay zekâsı yapılandırılmışsa ona okut
-    if (!ai && SERVER && srv.v && srv.v.aiOcr) ai = await readNamesWithServer(cv, rowsB, colsB[nameCol], include, progress, head);
+    if (!ai && SERVER && srv.v && srv.v.aiOcr && !srvAiDown) ai = await readNamesWithServer(cv, rowsB, colsB[nameCol], include, progress, head);
     if (ai && ai.meta) aiMeta = ai.meta;
     if (ai) { ai.forEach((t, r) => { if (t != null) { names[r] = t; aiRow[r] = true; } }); best = names.slice(); }
-    claudeInfo = claudeStatus;
+    claudeInfo = claudeStatus.status === 'off' && srvAiErr ? srvAiErr : claudeStatus; // tüm-tablo okuması neden olmadıysa göster
     if (score(best) < Math.max(1, (rowsB.length - 1) * 0.4)) warnings.push('Bu tablodaki isimler okunamadı; tablo düzeni farklı olabilir. İsim olmayan satırlar kaydedilmeyecek.');
     texts.push(...await cellsP);
   } else {
