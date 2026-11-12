@@ -276,7 +276,13 @@ function meta_set(string $k, string $v): void { db()->prepare('REPLACE INTO meta
 // Yapay zekâ (isim okuma) anahtarı: önce ccn-config.php, yoksa DEV panelinden kaydedilen (meta) değer.
 // Böylece sunucu dosyasına erişemeyen DEV, anahtarı /livadmin'den telefonundan da girebilir.
 function ai_key(): string { $k = trim((string)(cfg()['ai_key'] ?? '')); return $k !== '' ? $k : trim((string)(meta_get('ai_key') ?? '')); }
-function ai_model(): string { $m = trim((string)(cfg()['ai_model'] ?? '')); if ($m === '') $m = trim((string)(meta_get('ai_model') ?? '')); return $m !== '' ? $m : 'claude-3-5-sonnet-20241022'; }
+// Sağlayıcı anahtarın başına göre belirlenir: "AIza…" Google Gemini (ücretsiz katman var), yoksa Anthropic Claude.
+function ai_provider(): string { return str_starts_with(ai_key(), 'AIza') ? 'gemini' : 'claude'; }
+function ai_model(): string {
+  $m = trim((string)(cfg()['ai_model'] ?? '')); if ($m === '') $m = trim((string)(meta_get('ai_model') ?? ''));
+  if ($m !== '') return $m;
+  return ai_provider() === 'gemini' ? 'gemini-2.0-flash' : 'claude-3-5-sonnet-20241022';
+}
 function audit(?array $who, string $action, string $detail = ''): void {
   db()->prepare('INSERT INTO audit (personnel_id, who, action, detail, ip, ua, at) VALUES (?,?,?,?,?,?,?)')
     ->execute([$who['id'] ?? null, $who['name'] ?? null, $action, mb_substr($detail, 0, 500), client_ip(), mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 200), now()]);
