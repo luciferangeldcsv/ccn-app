@@ -317,11 +317,12 @@ switch ($r) {
       $parts = [];
       foreach ($b64s as $b) $parts[] = ['inline_data' => ['mime_type' => 'image/png', 'data' => $b]];
       $parts[] = ['text' => $prompt];
-      $payload = ['contents' => [['parts' => $parts]], 'generationConfig' => ['maxOutputTokens' => 2000, 'temperature' => 0, 'responseMimeType' => 'application/json']];
+      // thinkingBudget 0: "düşünme" kapalı (OCR için gerekmez; hız + zaman aşımını önler)
+      $payload = ['contents' => [['parts' => $parts]], 'generationConfig' => ['maxOutputTokens' => 2000, 'temperature' => 0, 'responseMimeType' => 'application/json', 'thinkingConfig' => ['thinkingBudget' => 0]]];
       $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent';
       $ch = curl_init($url);
       // Anahtar başlıkla gönderilir (yeni "AQ." auth anahtarları ?key= ile değil, x-goog-api-key ile çalışır)
-      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 90,
         CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-goog-api-key: ' . $key], CURLOPT_POSTFIELDS => json_encode($payload)]);
       $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
       if ($resp === false) fail(502, 'AI okuma servisine ulaşılamadı: ' . $cerr);
@@ -334,7 +335,7 @@ switch ($r) {
       $content[] = ['type' => 'text', 'text' => $prompt];
       $payload = ['model' => $model, 'max_tokens' => 2000, 'messages' => [['role' => 'user', 'content' => $content]]];
       $ch = curl_init('https://api.anthropic.com/v1/messages');
-      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 90,
         CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'],
         CURLOPT_POSTFIELDS => json_encode($payload)]);
       $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
@@ -976,14 +977,14 @@ switch ($r) {
     $key = ai_key(); if ($key === '') ok(['ok' => false, 'hata' => 'Önce bir anahtar kaydet.']);
     $model = ai_model(); $prov = ai_provider();
     if ($prov === 'gemini') {
-      $payload = ['contents' => [['parts' => [['text' => 'Reply with exactly this JSON and nothing else: {"ok":true}']]]], 'generationConfig' => ['maxOutputTokens' => 20, 'responseMimeType' => 'application/json']];
+      $payload = ['contents' => [['parts' => [['text' => 'Reply with exactly this JSON and nothing else: {"ok":true}']]]], 'generationConfig' => ['maxOutputTokens' => 20, 'responseMimeType' => 'application/json', 'thinkingConfig' => ['thinkingBudget' => 0]]];
       $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent');
-      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30,
+      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
         CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-goog-api-key: ' . $key], CURLOPT_POSTFIELDS => json_encode($payload)]);
     } else {
       $payload = ['model' => $model, 'max_tokens' => 20, 'messages' => [['role' => 'user', 'content' => 'Reply with {"ok":true}']]];
       $ch = curl_init('https://api.anthropic.com/v1/messages');
-      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30,
+      curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
         CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01'], CURLOPT_POSTFIELDS => json_encode($payload)]);
     }
     $resp = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
