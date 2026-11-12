@@ -125,6 +125,33 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
   document.body.classList.add('intro-run');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const ver = document.getElementById('intro-ver'); if (ver) ver.textContent = /^\d/.test(APP_VERSION) ? 'Sürüm ' + APP_VERSION : '';
+  // Selamlama: günün saatine göre; kayıtlı oturum varsa adıyla
+  {
+    const h = new Date().getHours();
+    let msg = h >= 5 && h < 11 ? 'Günaydın' : h >= 11 && h < 17 ? 'İyi günler' : h >= 17 && h < 22 ? 'İyi akşamlar' : 'İyi nöbetler';
+    try {
+      const a = JSON.parse(localStorage.getItem('ccn-oturum') || sessionStorage.getItem('ccn-oturum') || 'null');
+      const ad = a && a.ben && String(a.ben.ad || '').trim().split(/\s+/)[0];
+      if (ad) msg += ', ' + ad.charAt(0).toLocaleUpperCase('tr') + ad.slice(1).toLocaleLowerCase('tr');
+    } catch (e) { /* oturum yok */ }
+    const g = document.getElementById('intro-greet'); if (g) g.textContent = msg;
+  }
+  // Yükleniyor göstergesi: bu haftanın günleri sırayla vardiya koduyla dolar; bugün çerçeveli
+  {
+    const wk = document.getElementById('intro-week');
+    if (wk) {
+      const now = new Date(); const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+      const codes = [['1', 'c1'], ['1', 'c1'], ['2', 'c2'], ['2', 'c2'], ['3', 'c3'], ['OFF', 'cO'], ['OFF', 'cO']];
+      wk.innerHTML = codes.map(([t, c], i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); return `<span class="iw ${c}${d.toDateString() === now.toDateString() ? ' today' : ''}"><small>${DAY_SHORT[d.getDay()]}</small><b>${t}</b></span>`; }).join('');
+      const cells = [...wk.children]; const t0 = reduce ? 0 : 1550, step = reduce ? 0 : 330;
+      cells.forEach((c, i) => setTimeout(() => c.classList.add('on'), t0 + i * step));
+      const st = document.getElementById('intro-status');
+      if (st) {
+        setTimeout(() => { st.textContent = 'Liste hazırlanıyor…'; }, reduce ? 0 : 2700);
+        setTimeout(() => { st.textContent = 'Hazır ✓'; st.classList.add('ok'); }, reduce ? 0 : 4050);
+      }
+    }
+  }
   let raf = 0;
   const done = () => {
     if (el.dataset.out) return; el.dataset.out = '1';
