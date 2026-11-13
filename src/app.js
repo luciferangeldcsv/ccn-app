@@ -1013,11 +1013,13 @@ const LUCI_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradi
   + '<circle cx="25.9" cy="34.9" r=".9" fill="#fff"/><circle cx="41.9" cy="34.9" r=".9" fill="#fff"/><ellipse cx="18.5" cy="43" rx="3.3" ry="2" fill="#ffc0b8" opacity=".85"/><ellipse cx="45.5" cy="43" rx="3.3" ry="2" fill="#ffc0b8" opacity=".85"/>'
   + '<path d="M26 45q6 6 12 0" stroke="#2a1416" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>';
 const luci = { open: false, loaded: false, busy: false, msgs: [] };
-const luciOn = () => SERVER && !!auth && !!(srv.v && srv.v.luci);
+const luciOn = () => SERVER && !!auth; // düğme her zaman sağ altta; anahtar yoksa sohbet 'hazırlanıyor' der
+const luciReady = () => !!(srv.v && srv.v.luci);
 const luciAd = () => { const a = auth && auth.ben && String(auth.ben.ad || '').trim().split(/\s+/)[0]; return a ? a.charAt(0).toLocaleUpperCase('tr') + a.slice(1).toLocaleLowerCase('tr') : ''; };
 function luciMount() {
   let fab = document.getElementById('luci-fab');
-  if (!luciOn()) { ['luci-fab', 'luci-bub', 'luci-panel'].forEach((id) => { const x = document.getElementById(id); if (x) x.remove(); }); luci.open = false; luci.loaded = false; luci.msgs = []; document.body.classList.remove('luci-open'); return; }
+  if (!luciOn()) { ['luci-fab', 'luci-bub', 'luci-panel'].forEach((id) => { const x = document.getElementById(id); if (x) x.remove(); }); luci.open = false; luci.loaded = false; luci.msgs = []; document.body.classList.remove('luci-open', 'luci-hey'); return; }
+  if (luci.open) { const i = document.getElementById('lp-in'); if (i) i.disabled = !luciReady(); }
   if (fab) return;
   fab = document.createElement('button'); fab.id = 'luci-fab'; fab.type = 'button'; fab.setAttribute('aria-label', 'Luci ile konuş'); fab.innerHTML = LUCI_SVG;
   fab.addEventListener('click', () => luciToggle());
@@ -1025,12 +1027,14 @@ function luciMount() {
   // ilk kullanımda karşılama baloncuğu; bir kez dokunulunca/kullanılınca bir daha çıkmaz
   if (!prefs.luciSeen) {
     const b = document.createElement('div'); b.id = 'luci-bub'; b.setAttribute('role', 'button');
-    b.innerHTML = `<button type="button" class="lb-x" aria-label="Kapat">×</button><b>Merhaba, ben Luci 👋</b><span>Sana nasıl yardımcı olabilirim?</span>`;
+    const ad = luciAd();
+    b.innerHTML = `<button type="button" class="lb-x" aria-label="Kapat">×</button><span class="lb-av">${LUCI_SVG}</span>
+      <div class="lb-t"><b>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Luci</b><span>Vardiyan, OFF günlerin ya da kim ne zaman çalışıyor… Merak ettiğin ne varsa sor, hemen bakayım!</span><button type="button" class="lb-go">Hadi konuşalım</button></div>`;
     b.addEventListener('click', (e) => { const x = !!e.target.closest('.lb-x'); luciSeen(); if (!x) luciToggle(true); });
-    document.body.appendChild(b);
+    document.body.appendChild(b); document.body.classList.add('luci-hey');
   }
 }
-function luciSeen() { if (!prefs.luciSeen) { prefs.luciSeen = true; savePrefs(); } const b = document.getElementById('luci-bub'); if (b) b.remove(); }
+function luciSeen() { if (!prefs.luciSeen) { prefs.luciSeen = true; savePrefs(); } const b = document.getElementById('luci-bub'); if (b) b.remove(); document.body.classList.remove('luci-hey'); }
 function luciToggle(force) {
   luciSeen();
   luci.open = force === undefined ? !luci.open : force;
@@ -1047,13 +1051,18 @@ function luciToggle(force) {
   }
   document.body.classList.add('luci-open');
   luciDraw();
-  if (!luci.loaded) { luci.loaded = true; api('luci-gecmis').then((j) => { if (!luci.msgs.length) luci.msgs = j.mesajlar || []; luciDraw(); }).catch(() => { luci.loaded = false; }); }
+  if (!luci.loaded && luciReady()) { luci.loaded = true; api('luci-gecmis').then((j) => { if (!luci.msgs.length) luci.msgs = j.mesajlar || []; luciDraw(); }).catch(() => { luci.loaded = false; }); }
   if (!matchMedia('(pointer: coarse)').matches) setTimeout(() => { const i = document.getElementById('lp-in'); if (i) i.focus(); }, 60);
 }
 const luciFmt = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^\s*[-*•] /gm, '• ').replace(/\n/g, '<br>');
 function luciDraw() {
   const box = document.getElementById('lp-msgs'); if (!box) return;
   const av = `<span class="lp-av sm">${LUCI_SVG}</span>`; const ad = luciAd();
+  if (!luciReady()) {
+    box.innerHTML = `<div class="lm luci">${av}<p>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Luci. Şu an hazırlanıyorum; yöneticin beni açtığında vardiyaların ve OFF günlerin hakkında seninle burada sohbet edeceğim. Görüşmek üzere! 😊</p></div>`;
+    const ii = document.getElementById('lp-in'), sb0 = document.getElementById('lp-send'); if (ii) { ii.disabled = true; ii.placeholder = 'Luci yakında burada…'; } if (sb0) sb0.disabled = true; return;
+  }
+  { const ii = document.getElementById('lp-in'); if (ii && ii.disabled) { ii.disabled = false; ii.placeholder = "Luci'ye yaz…"; } }
   const hi = !luci.msgs.length ? `<div class="lm luci">${av}<p>Merhaba${ad ? ' ' + esc(ad) : ''}! 👋 Ben Luci. Vardiyaların, OFF günlerin, kimin ne zaman çalıştığı ya da duyurular hakkında bana istediğini sorabilirsin.</p></div>
     <div class="lp-chips">${['Bu hafta vardiyam ne?', "Bir sonraki OFF'um ne zaman?", 'Bugün kim çalışıyor?'].map((q) => `<button type="button" class="lp-chip" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : '';
   box.innerHTML = hi + luci.msgs.map((m) => (m.rol === 'luci' ? `<div class="lm luci">${av}<p>${luciFmt(m.metin)}</p></div>` : `<div class="lm kisi"><p>${esc(m.metin)}</p></div>`)).join('')
@@ -1063,7 +1072,7 @@ function luciDraw() {
   box.scrollTop = box.scrollHeight;
 }
 async function luciSend() {
-  const inp = document.getElementById('lp-in'); const t = (inp && inp.value || '').trim(); if (!t || luci.busy) return;
+  const inp = document.getElementById('lp-in'); const t = (inp && inp.value || '').trim(); if (!t || luci.busy || !luciReady()) return;
   inp.value = ''; luci.msgs.push({ rol: 'kisi', metin: t }); luci.busy = true; luciDraw();
   try { const j = await api('luci', { mesaj: t }); luci.msgs.push({ rol: 'luci', metin: j.cevap }); }
   catch (e) { luci.msgs.push({ rol: 'luci', metin: (e && e.message) || 'Şu an cevap veremiyorum, birazdan tekrar dener misin? 🙏' }); }
