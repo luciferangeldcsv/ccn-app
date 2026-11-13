@@ -1005,9 +1005,9 @@ function render() {
   bindView();
 }
 
-// ---------- Nova (Nöbet ve Vardiya Asistanı): uygulama içi sohbet asistanı (sağ altta) ----------
-// Nova (Nöbet ve Vardiya Asistanı): gülümseyen tombul sarı yıldız
-const LUCI_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="novaG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#ffb938"/></linearGradient></defs><path d="M32.0,10.5 L39.3,24.4 L54.8,27.1 L43.9,38.4 L46.1,53.9 L32.0,47.0 L17.9,53.9 L20.1,38.4 L9.2,27.1 L24.7,24.4Z" fill="url(#novaG)" stroke="#ffbf45" stroke-width="7" stroke-linejoin="round"/><ellipse cx="25.5" cy="27" rx="5" ry="2.6" fill="#fff" opacity=".45" transform="rotate(-20 25.5 27)"/><ellipse cx="26.6" cy="36.4" rx="3.3" ry="4.1" fill="#3a2a1a"/><ellipse cx="37.4" cy="36.4" rx="3.3" ry="4.1" fill="#3a2a1a"/><circle cx="27.8" cy="34.8" r="1.4" fill="#fff"/><circle cx="38.6" cy="34.8" r="1.4" fill="#fff"/><ellipse cx="21.8" cy="42" rx="2.9" ry="1.8" fill="#ff7a59" opacity=".55"/><ellipse cx="42.2" cy="42" rx="2.9" ry="1.8" fill="#ff7a59" opacity=".55"/><path d="M29 42.4q3 3 6 0" stroke="#3a2a1a" stroke-width="1.9" fill="none" stroke-linecap="round"/></svg>';
+// ---------- Vira (Vardiya İzin Rehber Asistanı): uygulama içi sohbet asistanı (sağ altta) ----------
+// Vira (Vardiya İzin Rehber Asistanı): gülümseyen mini takvim
+const LUCI_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="9" y="13" width="46" height="43" rx="12" fill="#22b294"/><rect x="9" y="13" width="46" height="20" rx="12" fill="#6ee7cb" opacity=".55"/><rect x="14.5" y="24.5" width="35" height="26" rx="8.5" fill="#fff"/><rect x="20" y="7.5" width="6" height="12" rx="3" fill="#13715f"/><rect x="38" y="7.5" width="6" height="12" rx="3" fill="#13715f"/><ellipse cx="26" cy="35.5" rx="3.1" ry="3.9" fill="#173a34"/><ellipse cx="38" cy="35.5" rx="3.1" ry="3.9" fill="#173a34"/><circle cx="27.2" cy="34" r="1.3" fill="#fff"/><circle cx="39.2" cy="34" r="1.3" fill="#fff"/><ellipse cx="20.5" cy="42" rx="2.8" ry="1.7" fill="#ff7a7a" opacity=".5"/><ellipse cx="43.5" cy="42" rx="2.8" ry="1.7" fill="#ff7a7a" opacity=".5"/><path d="M28.6 41.6q3.4 3.2 6.8 0" stroke="#173a34" stroke-width="1.9" fill="none" stroke-linecap="round"/></svg>';
 const luci = { open: false, loaded: false, busy: false, msgs: [] };
 const luciOn = () => SERVER && !!auth; // düğme her zaman sağ altta; anahtar yoksa sohbet 'hazırlanıyor' der
 const luciReady = () => !!(srv.v && srv.v.luci);
@@ -1016,30 +1016,30 @@ function luciMount() {
   let fab = document.getElementById('luci-fab');
   if (!luciOn()) { ['luci-fab', 'luci-bub', 'luci-panel'].forEach((id) => { const x = document.getElementById(id); if (x) x.remove(); }); luci.open = false; luci.loaded = false; luci.msgs = []; document.body.classList.remove('luci-open', 'luci-hey'); luciLock(false); return; }
   if (fab) return;
-  fab = document.createElement('button'); fab.id = 'luci-fab'; fab.type = 'button'; fab.setAttribute('aria-label', 'Nova ile konuş'); fab.innerHTML = LUCI_SVG;
+  fab = document.createElement('button'); fab.id = 'luci-fab'; fab.type = 'button'; fab.setAttribute('aria-label', 'Vira ile konuş'); fab.innerHTML = LUCI_SVG;
   fab.addEventListener('click', () => luciToggle());
   document.body.appendChild(fab);
   // ilk kullanımda karşılama baloncuğu; bir kez dokunulunca/kullanılınca bir daha çıkmaz
-  if (!prefs.novaSeen) {
+  if (!prefs.viraSeen) {
     const b = document.createElement('div'); b.id = 'luci-bub'; b.setAttribute('role', 'button');
     const ad = luciAd();
     b.innerHTML = `<button type="button" class="lb-x" aria-label="Kapat">×</button><span class="lb-av">${LUCI_SVG}</span>
-      <div class="lb-t"><b>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Nova</b><span>Vardiyan, OFF günlerin ya da kim ne zaman çalışıyor… Merak ettiğin ne varsa sor, hemen bakayım!</span><button type="button" class="lb-go">Hadi konuşalım</button></div>`;
+      <div class="lb-t"><b>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Vira</b><span>Vardiyan, OFF günlerin ya da kim ne zaman çalışıyor… Merak ettiğin ne varsa sor, hemen bakayım!</span><button type="button" class="lb-go">Hadi konuşalım</button></div>`;
     b.addEventListener('click', (e) => { const x = !!e.target.closest('.lb-x'); luciSeen(); if (!x) luciToggle(true); });
     document.body.appendChild(b); document.body.classList.add('luci-hey');
   }
 }
-function luciSeen() { if (!prefs.novaSeen) { prefs.novaSeen = true; savePrefs(); } const b = document.getElementById('luci-bub'); if (b) b.remove(); document.body.classList.remove('luci-hey'); }
+function luciSeen() { if (!prefs.viraSeen) { prefs.viraSeen = true; savePrefs(); } const b = document.getElementById('luci-bub'); if (b) b.remove(); document.body.classList.remove('luci-hey'); }
 function luciToggle(force) {
   luciSeen();
   luci.open = force === undefined ? !luci.open : force;
   let p = document.getElementById('luci-panel');
   if (!luci.open) { if (p) p.remove(); document.body.classList.remove('luci-open'); luciLock(false); return; }
   if (!p) {
-    p = document.createElement('div'); p.id = 'luci-panel'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-label', 'Nova sohbeti');
-    p.innerHTML = `<div class="lp-head"><span class="lp-av">${LUCI_SVG}</span><div><b>Nova</b><small>Nöbet ve Vardiya Asistanı</small></div><button type="button" class="lp-x" aria-label="Kapat">×</button></div>
+    p = document.createElement('div'); p.id = 'luci-panel'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-label', 'Vira sohbeti');
+    p.innerHTML = `<div class="lp-head"><span class="lp-av">${LUCI_SVG}</span><div><b>Vira</b><small>Vardiya İzin Rehber Asistanı</small></div><button type="button" class="lp-x" aria-label="Kapat">×</button></div>
       <div class="lp-msgs" id="lp-msgs"></div>
-      <form class="lp-form" id="lp-form"><input id="lp-in" maxlength="600" autocomplete="off" enterkeyhint="send" placeholder="Nova'ya yaz…"><button id="lp-send" aria-label="Gönder">➤</button></form>`;
+      <form class="lp-form" id="lp-form"><input id="lp-in" maxlength="600" autocomplete="off" enterkeyhint="send" placeholder="Vira'ya yaz…"><button id="lp-send" aria-label="Gönder">➤</button></form>`;
     document.body.appendChild(p);
     p.querySelector('.lp-x').addEventListener('click', () => luciToggle(false));
     p.querySelector('#lp-form').addEventListener('submit', (e) => { e.preventDefault(); luciSend(); });
@@ -1074,11 +1074,11 @@ function luciDraw() {
   const box = document.getElementById('lp-msgs'); if (!box) return;
   const av = `<span class="lp-av sm">${LUCI_SVG}</span>`; const ad = luciAd();
   if (!luciReady()) {
-    box.innerHTML = `<div class="lm luci">${av}<p>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Nova, Nöbet ve Vardiya Asistanın. Şu an hazırlanıyorum; yöneticin beni açtığında vardiyaların ve OFF günlerin hakkında seninle burada sohbet edeceğim. 😊</p></div>`
+    box.innerHTML = `<div class="lm luci">${av}<p>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Vira, Vardiya İzin Rehber Asistanın. Şu an hazırlanıyorum; yöneticin beni açtığında vardiyaların ve OFF günlerin hakkında seninle burada sohbet edeceğim. 😊</p></div>`
       + luci.msgs.map((m) => (m.rol === 'luci' ? `<div class="lm luci">${av}<p>${luciFmt(m.metin)}</p></div>` : `<div class="lm kisi"><p>${esc(m.metin)}</p></div>`)).join('');
     box.scrollTop = box.scrollHeight; return;
   }
-  const hi = !luci.msgs.length ? `<div class="lm luci">${av}<p>Merhaba${ad ? ' ' + esc(ad) : ''}! 👋 Ben Nova. Vardiyaların, OFF günlerin, kimin ne zaman çalıştığı ya da duyurular hakkında bana istediğini sorabilirsin.</p></div>
+  const hi = !luci.msgs.length ? `<div class="lm luci">${av}<p>Merhaba${ad ? ' ' + esc(ad) : ''}! 👋 Ben Vira. Vardiyaların, OFF günlerin, kimin ne zaman çalıştığı ya da duyurular hakkında bana istediğini sorabilirsin.</p></div>
     <div class="lp-chips">${['Bu hafta vardiyam ne?', "Bir sonraki OFF'um ne zaman?", 'Bugün kim çalışıyor?'].map((q) => `<button type="button" class="lp-chip" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : '';
   box.innerHTML = hi + luci.msgs.map((m) => (m.rol === 'luci' ? `<div class="lm luci">${av}<p>${luciFmt(m.metin)}</p></div>` : `<div class="lm kisi"><p>${esc(m.metin)}</p></div>`)).join('')
     + (luci.busy ? `<div class="lm luci">${av}<p class="typing"><i></i><i></i><i></i></p></div>` : '');

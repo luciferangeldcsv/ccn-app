@@ -110,7 +110,7 @@ aside #install { color: var(--ok); } aside #install[hidden] { display: none; }
     <button data-v="dos">🖼️ Dosyalar</button>
     <button data-v="guv">🛡️ Güvenlik</button>
     <button data-v="ai">🤖 Yapay zekâ</button>
-    <button data-v="luci">⭐ Nova sohbetleri</button>
+    <button data-v="luci">💬 Vira sohbetleri</button>
     <div class="sp"></div>
     <button id="install" hidden>⬇️ Ana ekrana ekle</button>
     <button id="out">⎋ Çıkış</button>
@@ -400,9 +400,9 @@ async function ai() {
     <div class="card"><h3>Fotoğraftan liste okuma</h3>
       <p style="margin:0 0 8px"><b>${d.fotoOkuma ? '🟢 Açık' : '🔴 Kapalı'}</b> — ${d.fotoOkuma ? 'yöneticiler liste fotoğrafı yükleyip otomatik okutabiliyor.' : 'uygulama liste fotoğrafı kabul etmiyor; yeni liste "Yayın geçmişi → Liste içe aktar" ile yayınlanır.'}</p>
       <button class="btn${d.fotoOkuma ? ' red' : ' pri'}" id="fo-tog">${d.fotoOkuma ? 'Kapat' : 'Aç'}</button></div>
-    <div class="card"><h3>⭐ Nova (Nöbet ve Vardiya Asistanı)</h3>
-      <p style="margin:0 0 8px"><b>${d.luci ? '🟢 Açık' : '🔴 Kapalı'}</b>${d.luci ? ' — anahtar: ' + esc(d.luciKaynak) : ' — Gemini anahtarı girilince Nova uygulamanın sağ altında konuşmaya başlar.'}</p>
-      <p class="mut" style="margin:0 0 8px">Nova yalnızca Gemini (ücretsiz) anahtarıyla çalışır: <b>aistudio.google.com/apikey</b>. Boş bırakılırsa, isim okuma anahtarı Gemini ise o kullanılır.</p>
+    <div class="card"><h3>💬 Vira (Vardiya İzin Rehber Asistanı)</h3>
+      <p style="margin:0 0 8px"><b>${d.luci ? '🟢 Açık' : '🔴 Kapalı'}</b>${d.luci ? ' — anahtar: ' + esc(d.luciKaynak) : ' — Gemini anahtarı girilince Vira uygulamanın sağ altında konuşmaya başlar.'}</p>
+      <p class="mut" style="margin:0 0 8px">Vira yalnızca Gemini (ücretsiz) anahtarıyla çalışır: <b>aistudio.google.com/apikey</b>. Boş bırakılırsa, isim okuma anahtarı Gemini ise o kullanılır.</p>
       <div class="filters"><input id="lk-in" class="mono" placeholder="AQ... ya da AIza..." autocomplete="off" style="min-width:240px"><button class="btn pri" id="lk-save">Kaydet</button>${d.luci ? '<button class="btn" id="lk-test">Test et</button>' : ''}</div>
       <p class="mut" id="lk-msg"></p></div>
     <div class="card"><h3>Claude erişim anahtarı</h3>
@@ -440,7 +440,7 @@ async function ai() {
     } catch (e) { alert(e.message); }
   });
   $('#lk-save').addEventListener('click', async () => { const m = $('#lk-msg'); m.textContent = 'Kaydediliyor…'; try { await api('dev-luci-anahtar', { anahtar: $('#lk-in').value.trim() }); ai(); } catch (e) { m.textContent = e.message; } });
-  const lkt = $('#lk-test'); if (lkt) lkt.addEventListener('click', async () => { const m = $('#lk-msg'); m.textContent = 'Test ediliyor…'; try { const r = await api('dev-luci-test'); m.textContent = r.ok ? `✅ Nova çalışıyor — ${r.model} (${r.sure} sn): “${r.cevap}”` : '❌ ' + r.hata; } catch (e) { m.textContent = e.message; } });
+  const lkt = $('#lk-test'); if (lkt) lkt.addEventListener('click', async () => { const m = $('#lk-msg'); m.textContent = 'Test ediliyor…'; try { const r = await api('dev-luci-test'); m.textContent = r.ok ? `✅ Vira çalışıyor — ${r.model} (${r.sure} sn): “${r.cevap}”` : '❌ ' + r.hata; } catch (e) { m.textContent = e.message; } });
   $('#fo-tog').addEventListener('click', async () => { try { await api('dev-foto-okuma', { acik: !d.fotoOkuma }); ai(); } catch (e) { alert(e.message); } });
   if (d.configKilit) return;
   $('#aisave').addEventListener('click', async () => {
@@ -475,8 +475,8 @@ async function luciView() {
     $('#lu-list').innerHTML = d.kisiler.length ? `<table><thead><tr><th>Kişi</th><th>Mesaj</th><th>Son</th><th></th></tr></thead><tbody>${d.kisiler.map((k) => `<tr><td>${esc(k.ad)} ${tag(k.unvan)}</td><td>${k.n}</td><td class="nw">${tr(k.son)}</td><td><button class="btn sm" data-lk="${k.id}">Sohbeti aç</button></td></tr>`).join('')}</tbody></table>` : '<p class="mut">Kayıt yok.</p>';
     $('#lu-say').textContent = `${d.toplam} mesaj · ${d.kisiler.length} kişi${q ? ' (arama: “' + q + '”)' : ''}`;
   };
-  M(`<div class="top"><h2>⭐ Nova sohbetleri</h2></div>
-    <div class="card"><p class="mut" style="margin:0 0 8px">Kişilerin Nova ile konuşmaları kişiye özeldir; yalnızca bu panelde görünür. Kişi adına ya da mesaj içeriğine göre ara.</p>
+  M(`<div class="top"><h2>💬 Vira sohbetleri</h2></div>
+    <div class="card"><p class="mut" style="margin:0 0 8px">Kişilerin Vira ile konuşmaları kişiye özeldir; yalnızca bu panelde görünür. Kişi adına ya da mesaj içeriğine göre ara.</p>
       <div class="filters"><input id="lu-q" placeholder="Ad ya da mesajda geçen kelime"><button class="btn pri" id="lu-ara">Ara</button></div><p class="mut" id="lu-say"></p></div>
     <div class="tw" id="lu-list"><p class="mut">Yükleniyor…</p></div>`);
   $('#lu-ara').addEventListener('click', () => load($('#lu-q').value.trim()));
@@ -488,7 +488,7 @@ async function luciView() {
       const mark = (t) => { const x = esc(t).replace(/\n/g, '<br>'); return q ? x.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (w) => `<mark>${w}</mark>`) : x; };
       const box = document.createElement('div'); box.className = 'modal';
       box.innerHTML = `<div><div class="top"><h2>${esc(d.kisi.ad)} ${tag(d.kisi.unvan)} · ${d.mesajlar.length} mesaj</h2><button class="btn" data-close>Kapat</button></div>
-        <div style="display:grid;gap:8px">${d.mesajlar.map((m) => `<div class="card" style="margin:0;${m.rol === 'luci' ? '' : 'border-left:3px solid var(--acc,#3b82f6)'}"><div class="mut" style="font-size:12px">${m.rol === 'luci' ? '⭐ Nova' : '👤 ' + esc(d.kisi.ad)} · ${when(m.tarih)}</div><div>${mark(m.metin)}</div></div>`).join('')}</div></div>`;
+        <div style="display:grid;gap:8px">${d.mesajlar.map((m) => `<div class="card" style="margin:0;${m.rol === 'luci' ? '' : 'border-left:3px solid var(--acc,#3b82f6)'}"><div class="mut" style="font-size:12px">${m.rol === 'luci' ? '💬 Vira' : '👤 ' + esc(d.kisi.ad)} · ${when(m.tarih)}</div><div>${mark(m.metin)}</div></div>`).join('')}</div></div>`;
       box.addEventListener('click', (ev) => { if (ev.target === box || ev.target.closest('[data-close]')) box.remove(); }); document.body.appendChild(box);
     } catch (err) { alert(err.message); }
   };
