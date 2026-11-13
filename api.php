@@ -17,7 +17,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -31,6 +31,7 @@ function versions(): array {
   $as = @file_get_contents(__DIR__ . '/surum.txt'); $as = $as !== false ? trim($as) : '';
   return ['liste' => $l, 'duyuru' => $d, 'duyuruSayi' => $dc, 'ayar' => (int)(meta_get('ayar_surum') ?? 0), 'taslak' => (int)(meta_get('taslak_surum') ?? 0), 'bildirim' => (int)(db()->query('SELECT MAX(id) FROM bildirimler')->fetchColumn() ?: 0), 'appSurum' => $as,
     'web' => trim((string)@file_get_contents(__DIR__ . '/web.txt')), // yayındaki web derlemesi (eski sekme kendini yeniler)
+    'fotoOkuma' => meta_get('foto_okuma') === '1', // fotoğraftan liste okuma (DEV panelinden açılır; kapalıyken yüklenmez)
     'aiOcr' => ai_key() !== '']; // AI okuma anahtarı (config ya da DEV panelinden) varsa isimler AI ile okunur
 }
 function utc(string $t): string { return str_replace(' ', 'T', $t) . 'Z'; }
@@ -303,6 +304,7 @@ switch ($r) {
   // Vardiya listesi görsellerinden isimleri AI ile oku (sunucu anahtarıyla). İstemci numaralı isim-şeritlerini gönderir.
   case 'isim-oku': {
     $u = require_level(2, 'Liste okuma yetkiniz yok.');
+    if (meta_get('foto_okuma') !== '1') fail(403, 'Fotoğraftan liste okuma kapalı.', ['kapali' => true]);
     $key = ai_key(); if ($key === '') fail(501, 'AI okuma yapılandırılmamış (sunucuya ai_key eklenmeli).', ['aiYok' => true]);
     $imgs = body()['gorseller'] ?? null; $prompt = (string)(body()['komut'] ?? '');
     if (!is_array($imgs) || !$imgs || $prompt === '') fail(400, 'Görsel gerekli.');
@@ -959,7 +961,7 @@ switch ($r) {
     $k = ai_key(); $fromCfg = trim((string)(cfg()['ai_key'] ?? '')) !== '';
     ok(['tanimli' => $k !== '', 'maske' => $k === '' ? '' : (mb_substr($k, 0, 7) . '…' . mb_substr($k, -4)),
       'kaynak' => $k === '' ? '' : ($fromCfg ? 'config' : 'panel'), 'configKilit' => $fromCfg,
-      'saglayici' => $k === '' ? '' : (ai_provider() === 'gemini' ? 'Gemini (Google)' : 'Claude (Anthropic)'), 'model' => ai_model()]);
+      'saglayici' => $k === '' ? '' : (ai_provider() === 'gemini' ? 'Gemini (Google)' : 'Claude (Anthropic)'), 'model' => ai_model(), 'fotoOkuma' => meta_get('foto_okuma') === '1']);
   }
 
   // DEV: hazır liste dosyasını (isim, vardiya, günler) içe aktarıp DUYURUSUZ yayınla. Eski yayının ayarları, kuralları ve
@@ -995,6 +997,15 @@ switch ($r) {
     meta_set('taslak_surum', (string)((int)(meta_get('taslak_surum') ?? 0) + 1));
     audit($u, 'liste-yayinlandi', "$cnt kişi, " . tr_date($min) . ' – ' . tr_date($max) . ' (içe aktarma, duyurusuz)');
     ok(['id' => $id] + $ozet); // bildirim/duyuru gönderilmez
+  }
+
+  // Fotoğraftan liste okumayı aç/kapat (kapalıyken uygulama fotoğraf kabul etmez, sunucu da okumaz)
+  case 'dev-foto-okuma': {
+    $u = dev_only();
+    $acik = !empty(body()['acik']);
+    meta_set('foto_okuma', $acik ? '1' : '0');
+    audit($u, 'foto-okuma', $acik ? 'açıldı' : 'kapatıldı');
+    ok(['fotoOkuma' => $acik]);
   }
 
   // Model adını panelden ayarla (ör. gemini-3.8-flash / gemini-2.5-flash). Boş → varsayılana döner.
