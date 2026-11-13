@@ -1608,7 +1608,11 @@ async function exportExcel() {
 }
 
 // ---------- Yükleme / inceleme ----------
+// Fotoğraftan liste okuma sunucuda DEV panelinden açılıp kapatılır (yanlış okuyup listeyi bozmasın diye kapalı başlar)
+const photoReadOn = () => !SERVER || !!(srv.v && srv.v.fotoOkuma);
 function viewUpload() {
+  if (!photoReadOn() && !ui.review && !ui.busy) return `<div class="card stack"><div><div class="eyebrow">Liste yükleme</div><h2 style="font-size:24px">Fotoğraftan okuma kapalı</h2></div>
+    <p class="muted" style="margin:0">Fotoğraftan otomatik okuma vardiyaları ve OFF günlerini hatalı okuyabildiği için kapatıldı. Yeni listenin fotoğraflarını sistem yöneticisine gönderin; liste kontrol edilip hazır dosyayla yayınlanır.</p></div>`;
   if (ui.busy) return `<div class="card stack"><h2>Görseller okunuyor…</h2><p class="muted" id="busy-text">${esc(ui.busy.text)}</p><div class="progress"><i id="busy-bar" style="width:${Math.round(ui.busy.pct * 100)}%"></i></div><p class="small muted">İlk okumada metin tanıma modeli yüklenir; birkaç saniye sürebilir.</p></div>`;
   if (ui.review) return viewReview();
   const ups = store.uploads.slice().reverse();
@@ -2855,6 +2859,7 @@ let queue = [];
 let batch = { done: 0, total: 0 };
 function handleFiles(files) {
   if (!files.length) return;
+  if (!photoReadOn()) { toast('Fotoğraftan liste okuma kapalı'); return; }
   queue.push(...files); batch.total += files.length;
   if (!ui.busy) nextQueued();
 }

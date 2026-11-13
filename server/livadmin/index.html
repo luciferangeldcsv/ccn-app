@@ -396,6 +396,9 @@ async function ai() {
     ? `<div class="card ok"><b>✅ Anahtar tanımlı</b> — <b>${esc(d.saglayici)}</b> <span class="mono">${esc(d.maske)}</span> ile isimler yapay zekâ ile okunuyor.${d.kaynak === 'config' ? ' <span class="mut">(Kaynak: ccn-config.php — panelden değiştirilemez.)</span>' : ''}</div>`
     : `<div class="card err"><b>⚠️ Anahtar yok</b> — şu an isimler zayıf cihaz okumasıyla çıkarılıyor (hatalı olabilir). Aşağıya bir anahtar yapıştırıp kaydet.</div>`;
   M(`<div class="top"><h2>Yapay zekâ (isim okuma)</h2></div>
+    <div class="card"><h3>Fotoğraftan liste okuma</h3>
+      <p style="margin:0 0 8px"><b>${d.fotoOkuma ? '🟢 Açık' : '🔴 Kapalı'}</b> — ${d.fotoOkuma ? 'yöneticiler liste fotoğrafı yükleyip otomatik okutabiliyor.' : 'uygulama liste fotoğrafı kabul etmiyor; yeni liste "Yayın geçmişi → Liste içe aktar" ile yayınlanır.'}</p>
+      <button class="btn${d.fotoOkuma ? ' red' : ' pri'}" id="fo-tog">${d.fotoOkuma ? 'Kapat' : 'Aç'}</button></div>
     ${durum}
     <div class="card">
       <h3>API anahtarı</h3>
@@ -421,6 +424,7 @@ async function ai() {
       <p class="mut" id="aimodelmsg"></p>
     </div>
     <div class="card"><h3>Test</h3><p class="mut">Kaydettikten sonra uygulamadan/siteden bir vardiya listesi fotoğrafı yükle. İsimlerin üstünde <b>“İsimler yapay zekâ ile okundu”</b> yazısını görürsen çalışıyor demektir.</p></div>`);
+  $('#fo-tog').addEventListener('click', async () => { try { await api('dev-foto-okuma', { acik: !d.fotoOkuma }); ai(); } catch (e) { alert(e.message); } });
   if (d.configKilit) return;
   $('#aisave').addEventListener('click', async () => {
     const v = $('#aik').value.trim(); const msg = $('#aimsg');
