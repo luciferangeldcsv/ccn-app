@@ -1007,11 +1007,8 @@ function render() {
 }
 
 // ---------- Luci: uygulama içi sohbet asistanı (sağ altta) ----------
-const LUCI_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="luciG" cx="42%" cy="34%" r="72%"><stop offset="0" stop-color="#ff8f80"/><stop offset="1" stop-color="#e5484d"/></radialGradient></defs>'
-  + '<path d="M15 24 9 5l16 12z" fill="#b62f38"/><path d="M49 24 55 5 39 17z" fill="#b62f38"/><circle cx="32" cy="37" r="22" fill="url(#luciG)"/>'
-  + '<ellipse cx="24" cy="35" rx="4.4" ry="5.2" fill="#fff"/><ellipse cx="40" cy="35" rx="4.4" ry="5.2" fill="#fff"/><circle cx="25" cy="36" r="2.5" fill="#2a1416"/><circle cx="41" cy="36" r="2.5" fill="#2a1416"/>'
-  + '<circle cx="25.9" cy="34.9" r=".9" fill="#fff"/><circle cx="41.9" cy="34.9" r=".9" fill="#fff"/><ellipse cx="18.5" cy="43" rx="3.3" ry="2" fill="#ffc0b8" opacity=".85"/><ellipse cx="45.5" cy="43" rx="3.3" ry="2" fill="#ffc0b8" opacity=".85"/>'
-  + '<path d="M26 45q6 6 12 0" stroke="#2a1416" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>';
+// Luci: pastel pembe, tombul, iri parlak gözlü, minik boynuzlu tatlı yaratık
+const LUCI_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="luciB" cx="40%" cy="32%" r="75%"><stop offset="0" stop-color="#ffb3c4"/><stop offset=".6" stop-color="#ff8aa6"/><stop offset="1" stop-color="#f26d8f"/></radialGradient></defs><path d="M19.5 22.5c-2.6-4.4-2.4-9.3.2-12.3 1.7 3.5 4.5 6.1 7.6 7.6z" fill="#f2577d"/><path d="M44.5 22.5c2.6-4.4 2.4-9.3-.2-12.3-1.7 3.5-4.5 6.1-7.6 7.6z" fill="#f2577d"/><ellipse cx="32" cy="38" rx="22" ry="20" fill="url(#luciB)"/><ellipse cx="25" cy="32" rx="7" ry="4.5" fill="#fff" opacity=".22"/><ellipse cx="24.2" cy="37.5" rx="4.6" ry="5.6" fill="#3b1d2a"/><ellipse cx="39.8" cy="37.5" rx="4.6" ry="5.6" fill="#3b1d2a"/><circle cx="25.8" cy="35.4" r="1.9" fill="#fff"/><circle cx="41.4" cy="35.4" r="1.9" fill="#fff"/><circle cx="23.2" cy="39.8" r=".9" fill="#fff"/><circle cx="38.8" cy="39.8" r=".9" fill="#fff"/><ellipse cx="17.5" cy="44.5" rx="3.6" ry="2.2" fill="#ff5f86" opacity=".55"/><ellipse cx="46.5" cy="44.5" rx="3.6" ry="2.2" fill="#ff5f86" opacity=".55"/><path d="M28.6 45.2q1.7 2.1 3.4 0 1.7 2.1 3.4 0" stroke="#3b1d2a" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const luci = { open: false, loaded: false, busy: false, msgs: [] };
 const luciOn = () => SERVER && !!auth; // düğme her zaman sağ altta; anahtar yoksa sohbet 'hazırlanıyor' der
 const luciReady = () => !!(srv.v && srv.v.luci);
