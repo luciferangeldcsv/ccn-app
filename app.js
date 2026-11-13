@@ -2918,7 +2918,11 @@ async function analyzeFile(file) {
   } catch (e) {
     console.error(e);
     logError('görsel okuma', e);
-    toast(`${file.name || 'Görsel'} okunamadı: ${e.message || e}`);
+    if (e && e.aiOkuyamadi) sheet(`<h3>Liste okunamadı</h3>
+      <p class="muted" style="margin:0">Yapay zekâ bu fotoğrafı okuyamadı: <b>${esc(e.message)}</b></p>
+      <p class="muted" style="margin:0">Yanlış liste oluşmasın diye telefonun kendi (zayıf) okuması kullanılmadı. Daha sonra tekrar deneyin ya da fotoğrafları sistem yöneticisine gönderin.</p>
+      <div class="row"><button class="btn primary" data-x="1">Tamam</button></div>`);
+    else toast(`${file.name || 'Görsel'} okunamadı: ${e.message || e}`);
   }
 }
 
@@ -3741,6 +3745,11 @@ async function analyzeImage(img, progress) {
   // gerçek site / uygulama: sunucuda yapay zekâ anahtarı varsa fotoğrafın tamamı ona okutulur (claude.ai'de kendi yolu var)
   srvAiDown = false; srvAiErr = null;
   if (!window.claude) { const whole = await readWholeTableWithServer(img, progress); if (whole) return [whole]; }
+  // sitede/uygulamada yapay zekâ okuyamadıysa telefonun zayıf okumasına DÜŞÜLMEZ: yanlış liste oluşmasın, nedeni söylenir
+  if (!window.claude && SERVER) {
+    const e = new Error(!(srv.v && srv.v.aiOcr) ? 'sunucuda yapay zekâ anahtarı tanımlı değil' : srvAiErr ? srvAiErr.code : 'yapay zekâ cevap vermedi');
+    e.aiOkuyamadi = true; throw e;
+  }
   const res = await analyzeImageLocal(img, progress);
   // yapay zekâ neden kullanılamadı: fotoğraf kartının üstünde görünsün (isimler zayıf okumayla geldi)
   if (!window.claude && SERVER) {
