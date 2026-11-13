@@ -17,7 +17,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -995,8 +995,20 @@ switch ($r) {
     db()->prepare('DELETE FROM rosters WHERE id < ?')->execute([$id - 30]);
     db()->prepare("DELETE FROM meta WHERE k = 'taslak'")->execute();
     meta_set('taslak_surum', (string)((int)(meta_get('taslak_surum') ?? 0) + 1));
-    audit($u, 'liste-yayinlandi', "$cnt kişi, " . tr_date($min) . ' – ' . tr_date($max) . ' (içe aktarma, duyurusuz)');
-    ok(['id' => $id] + $ozet); // bildirim/duyuru gönderilmez
+    $silinen = 0;
+    if (!empty(body()['eskileriSil'])) { $st = db()->prepare('DELETE FROM rosters WHERE id < ?'); $st->execute([$id]); $silinen = $st->rowCount(); } // önceki tüm yayınlar
+    audit($u, 'liste-yayinlandi', "$cnt kişi, " . tr_date($min) . ' – ' . tr_date($max) . ' (içe aktarma, duyurusuz' . ($silinen ? ", $silinen eski yayın silindi" : '') . ')');
+    ok(['id' => $id, 'silinenYayin' => $silinen] + $ozet); // bildirim/duyuru gönderilmez
+  }
+
+  // Claude (yardımcı) için DEV erişim anahtarı: 30 gün geçerli ayrı oturum; DEV paneli → Oturumlar'dan kapatılabilir
+  case 'dev-erisim-anahtari': {
+    $u = dev_only();
+    $t = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+    db()->prepare('INSERT INTO sessions (personnel_id, token_hash, remember, created_at, last_seen, expires_at, agent, ip) VALUES (?,?,?,?,?,?,?,?)')
+      ->execute([$u['id'], hash('sha256', $t), 0, now(), now(), gmdate('Y-m-d H:i:s', time() + 30 * 86400), 'Claude erişimi (DEV paneli anahtarı)', client_ip()]);
+    audit($u, 'erisim-anahtari', '30 gün');
+    ok(['anahtar' => $t, 'gun' => 30]);
   }
 
   // Fotoğraftan liste okumayı aç/kapat (kapalıyken uygulama fotoğraf kabul etmez, sunucu da okumaz)
