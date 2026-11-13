@@ -18,7 +18,7 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari', 'luci', 'dev-luci-anahtar'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari', 'luci', 'dev-luci-anahtar', 'luci-ac'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -1061,6 +1061,19 @@ switch ($r) {
     meta_set('luci_key', $k); meta_set('luci_model_son', '');
     audit($u, 'luci-anahtar', $k === '' ? 'silindi' : 'güncellendi');
     ok(['tanimli' => luci_key() !== '']);
+  }
+  // Vira'yı uygulamanın içinden açma (DEV / yönetici): anahtar önce denenir, çalışmazsa kaydedilmez
+  case 'luci-ac': {
+    $u = current_user();
+    if (!in_array((string)($u['title'] ?? ($u['role'] === 'admin' ? 'yonetici' : 'personel')), ['dev', 'yonetici'], true)) fail(403, 'Vira\'yı yalnızca yönetici açabilir.');
+    $k = trim((string)(body()['anahtar'] ?? ''));
+    if (mb_strlen($k) < 20 || preg_match('/\s/', $k) || str_starts_with($k, 'sk-ant-')) fail(400, 'Bu bir Gemini anahtarına benzemiyor. aistudio.google.com/apikey adresinden aldığın anahtarı yapıştır.');
+    @set_time_limit(90);
+    [$txt, $err, $model] = gemini_generate($k, ['contents' => [['role' => 'user', 'parts' => [['text' => 'Tek cümleyle Türkçe merhaba de.']]]], 'generationConfig' => ['maxOutputTokens' => 60, 'thinkingConfig' => ['thinkingBudget' => 0]]], 40, ['gemini-flash-lite-latest', 'gemini-flash-latest', 'gemini-3.8-flash']);
+    if ($txt === null) fail(400, 'Anahtar denendi ama çalışmadı: ' . mb_substr((string)$err, 0, 160));
+    meta_set('luci_key', $k); meta_set('luci_model_son', (string)$model);
+    audit($u, 'luci-anahtar', 'uygulamadan açıldı');
+    ok(['luci' => true, 'model' => $model]);
   }
   case 'dev-luci-test': {
     dev_only(); $key = luci_key(); if ($key === '') ok(['ok' => false, 'hata' => 'Vira anahtarı yok.']);
