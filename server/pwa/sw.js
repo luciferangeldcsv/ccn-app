@@ -36,7 +36,8 @@ self.addEventListener('fetch', (e) => {
   e.respondWith((async () => {
     const c = await caches.open(CACHE);
     try {
-      const res = await fetch(req, { cache: 'no-store' });
+      // sayfa açılışı adres üzerinden istenir: bazı tarayıcılar (Safari) 'navigate' isteğini ayarla kopyalayamayıp hep saklı eski sayfaya düşüyordu
+      const res = nav ? await fetch(req.url, { cache: 'no-store', credentials: 'same-origin' }) : await fetch(req, { cache: 'no-store' });
       if (res.ok && res.type === 'basic') c.put(nav ? './index.html' : req, res.clone()).catch(() => {});
       return res;
     } catch (err) {
