@@ -596,24 +596,24 @@ h4.ph { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color
 .rangebar .field { min-width: 150px; }
 .rangebar .small, .rangebar .chips { align-self: flex-end; margin-bottom: 9px; }
 
-/* ---------- Luci: sağ alttaki sohbet asistanı ---------- */
-#luci-fab { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 25; width: 58px; height: 58px; border-radius: 50%; border: 0; padding: 0; background: linear-gradient(145deg, #fff1f5, #ffd3df); box-shadow: 0 6px 22px rgba(0,0,0,.35); cursor: pointer; display: grid; place-items: center; animation: luciIn .55s cubic-bezier(.3,1.5,.5,1) both; }
+/* ---------- Nova (Nöbet ve Vardiya Asistanı): sağ alttaki sohbet asistanı ---------- */
+#luci-fab { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 25; width: 58px; height: 58px; border-radius: 50%; border: 0; padding: 0; background: linear-gradient(145deg, #eaf4ff, #cfe3f8); box-shadow: 0 6px 22px rgba(0,0,0,.35); cursor: pointer; display: grid; place-items: center; animation: luciIn .55s cubic-bezier(.3,1.5,.5,1) both; }
 #luci-fab svg { width: 50px; height: 50px; }
 #luci-fab:active { transform: scale(.94); }
 #luci-bub { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(92px + env(safe-area-inset-bottom, 0px)); z-index: 26; width: min(300px, calc(100vw - 32px)); box-sizing: border-box; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 18px; padding: 14px 14px 14px 12px; box-shadow: 0 14px 40px rgba(0,0,0,.32); display: flex; gap: 10px; align-items: flex-start; cursor: pointer; transform-origin: 90% 100%; animation: luciPop .6s cubic-bezier(.3,1.5,.5,1) .6s both; }
 #luci-bub::after { content: ''; position: absolute; right: 22px; bottom: -8px; width: 16px; height: 16px; background: var(--surface); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg); }
-#luci-bub .lb-av { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(145deg, #fff1f5, #ffd3df); display: grid; place-items: center; flex: 0 0 auto; animation: luciWave 1.4s ease-in-out 1.3s 2; }
+#luci-bub .lb-av { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(145deg, #eaf4ff, #cfe3f8); display: grid; place-items: center; flex: 0 0 auto; animation: luciWave 1.4s ease-in-out 1.3s 2; }
 #luci-bub .lb-av svg { width: 34px; height: 34px; }
 #luci-bub .lb-t { display: grid; gap: 4px; min-width: 0; padding-right: 14px; }
 #luci-bub .lb-t b { font-size: 16px; } #luci-bub .lb-t span { color: var(--muted); font-size: 13.5px; line-height: 1.35; }
 #luci-bub .lb-go { justify-self: start; margin-top: 6px; border: 0; border-radius: 999px; padding: 7px 14px; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 #luci-bub .lb-x { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; padding: 2px 5px; cursor: pointer; }
-body.luci-hey #luci-fab::before { content: ''; position: absolute; inset: -6px; border-radius: 50%; border: 3px solid #ff8aa6; opacity: 0; animation: luciRing 1.8s ease-out 1s infinite; }
+body.luci-hey #luci-fab::before { content: ''; position: absolute; inset: -6px; border-radius: 50%; border: 3px solid #ffbf45; opacity: 0; animation: luciRing 1.8s ease-out 1s infinite; }
 @keyframes luciPop { 0% { opacity: 0; transform: scale(.4) translateY(20px); } 70% { opacity: 1; transform: scale(1.04); } 100% { opacity: 1; transform: none; } }
 @keyframes luciWave { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-14deg); } 40% { transform: rotate(12deg); } 60% { transform: rotate(-8deg); } 80% { transform: rotate(5deg); } }
 @keyframes luciRing { 0% { opacity: .7; transform: scale(.9); } 100% { opacity: 0; transform: scale(1.35); } }
 body.intro-run #luci-fab, body.intro-run #luci-bub, body.luci-open #luci-bub { display: none; }
-/* başka bir pencere (yenilikler, onay vb.) açıkken Luci onun üstüne binmesin */
+/* başka bir pencere (yenilikler, onay vb.) açıkken Nova onun üstüne binmesin */
 body:has(#overlay > *) #luci-bub, body:has(#overlay > *) #luci-fab { display: none; }
 #luci-panel { position: fixed; z-index: 40; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(92px + env(safe-area-inset-bottom, 0px)); width: min(380px, calc(100vw - 32px)); height: min(560px, calc(100vh - 150px)); background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 16px 48px rgba(0,0,0,.35); display: flex; flex-direction: column; overflow: hidden; animation: luciPanel .25s ease both; }
 @media (max-width: 720px) {
@@ -625,9 +625,9 @@ body:has(#overlay > *) #luci-bub, body:has(#overlay > *) #luci-fab { display: no
 .lp-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .lp-head b { font-size: 16px; } .lp-head small { display: block; color: var(--muted); font-size: 12px; }
 .lp-head .lp-x { margin-left: auto; border: 0; background: none; font-size: 26px; line-height: 1; color: var(--muted); cursor: pointer; padding: 0 4px; }
-.lp-av { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(145deg, #fff1f5, #ffd3df); display: grid; place-items: center; flex: 0 0 auto; }
+.lp-av { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(145deg, #eaf4ff, #cfe3f8); display: grid; place-items: center; flex: 0 0 auto; }
 .lp-av svg { width: 32px; height: 32px; } .lp-av.sm { width: 28px; height: 28px; } .lp-av.sm svg { width: 23px; height: 23px; }
-.lp-msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; overscroll-behavior: contain; }
+.lp-msgs { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px; display: flex; flex-direction: column; gap: 10px; overscroll-behavior: contain; }
 .lm { display: flex; gap: 8px; align-items: flex-end; }
 .lm p { margin: 0; padding: 9px 12px; border-radius: 16px; max-width: 80%; line-height: 1.42; font-size: 15px; overflow-wrap: anywhere; }
 .lm.luci p { background: var(--surface-2); border-bottom-left-radius: 4px; }
@@ -700,7 +700,7 @@ body:has(#overlay > *) #luci-bub, body:has(#overlay > *) #luci-fab { display: no
   setTimeout(off, 6000);
 })();
 </script>
-<script src="app.js?v=240ccc93c7"></script>
+<script src="app.js?v=977366b1e9"></script>
 
 </body>
 </html>

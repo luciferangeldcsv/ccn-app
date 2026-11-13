@@ -1017,7 +1017,7 @@ switch ($r) {
     $msg = trim(preg_replace('/\s+/u', ' ', (string)(body()['mesaj'] ?? '')) ?? '');
     if ($msg === '') fail(400, 'Mesaj boş.');
     $msg = mb_substr($msg, 0, 600);
-    $key = luci_key(); if ($key === '') fail(503, 'Luci şu an kapalı.', ['kapali' => true]);
+    $key = luci_key(); if ($key === '') fail(503, 'Nova şu an kapalı.', ['kapali' => true]);
     $st = db()->prepare("SELECT COUNT(*) FROM luci_mesajlar WHERE personnel_id = ? AND rol = 'kisi' AND created_at > ?"); $st->execute([$u['id'], gmdate('Y-m-d H:i:s', time() - 3600)]);
     if ((int)$st->fetchColumn() >= 40) fail(429, 'Biraz soluklanalım 🙂 Son bir saatte çok mesaj yazdın; birazdan yine yazabilirsin.');
     // geçmiş (son 12 mesaj) — kayıttan önce okunur
@@ -1063,7 +1063,7 @@ switch ($r) {
     ok(['tanimli' => luci_key() !== '']);
   }
   case 'dev-luci-test': {
-    dev_only(); $key = luci_key(); if ($key === '') ok(['ok' => false, 'hata' => 'Luci anahtarı yok.']);
+    dev_only(); $key = luci_key(); if ($key === '') ok(['ok' => false, 'hata' => 'Nova anahtarı yok.']);
     @set_time_limit(90); $t = microtime(true);
     [$txt, $err, $model] = gemini_generate($key, ['contents' => [['role' => 'user', 'parts' => [['text' => 'Tek cümleyle Türkçe merhaba de.']]]], 'generationConfig' => ['maxOutputTokens' => 60, 'thinkingConfig' => ['thinkingBudget' => 0]]], 40, ['gemini-flash-lite-latest', 'gemini-flash-latest', 'gemini-3.8-flash']);
     ok(['ok' => $txt !== null, 'model' => $model, 'sure' => round(microtime(true) - $t, 1), 'cevap' => $txt !== null ? mb_substr(luci_temiz($txt), 0, 200) : '', 'hata' => $txt === null ? $err : '']);
@@ -1387,7 +1387,7 @@ function pw_error(string $pw, string $title): ?string {
   return null;
 }
 
-// Luci'nin talimatı + yalnızca uygulama içi veriler (yayındaki liste, saatler, son duyurular, kişinin kendisi)
+// Nova'nın talimatı + yalnızca uygulama içi veriler (yayındaki liste, saatler, son duyurular, kişinin kendisi)
 function luci_sistem(array $u): string {
   $tz = new DateTimeZone('Europe/Istanbul'); $now = new DateTime('now', $tz);
   $GUN = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi']; $KG = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
@@ -1424,7 +1424,7 @@ function luci_sistem(array $u): string {
   foreach (db()->query('SELECT title, body, created_at FROM announcements ORDER BY id DESC LIMIT 5')->fetchAll() as $a) $duy[] = '- ' . tr_date(substr((string)$a['created_at'], 0, 10)) . ' · ' . $a['title'] . ': ' . mb_substr(trim(strip_tags((string)$a['body'])), 0, 300);
   $saat = []; foreach (['1', '2', '3'] as $g) if (!empty($hours[$g])) $saat[] = "$g. vardiya: " . $hours[$g];
   $ad = trim((string)$u['name']); $ilk = mb_convert_case(mb_strtolower(explode(' ', $ad)[0] ?? $ad, 'UTF-8'), MB_CASE_TITLE, 'UTF-8');
-  return "Sen Luci'sin: Vardiya Listesi uygulamasının içindeki sıcakkanlı, cana yakın yardımcı asistansın. Bir hastanede çalışan sağlık personeliyle konuşuyorsun.\n"
+  return "Sen Nova'sın — adın 'Nöbet ve Vardiya Asistanı'nın kısaltması: Vardiya Listesi uygulamasının içindeki sıcakkanlı, cana yakın yardımcı asistansın. Adını sorarlarsa bunu söyleyebilirsin. Bir hastanede çalışan sağlık personeliyle konuşuyorsun.\n"
     . "Üslup: Türkçe, samimi ve sohbet eder gibi; robotik değil, kısa ve net (genelde 1-4 cümle). Ara sıra kişiye adıyla (" . $ilk . ") hitap edebilirsin, yerinde ve az emoji kullanabilirsin. Yorgun ya da sinirli birine nazik ve anlayışlı ol.\n"
     . "Kurallar:\n"
     . "1) ASLA küfür, hakaret ya da kaba söz kullanma. Karşındaki küfür etse bile sakin ve kibar kal, onun sözlerini tekrarlama.\n"
