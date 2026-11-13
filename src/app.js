@@ -1076,6 +1076,10 @@ function luciDraw() {
   if (!luciReady()) {
     box.innerHTML = `<div class="lm luci">${av}<p>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Vira, Vardiya İzin Rehber Asistanın. Şu an hazırlanıyorum; yöneticin beni açtığında vardiyaların ve OFF günlerin hakkında seninle burada sohbet edeceğim. 😊</p></div>`
       + luci.msgs.map((m) => (m.rol === 'luci' ? `<div class="lm luci">${av}<p>${luciFmt(m.metin)}</p></div>` : `<div class="lm kisi"><p>${esc(m.metin)}</p></div>`)).join('');
+    if (luciCanOpen()) {
+      box.insertAdjacentHTML('beforeend', `<div class="lp-ac"><b>Vira'yı aç</b><span>Yönetici olarak beni buradan açabilirsin: Gemini anahtarını (aistudio.google.com/apikey) yapıştır, önce deneyip sonra kaydederim.</span><input id="lp-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AQ. ile başlayan anahtar"><button type="button" id="lp-key-go">Vira'yı aç</button><small id="lp-key-msg"></small></div>`);
+      document.getElementById('lp-key-go').addEventListener('click', luciActivate);
+    }
     box.scrollTop = box.scrollHeight; return;
   }
   const hi = !luci.msgs.length ? `<div class="lm luci">${av}<p>Merhaba${ad ? ' ' + esc(ad) : ''}! 👋 Ben Vira. Vardiyaların, OFF günlerin, kimin ne zaman çalıştığı ya da duyurular hakkında bana istediğini sorabilirsin.</p></div>
@@ -1085,6 +1089,14 @@ function luciDraw() {
   box.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => { const i = document.getElementById('lp-in'); i.value = b.dataset.q; luciSend(); }));
   const sb = document.getElementById('lp-send'); if (sb) sb.disabled = luci.busy;
   box.scrollTop = box.scrollHeight;
+}
+const luciCanOpen = () => !!(SERVER && auth && auth.ben && ['dev', 'yonetici'].includes(auth.ben.unvan));
+async function luciActivate() {
+  const i = document.getElementById('lp-key'); const b = document.getElementById('lp-key-go'); const m = document.getElementById('lp-key-msg');
+  const k = (i && i.value || '').trim(); if (!k) { m.textContent = 'Önce anahtarı yapıştır.'; return; }
+  b.disabled = true; m.textContent = 'Anahtar deneniyor…';
+  try { await api('luci-ac', { anahtar: k }); srv.v = Object.assign({}, srv.v, { luci: true }); luci.msgs = []; luciDraw(); toast('Vira açıldı 🎉'); }
+  catch (e) { m.textContent = (e && e.message) || 'Açılamadı.'; b.disabled = false; }
 }
 async function luciSend() {
   const inp = document.getElementById('lp-in'); const t = (inp && inp.value || '').trim(); if (!t || luci.busy) return;
