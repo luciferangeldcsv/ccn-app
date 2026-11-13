@@ -1064,7 +1064,7 @@ switch ($r) {
     $key = trim((string)(body()['anahtar'] ?? ''));
     if ($key === '') { meta_set('ai_key', ''); audit($u, 'ai-anahtar', 'silindi'); ok(['tanimli' => false, 'maske' => '']); }
     if (mb_strlen($key) < 20 || preg_match('/\s/', $key)) fail(400, 'Bu bir API anahtarına benzemiyor (çok kısa ya da boşluk içeriyor). Gemini: aistudio.google.com/apikey, Claude: console.anthropic.com.');
-    meta_set('ai_key', $key);
+    meta_set('ai_key', $key); meta_set('ai_model_son', ''); // yeni anahtar: eski sağlayıcının hatırlanan modeli kullanılmasın
     $model = trim((string)(body()['model'] ?? '')); if ($model !== '') meta_set('ai_model', $model);
     audit($u, 'ai-anahtar', 'güncellendi'); // anahtar değeri loglanmaz
     ok(['tanimli' => true, 'maske' => mb_substr($key, 0, 7) . '…' . mb_substr($key, -4), 'model' => ai_model()]);
