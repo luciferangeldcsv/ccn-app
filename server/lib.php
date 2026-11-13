@@ -25,7 +25,7 @@ function db(): PDO {
   return $pdo;
 }
 
-const SCHEMA_V = 20;
+const SCHEMA_V = 21;
 // Unvan hiyerarşisi: DEV (gizli kurucu) > Yönetici > Müdür > Şef > Personel. Yeni eklenen herkes Personel.
 const TITLES = ['dev' => 'DEV', 'yonetici' => 'Yönetici', 'mudur' => 'Müdür', 'sef' => 'Şef', 'personel' => 'Personel'];
 const LEVELS = ['personel' => 1, 'sef' => 2, 'mudur' => 3, 'yonetici' => 4, 'dev' => 5];
@@ -200,6 +200,8 @@ function upgrades(PDO $pdo): void {
     // 9 → 10: web bildirim abonelikleri (cihaz başına)
     $pdo->exec("CREATE TABLE IF NOT EXISTS push_subs (id INT AUTO_INCREMENT PRIMARY KEY, personnel_id INT NOT NULL, endpoint TEXT NOT NULL, ep_hash CHAR(64) NOT NULL UNIQUE, p256dh VARCHAR(200) NOT NULL, auth VARCHAR(100) NOT NULL, ua VARCHAR(200) NULL, created_at DATETIME NOT NULL, last_ok DATETIME NULL, INDEX (personnel_id)) $T");
     $pdo->exec("CREATE TABLE IF NOT EXISTS gorev_durum (gorev_id INT NOT NULL, madde SMALLINT NOT NULL, personnel_id INT NULL, who VARCHAR(120) NOT NULL, at DATETIME NOT NULL, PRIMARY KEY (gorev_id, madde)) $T");
+    // 20 → 21: Luci (yapay zekâ asistanı) sohbet kayıtları — kişiye özel; yalnızca DEV panelinde aranır
+    luci_table($pdo);
 }
 
 // ---------- Yardımcılar ----------
@@ -276,6 +278,23 @@ function meta_set(string $k, string $v): void { db()->prepare('REPLACE INTO meta
 // Yapay zekâ (isim okuma) anahtarı: önce ccn-config.php, yoksa DEV panelinden kaydedilen (meta) değer.
 // Böylece sunucu dosyasına erişemeyen DEV, anahtarı /livadmin'den telefonundan da girebilir.
 function ai_key(): string { $k = trim((string)(cfg()['ai_key'] ?? '')); return $k !== '' ? $k : trim((string)(meta_get('ai_key') ?? '')); }
+// ---------- Luci (sohbet asistanı) ----------
+function luci_table(?PDO $pdo = null): void {
+  static $done = false; if ($done) return; $done = true;
+  ($pdo ?? db())->exec("CREATE TABLE IF NOT EXISTS luci_mesajlar (id BIGINT AUTO_INCREMENT PRIMARY KEY, personnel_id INT NOT NULL, rol VARCHAR(5) NOT NULL, metin TEXT NOT NULL, created_at DATETIME NOT NULL, INDEX (personnel_id, id), INDEX (created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+// Luci'nin anahtarı: panelden girilen Gemini anahtarı; yoksa isim okuma anahtarı Gemini ise o
+function luci_key(): string {
+  $k = trim((string)(meta_get('luci_key') ?? ''));
+  if ($k !== '') return $k;
+  return ai_provider() === 'gemini' ? ai_key() : '';
+}
+// Luci asla küfretmez: model yine de yazarsa cevaptan temizlenir
+function luci_temiz(string $t): string {
+  $kufur = '/(*UCP)\b(amk|aq|amq|amına|amcık|orospu\w*|piç(?:ler|in)?|siktir\w*|sikerim|sikeyim|sikik|yarrak\w*|göt|götün|ibne\w*|kahpe\w*|şerefsiz\w*|pezevenk\w*|gerizekalı\w*|salak\w*|aptal\w*)\b/iu';
+  return trim(preg_replace($kufur, '…', $t) ?? $t);
+}
+
 // Yapay zekâ servislerine istek: IPv4 zorunlu (paylaşımlı sunucularda IPv6 çıkışı takılabiliyor),
 // bağlantı süresi ayrı sınırlı, "Expect: 100-continue" kapalı. Dönüş: [http kodu, gövde|null, curl hatası, saniye]
 function ai_http(string $url, array $headers, ?string $body, int $timeout): array {
@@ -296,9 +315,9 @@ function gemini_models(): array {
 // model kaldırılmışsa (404) ya da cevap gelmezse doğrudan sıradakine geçer; 400'de düşünme ve JSON ayarlarını sırayla
 // kaldırıp aynı modeli tekrar dener; anahtar hatasında (401/403) durur. Hata metni her modelin sonucunu içerir.
 // Dönüş: [metin|null, son hata, kullanılan model]
-function gemini_generate(string $key, array $payload, int $budget = 55): array {
-  $t0 = microtime(true); $errs = [];
-  foreach (gemini_models() as $model) {
+function gemini_generate(string $key, array $payload, int $budget = 55, ?array $models = null): array {
+  $t0 = microtime(true); $errs = []; $hatirla = $models === null;
+  foreach ($models ?? gemini_models() as $model) {
     $p = $payload; $last = '';
     for ($try = 0; $try < 4; $try++) {
       $left = $budget - (microtime(true) - $t0); if ($left < 4) { if ($last !== '') $errs[] = $last; return [null, mb_substr(implode(' | ', $errs) ?: 'süre doldu', 0, 500), $model]; }
@@ -307,7 +326,7 @@ function gemini_generate(string $key, array $payload, int $budget = 55): array {
       if ($code === 200 && $resp !== null) {
         $j = json_decode($resp, true); $text = '';
         foreach (($j['candidates'][0]['content']['parts'] ?? []) as $part) if (isset($part['text']) && empty($part['thought'])) $text .= (string)$part['text'];
-        if ($model !== (string)(meta_get('ai_model_son') ?? '')) meta_set('ai_model_son', $model);
+        if ($hatirla && $model !== (string)(meta_get('ai_model_son') ?? '')) meta_set('ai_model_son', $model);
         return [$text, '', $model];
       }
       $msg = $resp === null ? 'cevap yok (' . $err . ')' : mb_substr((string)(json_decode($resp, true)['error']['message'] ?? $resp), 0, 160);

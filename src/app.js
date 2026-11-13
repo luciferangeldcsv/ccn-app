@@ -140,14 +140,28 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
   {
     const wk = document.getElementById('intro-week');
     if (wk) {
-      const now = new Date(); const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-      const codes = [['1', 'c1'], ['1', 'c1'], ['2', 'c2'], ['2', 'c2'], ['3', 'c3'], ['OFF', 'cO'], ['OFF', 'cO']];
-      wk.innerHTML = codes.map(([t, c], i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); return `<span class="iw ${c}${d.toDateString() === now.toDateString() ? ' today' : ''}"><small>${DAY_SHORT[d.getDay()]}</small><b>${t}</b></span>`; }).join('');
+      // giriş yapan kişinin bugünden itibaren 7 günlük gerçek vardiyası (telefonda kayıtlı son listeden)
+      let me = null;
+      try {
+        const a = JSON.parse(localStorage.getItem('ccn-oturum') || sessionStorage.getItem('ccn-oturum') || 'null');
+        const st = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+        const ad = a && a.ben && a.ben.ad; const ppl = st && st.people;
+        if (ad && ppl) { const k = nameKey(ad); me = ppl[k] || Object.values(ppl).find((p) => p && nameKey(p.name || '') === k) || null; }
+      } catch (e) { /* kayıt yok */ }
+      const isoL = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const CL = { '1': ['1', 'c1'], '2': ['2', 'c2'], '3': ['3', 'c3'], OFF: ['OFF', 'cO'], R: ['R', 'cR'], YI: ['Yİ', 'cY'], UI: ['Üİ', 'cM'], MI: ['İ', 'cM'] };
+      const now = new Date();
+      wk.innerHTML = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(now); d.setDate(now.getDate() + i);
+        const [t, c] = (me && me.days && CL[me.days[isoL(d)]]) || ['–', 'c0'];
+        return `<span class="iw ${c}${i === 0 ? ' today' : ''}"><small>${i === 0 ? 'Bugün' : DAY_SHORT[d.getDay()]}</small><b>${t}</b></span>`;
+      }).join('');
+      const stx = document.getElementById('intro-status'); if (stx && me) stx.textContent = 'Önümüzdeki 7 günün yükleniyor…';
       const cells = [...wk.children]; const t0 = reduce ? 0 : 1550, step = reduce ? 0 : 330;
       cells.forEach((c, i) => setTimeout(() => c.classList.add('on'), t0 + i * step));
       const st = document.getElementById('intro-status');
       if (st) {
-        setTimeout(() => { st.textContent = 'Liste hazırlanıyor…'; }, reduce ? 0 : 2700);
+        setTimeout(() => { st.textContent = me ? 'Vardiyaların hazırlanıyor…' : 'Liste hazırlanıyor…'; }, reduce ? 0 : 2700);
         setTimeout(() => { st.textContent = 'Hazır ✓'; st.classList.add('ok'); }, reduce ? 0 : 4050);
       }
     }
@@ -971,6 +985,7 @@ function renderTabs() {
 }
 
 function render() {
+  luciMount();
   const sub = document.getElementById('brand-sub');
   if (SERVER && !auth) { renderTabs(); sub.textContent = 'Personel girişi'; $app.innerHTML = viewLogin(); bindLogin(); return; }
   if (!allowedView(ui.view)) ui.view = 'gunluk';
@@ -990,6 +1005,71 @@ function render() {
   $app.innerHTML = banner + views[ui.view]();
   bindView();
 }
+
+// ---------- Luci: uygulama içi sohbet asistanı (sağ altta) ----------
+const LUCI_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="luciG" cx="42%" cy="34%" r="72%"><stop offset="0" stop-color="#ff8f80"/><stop offset="1" stop-color="#e5484d"/></radialGradient></defs>'
+  + '<path d="M15 24 9 5l16 12z" fill="#b62f38"/><path d="M49 24 55 5 39 17z" fill="#b62f38"/><circle cx="32" cy="37" r="22" fill="url(#luciG)"/>'
+  + '<ellipse cx="24" cy="35" rx="4.4" ry="5.2" fill="#fff"/><ellipse cx="40" cy="35" rx="4.4" ry="5.2" fill="#fff"/><circle cx="25" cy="36" r="2.5" fill="#2a1416"/><circle cx="41" cy="36" r="2.5" fill="#2a1416"/>'
+  + '<circle cx="25.9" cy="34.9" r=".9" fill="#fff"/><circle cx="41.9" cy="34.9" r=".9" fill="#fff"/><ellipse cx="18.5" cy="43" rx="3.3" ry="2" fill="#ffc0b8" opacity=".85"/><ellipse cx="45.5" cy="43" rx="3.3" ry="2" fill="#ffc0b8" opacity=".85"/>'
+  + '<path d="M26 45q6 6 12 0" stroke="#2a1416" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>';
+const luci = { open: false, loaded: false, busy: false, msgs: [] };
+const luciOn = () => SERVER && !!auth && !!(srv.v && srv.v.luci);
+const luciAd = () => { const a = auth && auth.ben && String(auth.ben.ad || '').trim().split(/\s+/)[0]; return a ? a.charAt(0).toLocaleUpperCase('tr') + a.slice(1).toLocaleLowerCase('tr') : ''; };
+function luciMount() {
+  let fab = document.getElementById('luci-fab');
+  if (!luciOn()) { ['luci-fab', 'luci-bub', 'luci-panel'].forEach((id) => { const x = document.getElementById(id); if (x) x.remove(); }); luci.open = false; luci.loaded = false; luci.msgs = []; document.body.classList.remove('luci-open'); return; }
+  if (fab) return;
+  fab = document.createElement('button'); fab.id = 'luci-fab'; fab.type = 'button'; fab.setAttribute('aria-label', 'Luci ile konuş'); fab.innerHTML = LUCI_SVG;
+  fab.addEventListener('click', () => luciToggle());
+  document.body.appendChild(fab);
+  // ilk kullanımda karşılama baloncuğu; bir kez dokunulunca/kullanılınca bir daha çıkmaz
+  if (!prefs.luciSeen) {
+    const b = document.createElement('div'); b.id = 'luci-bub'; b.setAttribute('role', 'button');
+    b.innerHTML = `<button type="button" class="lb-x" aria-label="Kapat">×</button><b>Merhaba, ben Luci 👋</b><span>Sana nasıl yardımcı olabilirim?</span>`;
+    b.addEventListener('click', (e) => { const x = !!e.target.closest('.lb-x'); luciSeen(); if (!x) luciToggle(true); });
+    document.body.appendChild(b);
+  }
+}
+function luciSeen() { if (!prefs.luciSeen) { prefs.luciSeen = true; savePrefs(); } const b = document.getElementById('luci-bub'); if (b) b.remove(); }
+function luciToggle(force) {
+  luciSeen();
+  luci.open = force === undefined ? !luci.open : force;
+  let p = document.getElementById('luci-panel');
+  if (!luci.open) { if (p) p.remove(); document.body.classList.remove('luci-open'); return; }
+  if (!p) {
+    p = document.createElement('div'); p.id = 'luci-panel'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-label', 'Luci sohbeti');
+    p.innerHTML = `<div class="lp-head"><span class="lp-av">${LUCI_SVG}</span><div><b>Luci</b><small>Vardiya asistanın</small></div><button type="button" class="lp-x" aria-label="Kapat">×</button></div>
+      <div class="lp-msgs" id="lp-msgs"></div>
+      <form class="lp-form" id="lp-form"><input id="lp-in" maxlength="600" autocomplete="off" enterkeyhint="send" placeholder="Luci'ye yaz…"><button id="lp-send" aria-label="Gönder">➤</button></form>`;
+    document.body.appendChild(p);
+    p.querySelector('.lp-x').addEventListener('click', () => luciToggle(false));
+    p.querySelector('#lp-form').addEventListener('submit', (e) => { e.preventDefault(); luciSend(); });
+  }
+  document.body.classList.add('luci-open');
+  luciDraw();
+  if (!luci.loaded) { luci.loaded = true; api('luci-gecmis').then((j) => { if (!luci.msgs.length) luci.msgs = j.mesajlar || []; luciDraw(); }).catch(() => { luci.loaded = false; }); }
+  if (!matchMedia('(pointer: coarse)').matches) setTimeout(() => { const i = document.getElementById('lp-in'); if (i) i.focus(); }, 60);
+}
+const luciFmt = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^\s*[-*•] /gm, '• ').replace(/\n/g, '<br>');
+function luciDraw() {
+  const box = document.getElementById('lp-msgs'); if (!box) return;
+  const av = `<span class="lp-av sm">${LUCI_SVG}</span>`; const ad = luciAd();
+  const hi = !luci.msgs.length ? `<div class="lm luci">${av}<p>Merhaba${ad ? ' ' + esc(ad) : ''}! 👋 Ben Luci. Vardiyaların, OFF günlerin, kimin ne zaman çalıştığı ya da duyurular hakkında bana istediğini sorabilirsin.</p></div>
+    <div class="lp-chips">${['Bu hafta vardiyam ne?', "Bir sonraki OFF'um ne zaman?", 'Bugün kim çalışıyor?'].map((q) => `<button type="button" class="lp-chip" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : '';
+  box.innerHTML = hi + luci.msgs.map((m) => (m.rol === 'luci' ? `<div class="lm luci">${av}<p>${luciFmt(m.metin)}</p></div>` : `<div class="lm kisi"><p>${esc(m.metin)}</p></div>`)).join('')
+    + (luci.busy ? `<div class="lm luci">${av}<p class="typing"><i></i><i></i><i></i></p></div>` : '');
+  box.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => { const i = document.getElementById('lp-in'); i.value = b.dataset.q; luciSend(); }));
+  const sb = document.getElementById('lp-send'); if (sb) sb.disabled = luci.busy;
+  box.scrollTop = box.scrollHeight;
+}
+async function luciSend() {
+  const inp = document.getElementById('lp-in'); const t = (inp && inp.value || '').trim(); if (!t || luci.busy) return;
+  inp.value = ''; luci.msgs.push({ rol: 'kisi', metin: t }); luci.busy = true; luciDraw();
+  try { const j = await api('luci', { mesaj: t }); luci.msgs.push({ rol: 'luci', metin: j.cevap }); }
+  catch (e) { luci.msgs.push({ rol: 'luci', metin: (e && e.message) || 'Şu an cevap veremiyorum, birazdan tekrar dener misin? 🙏' }); }
+  finally { luci.busy = false; luciDraw(); }
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && luci.open && !$overlay.innerHTML) luciToggle(false); });
 
 // ---------- Günlük görünüm ----------
 // OFF / rapor / izin günü hangi vardiyanın sayılır: kişinin bu günden sonra ilk çalıştığı vardiya
