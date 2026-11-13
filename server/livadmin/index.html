@@ -488,8 +488,9 @@ async function luciView() {
       const mark = (t) => { const x = esc(t).replace(/\n/g, '<br>'); return q ? x.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (w) => `<mark>${w}</mark>`) : x; };
       const box = document.createElement('div'); box.className = 'modal';
       box.innerHTML = `<div><div class="top"><h2>${esc(d.kisi.ad)} ${tag(d.kisi.unvan)} · ${d.mesajlar.length} mesaj</h2><button class="btn" data-close>Kapat</button></div>
-        <div style="display:grid;gap:8px">${d.mesajlar.map((m) => `<div class="card" style="margin:0;${m.rol === 'luci' ? '' : 'border-left:3px solid var(--acc,#3b82f6)'}"><div class="mut" style="font-size:12px">${m.rol === 'luci' ? '💬 Vira' : '👤 ' + esc(d.kisi.ad)} · ${when(m.tarih)}</div><div>${mark(m.metin)}</div></div>`).join('')}</div></div>`;
-      box.addEventListener('click', (ev) => { if (ev.target === box || ev.target.closest('[data-close]')) box.remove(); }); document.body.appendChild(box);
+        <div style="display:grid;gap:8px">${d.mesajlar.map((m) => `<div class="card" style="margin:0;${m.rol === 'luci' ? '' : 'border-left:3px solid var(--acc,#3b82f6)'}"><div class="mut" style="font-size:12px">${m.rol === 'luci' ? '💬 Vira' : '👤 ' + esc(d.kisi.ad)} · ${when(m.tarih)}</div>${m.foto ? `<img data-dlf="${m.foto}" alt="Gönderilen fotoğraf" style="display:block;max-width:min(100%,360px);max-height:360px;border-radius:8px;margin:6px 0;cursor:zoom-in">` : ''}<div>${mark(m.metin)}</div></div>`).join('')}</div></div>`;
+      box.addEventListener('click', (ev) => { const im = ev.target.closest('img[data-dlf]'); if (im && im.src) { window.open(im.src, '_blank'); return; } if (ev.target === box || ev.target.closest('[data-close]')) box.remove(); }); document.body.appendChild(box);
+      box.querySelectorAll('img[data-dlf]').forEach(async (im) => { try { const r = await fetch(API + 'dev-luci-foto&id=' + im.dataset.dlf, { headers: tok ? { 'X-Ccn-Token': tok } : {}, cache: 'no-store' }); if (!r.ok) throw 0; im.src = URL.createObjectURL(await r.blob()); } catch (e) { im.replaceWith(Object.assign(document.createElement('div'), { className: 'mut', textContent: '📷 Fotoğraf açılamadı' })); } });
     } catch (err) { alert(err.message); }
   };
   load('');
