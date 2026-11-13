@@ -2,6 +2,7 @@
 // Vardiya Listesi — uygulama ve web paneli için JSON arayüzü.  Kullanım: api.php?r=<işlem>
 declare(strict_types=1);
 const CCN = 1;
+ini_set('display_errors', '0'); // uyarılar JSON cevabını bozmasın
 require __DIR__ . '/lib.php';
 require __DIR__ . '/push.php';
 
@@ -1279,7 +1280,7 @@ function mime_tip(string $path, string $given): string {
   if (isset(UPLOAD_TYPES[$given])) return $given;
   fail(400, 'Bu dosya türü yüklenemez (yalnızca fotoğraf, video ve PDF).');
 }
-function dosya_url(string $r, int $id, string $pfx = ''): string { $exp = time() + 86400; return "${pfx}api.php?r=$r&id=$id&e=$exp&k=" . hmac(($r === 'ek' ? 'ek:' : 'dosya:') . "$id:$exp"); }
+function dosya_url(string $r, int $id, string $pfx = ''): string { $exp = time() + 86400; return "{$pfx}api.php?r=$r&id=$id&e=$exp&k=" . hmac(($r === 'ek' ? 'ek:' : 'dosya:') . "$id:$exp"); }
 function dev_only(): array {
   $origin = (string)($_SERVER['HTTP_ORIGIN'] ?? '');
   if (in_array($origin, ['https://localhost', 'capacitor://localhost', 'http://localhost'], true)) fail(403, 'Bu panel yalnızca web üzerinden açılır.');

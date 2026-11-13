@@ -49,12 +49,18 @@ RedirectMatch 404 /\.git
 
 # Büyük dosya yüklemeleri (fotoğraf/video, 100 MB'a kadar)
 <IfModule mod_php.c>
+  # uyarılar JSON cevabına karışmasın (yalnız günlüğe)
+  php_flag display_errors off
+  php_flag log_errors on
   php_value upload_max_filesize 110M
   php_value post_max_size 110M
   php_value memory_limit 256M
   php_value max_execution_time 300
 </IfModule>
 <IfModule mod_php8.c>
+  # uyarılar JSON cevabına karışmasın (yalnız günlüğe)
+  php_flag display_errors off
+  php_flag log_errors on
   php_value upload_max_filesize 110M
   php_value post_max_size 110M
   php_value memory_limit 256M
