@@ -717,21 +717,20 @@ function applyRoster(L) {
   save();
 }
 // Sitede yeni sürüm yayındaysa açık kalmış sekme (telefon arka planda canlı tutar) eski kodu çalıştırmasın:
-// boştaysa sayfa kendini bir kez yeniler; inceleme/pencere açıksa çalışma kaybolmasın diye "Yenile" çubuğu gösterilir.
+// kullanıcı bir şey yapmıyorken (inceleme, pencere, sohbet, yazı yok) sayfa sessizce bir kez yenilenir; çubuk/uyarı gösterilmez.
+try { const old = document.getElementById('web-yenile'); if (old) old.remove(); } catch (e) { /* yoksay */ }
 const WEB_BUILD = (() => { const el = document.querySelector('script[src*="app.js?v="]'); const m = el && (el.getAttribute('src') || '').match(/[?&]v=([^&]+)/); return m ? m[1] : ''; })();
+let webPending = '';
 function maybeWebReload(v) {
-  if (NATIVE || !SERVER || !WEB_BUILD || !v || !v.web || v.web === WEB_BUILD) return;
+  if (v) { if (NATIVE || !SERVER || !WEB_BUILD || !v.web || v.web === WEB_BUILD) return; webPending = v.web; }
+  if (!webPending) return;
+  const a = document.activeElement;
+  const idle = !ui.busy && !ui.review && !$overlay.innerHTML && !(typeof luci !== 'undefined' && luci.open) && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+  if (!idle) return; // boşa çıkınca (dakikalık yoklama / sekmeye dönüş) tekrar denenir
   let tried = ''; try { tried = sessionStorage.getItem('ccn-web-yenile') || ''; } catch (e) { /* yoksay */ }
-  const idle = !ui.busy && !ui.review && !$overlay.innerHTML;
-  // önbellekteki eski sayfa gelmesin diye adrese sürüm eklenerek açılır (aynı adreste yenileme eski kopyayı getirebiliyor)
-  const fresh = () => location.replace(location.pathname + '?y=' + encodeURIComponent(v.web) + '-' + Date.now().toString(36) + location.hash);
-  if (idle && tried !== v.web) { try { sessionStorage.setItem('ccn-web-yenile', v.web); } catch (e) { /* yoksay */ } fresh(); return; }
-  if (document.getElementById('web-yenile')) return;
-  const d = document.createElement('div'); d.id = 'web-yenile';
-  d.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:9999;background:#2563eb;color:#fff;border-radius:14px;padding:12px 14px;display:flex;gap:12px;align-items:center;box-shadow:0 8px 28px rgba(0,0,0,.4);font-size:15px;line-height:1.35';
-  d.innerHTML = `<span style="flex:1"><b>Sitenin yeni sürümü hazır.</b> Doğru çalışması için sayfayı yenileyin.<small style="display:block;opacity:.7;font-size:11px;margin-top:2px">açık ${esc(WEB_BUILD)} · yayında ${esc(v.web)}</small></span><button type="button" style="background:#fff;color:#1e40af;border:0;border-radius:10px;padding:10px 16px;font:inherit;font-weight:700">Yenile</button>`;
-  d.querySelector('button').addEventListener('click', fresh);
-  document.body.appendChild(d);
+  if (tried === webPending) return; // bu sürüm için bir kez denendi; döngü olmasın
+  try { sessionStorage.setItem('ccn-web-yenile', webPending); } catch (e) { /* yoksay */ }
+  location.replace(location.pathname + '?y=' + encodeURIComponent(webPending) + '-' + Date.now().toString(36) + location.hash);
 }
 async function syncData(force) {
   const j = await api('veri');
@@ -837,7 +836,7 @@ async function checkServer() {
   if (!SERVER || !auth || document.visibilityState !== 'visible' || !navigator.onLine || srv.loading) return;
   try {
     const old = srv.v; const j = await api('surum'); const v = j.surum;
-    maybeWebReload(v);
+    maybeWebReload(v); maybeWebReload();
     if (old && v.liste === old.liste && v.duyuru === old.duyuru && v.duyuruSayi === old.duyuruSayi && v.ayar === old.ayar && v.taslak === old.taslak && v.bildirim === old.bildirim) return;
     srv.loading = true;
     try { await syncData(); } finally { srv.loading = false; }

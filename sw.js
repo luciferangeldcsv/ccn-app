@@ -1,7 +1,7 @@
 // Vardiya Listesi — çevrimdışı açılış ve "ana ekrana ekle" için hizmet çalışanı.
 // Uygulama kabuğu (sayfa, kod, yazı tipleri, ikonlar) önce ağdan istenir; ağ yoksa son kopya kullanılır.
 // api.php hiç önbelleğe alınmaz (oturuma özel veri): çevrimdışıyken son liste uygulamanın kendi kaydından gösterilir.
-const CACHE = 'ccn-kabuk-977366b1e9';
+const CACHE = 'ccn-kabuk-74dd7a6245';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png?v=3', './icon-512.png?v=3', './apple-touch-icon.png?v=3'];
 
 self.addEventListener('install', (e) => {
@@ -36,7 +36,8 @@ self.addEventListener('fetch', (e) => {
   e.respondWith((async () => {
     const c = await caches.open(CACHE);
     try {
-      const res = await fetch(req, { cache: 'no-store' });
+      // sayfa açılışı adres üzerinden istenir: bazı tarayıcılar (Safari) 'navigate' isteğini ayarla kopyalayamayıp hep saklı eski sayfaya düşüyordu
+      const res = nav ? await fetch(req.url, { cache: 'no-store', credentials: 'same-origin' }) : await fetch(req, { cache: 'no-store' });
       if (res.ok && res.type === 'basic') c.put(nav ? './index.html' : req, res.clone()).catch(() => {});
       return res;
     } catch (err) {
