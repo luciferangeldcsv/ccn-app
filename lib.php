@@ -329,8 +329,10 @@ function gemini_generate(string $key, array $payload, int $budget = 55): array {
 function ai_provider(): string { return str_starts_with(ai_key(), 'sk-ant-') ? 'claude' : 'gemini'; }
 function ai_model(): string {
   $m = trim((string)(cfg()['ai_model'] ?? '')); if ($m === '') $m = trim((string)(meta_get('ai_model') ?? ''));
-  if ($m !== '') return $m;
-  return ai_provider() === 'gemini' ? 'gemini-3.8-flash' : 'claude-3-5-sonnet-20241022';
+  // kayıtlı model başka sağlayıcıya aitse (ör. Gemini modeli + Claude anahtarı) yok sayılır
+  $claude = ai_provider() === 'claude';
+  if ($m !== '' && $claude === str_starts_with($m, 'claude')) return $m;
+  return $claude ? 'claude-sonnet-5-5' : 'gemini-3.8-flash';
 }
 function audit(?array $who, string $action, string $detail = ''): void {
   db()->prepare('INSERT INTO audit (personnel_id, who, action, detail, ip, ua, at) VALUES (?,?,?,?,?,?,?)')
