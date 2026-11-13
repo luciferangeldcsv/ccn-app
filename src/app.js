@@ -1006,61 +1006,80 @@ function render() {
   bindView();
 }
 
-// ---------- Luci: uygulama içi sohbet asistanı (sağ altta) ----------
-// Luci: pastel pembe, tombul, iri parlak gözlü, minik boynuzlu tatlı yaratık
-const LUCI_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="luciB" cx="40%" cy="32%" r="75%"><stop offset="0" stop-color="#ffb3c4"/><stop offset=".6" stop-color="#ff8aa6"/><stop offset="1" stop-color="#f26d8f"/></radialGradient></defs><path d="M19.5 22.5c-2.6-4.4-2.4-9.3.2-12.3 1.7 3.5 4.5 6.1 7.6 7.6z" fill="#f2577d"/><path d="M44.5 22.5c2.6-4.4 2.4-9.3-.2-12.3-1.7 3.5-4.5 6.1-7.6 7.6z" fill="#f2577d"/><ellipse cx="32" cy="38" rx="22" ry="20" fill="url(#luciB)"/><ellipse cx="25" cy="32" rx="7" ry="4.5" fill="#fff" opacity=".22"/><ellipse cx="24.2" cy="37.5" rx="4.6" ry="5.6" fill="#3b1d2a"/><ellipse cx="39.8" cy="37.5" rx="4.6" ry="5.6" fill="#3b1d2a"/><circle cx="25.8" cy="35.4" r="1.9" fill="#fff"/><circle cx="41.4" cy="35.4" r="1.9" fill="#fff"/><circle cx="23.2" cy="39.8" r=".9" fill="#fff"/><circle cx="38.8" cy="39.8" r=".9" fill="#fff"/><ellipse cx="17.5" cy="44.5" rx="3.6" ry="2.2" fill="#ff5f86" opacity=".55"/><ellipse cx="46.5" cy="44.5" rx="3.6" ry="2.2" fill="#ff5f86" opacity=".55"/><path d="M28.6 45.2q1.7 2.1 3.4 0 1.7 2.1 3.4 0" stroke="#3b1d2a" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// ---------- Nova (Nöbet ve Vardiya Asistanı): uygulama içi sohbet asistanı (sağ altta) ----------
+// Nova (Nöbet ve Vardiya Asistanı): gülümseyen tombul sarı yıldız
+const LUCI_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="novaG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#ffb938"/></linearGradient></defs><path d="M32.0,10.5 L39.3,24.4 L54.8,27.1 L43.9,38.4 L46.1,53.9 L32.0,47.0 L17.9,53.9 L20.1,38.4 L9.2,27.1 L24.7,24.4Z" fill="url(#novaG)" stroke="#ffbf45" stroke-width="7" stroke-linejoin="round"/><ellipse cx="25.5" cy="27" rx="5" ry="2.6" fill="#fff" opacity=".45" transform="rotate(-20 25.5 27)"/><ellipse cx="26.6" cy="36.4" rx="3.3" ry="4.1" fill="#3a2a1a"/><ellipse cx="37.4" cy="36.4" rx="3.3" ry="4.1" fill="#3a2a1a"/><circle cx="27.8" cy="34.8" r="1.4" fill="#fff"/><circle cx="38.6" cy="34.8" r="1.4" fill="#fff"/><ellipse cx="21.8" cy="42" rx="2.9" ry="1.8" fill="#ff7a59" opacity=".55"/><ellipse cx="42.2" cy="42" rx="2.9" ry="1.8" fill="#ff7a59" opacity=".55"/><path d="M29 42.4q3 3 6 0" stroke="#3a2a1a" stroke-width="1.9" fill="none" stroke-linecap="round"/></svg>';
 const luci = { open: false, loaded: false, busy: false, msgs: [] };
 const luciOn = () => SERVER && !!auth; // düğme her zaman sağ altta; anahtar yoksa sohbet 'hazırlanıyor' der
 const luciReady = () => !!(srv.v && srv.v.luci);
 const luciAd = () => { const a = auth && auth.ben && String(auth.ben.ad || '').trim().split(/\s+/)[0]; return a ? a.charAt(0).toLocaleUpperCase('tr') + a.slice(1).toLocaleLowerCase('tr') : ''; };
 function luciMount() {
   let fab = document.getElementById('luci-fab');
-  if (!luciOn()) { ['luci-fab', 'luci-bub', 'luci-panel'].forEach((id) => { const x = document.getElementById(id); if (x) x.remove(); }); luci.open = false; luci.loaded = false; luci.msgs = []; document.body.classList.remove('luci-open', 'luci-hey'); return; }
-  if (luci.open) { const i = document.getElementById('lp-in'); if (i) i.disabled = !luciReady(); }
+  if (!luciOn()) { ['luci-fab', 'luci-bub', 'luci-panel'].forEach((id) => { const x = document.getElementById(id); if (x) x.remove(); }); luci.open = false; luci.loaded = false; luci.msgs = []; document.body.classList.remove('luci-open', 'luci-hey'); luciLock(false); return; }
   if (fab) return;
-  fab = document.createElement('button'); fab.id = 'luci-fab'; fab.type = 'button'; fab.setAttribute('aria-label', 'Luci ile konuş'); fab.innerHTML = LUCI_SVG;
+  fab = document.createElement('button'); fab.id = 'luci-fab'; fab.type = 'button'; fab.setAttribute('aria-label', 'Nova ile konuş'); fab.innerHTML = LUCI_SVG;
   fab.addEventListener('click', () => luciToggle());
   document.body.appendChild(fab);
   // ilk kullanımda karşılama baloncuğu; bir kez dokunulunca/kullanılınca bir daha çıkmaz
-  if (!prefs.luciSeen) {
+  if (!prefs.novaSeen) {
     const b = document.createElement('div'); b.id = 'luci-bub'; b.setAttribute('role', 'button');
     const ad = luciAd();
     b.innerHTML = `<button type="button" class="lb-x" aria-label="Kapat">×</button><span class="lb-av">${LUCI_SVG}</span>
-      <div class="lb-t"><b>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Luci</b><span>Vardiyan, OFF günlerin ya da kim ne zaman çalışıyor… Merak ettiğin ne varsa sor, hemen bakayım!</span><button type="button" class="lb-go">Hadi konuşalım</button></div>`;
+      <div class="lb-t"><b>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Nova</b><span>Vardiyan, OFF günlerin ya da kim ne zaman çalışıyor… Merak ettiğin ne varsa sor, hemen bakayım!</span><button type="button" class="lb-go">Hadi konuşalım</button></div>`;
     b.addEventListener('click', (e) => { const x = !!e.target.closest('.lb-x'); luciSeen(); if (!x) luciToggle(true); });
     document.body.appendChild(b); document.body.classList.add('luci-hey');
   }
 }
-function luciSeen() { if (!prefs.luciSeen) { prefs.luciSeen = true; savePrefs(); } const b = document.getElementById('luci-bub'); if (b) b.remove(); document.body.classList.remove('luci-hey'); }
+function luciSeen() { if (!prefs.novaSeen) { prefs.novaSeen = true; savePrefs(); } const b = document.getElementById('luci-bub'); if (b) b.remove(); document.body.classList.remove('luci-hey'); }
 function luciToggle(force) {
   luciSeen();
   luci.open = force === undefined ? !luci.open : force;
   let p = document.getElementById('luci-panel');
-  if (!luci.open) { if (p) p.remove(); document.body.classList.remove('luci-open'); return; }
+  if (!luci.open) { if (p) p.remove(); document.body.classList.remove('luci-open'); luciLock(false); return; }
   if (!p) {
-    p = document.createElement('div'); p.id = 'luci-panel'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-label', 'Luci sohbeti');
-    p.innerHTML = `<div class="lp-head"><span class="lp-av">${LUCI_SVG}</span><div><b>Luci</b><small>Vardiya asistanın</small></div><button type="button" class="lp-x" aria-label="Kapat">×</button></div>
+    p = document.createElement('div'); p.id = 'luci-panel'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-label', 'Nova sohbeti');
+    p.innerHTML = `<div class="lp-head"><span class="lp-av">${LUCI_SVG}</span><div><b>Nova</b><small>Nöbet ve Vardiya Asistanı</small></div><button type="button" class="lp-x" aria-label="Kapat">×</button></div>
       <div class="lp-msgs" id="lp-msgs"></div>
-      <form class="lp-form" id="lp-form"><input id="lp-in" maxlength="600" autocomplete="off" enterkeyhint="send" placeholder="Luci'ye yaz…"><button id="lp-send" aria-label="Gönder">➤</button></form>`;
+      <form class="lp-form" id="lp-form"><input id="lp-in" maxlength="600" autocomplete="off" enterkeyhint="send" placeholder="Nova'ya yaz…"><button id="lp-send" aria-label="Gönder">➤</button></form>`;
     document.body.appendChild(p);
     p.querySelector('.lp-x').addEventListener('click', () => luciToggle(false));
     p.querySelector('#lp-form').addEventListener('submit', (e) => { e.preventDefault(); luciSend(); });
   }
-  document.body.classList.add('luci-open');
+  document.body.classList.add('luci-open'); luciLock(true);
   luciDraw();
   if (!luci.loaded && luciReady()) { luci.loaded = true; api('luci-gecmis').then((j) => { if (!luci.msgs.length) luci.msgs = j.mesajlar || []; luciDraw(); }).catch(() => { luci.loaded = false; }); }
   if (!matchMedia('(pointer: coarse)').matches) setTimeout(() => { const i = document.getElementById('lp-in'); if (i) i.focus(); }, 60);
+}
+// Telefonda sohbet açıkken arkadaki sayfa kaymaz (iOS dahil); klavye açılınca pencere klavyenin üstüne oturur
+let luciScrollY = 0;
+function luciFit() {
+  const p = document.getElementById('luci-panel'), vv = window.visualViewport; if (!p) return;
+  if (!vv || !matchMedia('(max-width: 720px)').matches) { p.style.height = ''; p.style.bottom = ''; return; }
+  const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  p.style.bottom = kb + 'px'; p.style.height = Math.round(kb > 60 ? vv.height - 8 : Math.min(vv.height * 0.8, vv.height - 56)) + 'px';
+  const box = document.getElementById('lp-msgs'); if (box) box.scrollTop = box.scrollHeight;
+}
+function luciLock(on) {
+  const mobile = matchMedia('(max-width: 720px)').matches; const b = document.body;
+  if (on && mobile && !b.dataset.luciLock) {
+    luciScrollY = window.scrollY; b.dataset.luciLock = '1';
+    Object.assign(b.style, { position: 'fixed', top: -luciScrollY + 'px', left: '0', right: '0', width: '100%', overflow: 'hidden' });
+    if (window.visualViewport) { visualViewport.addEventListener('resize', luciFit); visualViewport.addEventListener('scroll', luciFit); } luciFit();
+  } else if (!on && b.dataset.luciLock) {
+    delete b.dataset.luciLock; Object.assign(b.style, { position: '', top: '', left: '', right: '', width: '', overflow: '' }); window.scrollTo(0, luciScrollY);
+    if (window.visualViewport) { visualViewport.removeEventListener('resize', luciFit); visualViewport.removeEventListener('scroll', luciFit); }
+  }
 }
 const luciFmt = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^\s*[-*•] /gm, '• ').replace(/\n/g, '<br>');
 function luciDraw() {
   const box = document.getElementById('lp-msgs'); if (!box) return;
   const av = `<span class="lp-av sm">${LUCI_SVG}</span>`; const ad = luciAd();
   if (!luciReady()) {
-    box.innerHTML = `<div class="lm luci">${av}<p>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Luci. Şu an hazırlanıyorum; yöneticin beni açtığında vardiyaların ve OFF günlerin hakkında seninle burada sohbet edeceğim. Görüşmek üzere! 😊</p></div>`;
-    const ii = document.getElementById('lp-in'), sb0 = document.getElementById('lp-send'); if (ii) { ii.disabled = true; ii.placeholder = 'Luci yakında burada…'; } if (sb0) sb0.disabled = true; return;
+    box.innerHTML = `<div class="lm luci">${av}<p>Hey${ad ? ' ' + esc(ad) : ''}! 👋 Ben Nova, Nöbet ve Vardiya Asistanın. Şu an hazırlanıyorum; yöneticin beni açtığında vardiyaların ve OFF günlerin hakkında seninle burada sohbet edeceğim. 😊</p></div>`
+      + luci.msgs.map((m) => (m.rol === 'luci' ? `<div class="lm luci">${av}<p>${luciFmt(m.metin)}</p></div>` : `<div class="lm kisi"><p>${esc(m.metin)}</p></div>`)).join('');
+    box.scrollTop = box.scrollHeight; return;
   }
-  { const ii = document.getElementById('lp-in'); if (ii && ii.disabled) { ii.disabled = false; ii.placeholder = "Luci'ye yaz…"; } }
-  const hi = !luci.msgs.length ? `<div class="lm luci">${av}<p>Merhaba${ad ? ' ' + esc(ad) : ''}! 👋 Ben Luci. Vardiyaların, OFF günlerin, kimin ne zaman çalıştığı ya da duyurular hakkında bana istediğini sorabilirsin.</p></div>
+  const hi = !luci.msgs.length ? `<div class="lm luci">${av}<p>Merhaba${ad ? ' ' + esc(ad) : ''}! 👋 Ben Nova. Vardiyaların, OFF günlerin, kimin ne zaman çalıştığı ya da duyurular hakkında bana istediğini sorabilirsin.</p></div>
     <div class="lp-chips">${['Bu hafta vardiyam ne?', "Bir sonraki OFF'um ne zaman?", 'Bugün kim çalışıyor?'].map((q) => `<button type="button" class="lp-chip" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : '';
   box.innerHTML = hi + luci.msgs.map((m) => (m.rol === 'luci' ? `<div class="lm luci">${av}<p>${luciFmt(m.metin)}</p></div>` : `<div class="lm kisi"><p>${esc(m.metin)}</p></div>`)).join('')
     + (luci.busy ? `<div class="lm luci">${av}<p class="typing"><i></i><i></i><i></i></p></div>` : '');
@@ -1069,7 +1088,8 @@ function luciDraw() {
   box.scrollTop = box.scrollHeight;
 }
 async function luciSend() {
-  const inp = document.getElementById('lp-in'); const t = (inp && inp.value || '').trim(); if (!t || luci.busy || !luciReady()) return;
+  const inp = document.getElementById('lp-in'); const t = (inp && inp.value || '').trim(); if (!t || luci.busy) return;
+  if (!luciReady()) { inp.value = ''; luci.msgs.push({ rol: 'kisi', metin: t }, { rol: 'luci', metin: 'Mesajını aldım 🙂 Ama henüz açılmadım; yöneticin beni açınca buradan hemen cevap vereceğim.' }); luciDraw(); return; }
   inp.value = ''; luci.msgs.push({ rol: 'kisi', metin: t }); luci.busy = true; luciDraw();
   try { const j = await api('luci', { mesaj: t }); luci.msgs.push({ rol: 'luci', metin: j.cevap }); }
   catch (e) { luci.msgs.push({ rol: 'luci', metin: (e && e.message) || 'Şu an cevap veremiyorum, birazdan tekrar dener misin? 🙏' }); }
