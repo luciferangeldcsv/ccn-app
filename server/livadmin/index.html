@@ -290,7 +290,7 @@ async function yay() {
   M(`<div class="top"><h2>Yayın geçmişi · ${d.yayinlar.length}</h2></div>
     <div class="card"><h3>Liste içe aktar (duyurusuz)</h3>
       <p class="mut" style="margin:0 0 8px">Hazır liste dosyasını (.json) seç: önce ne değişeceği gösterilir, onaylarsan yeni liste <b>duyuru ve bildirim gönderilmeden</b> yayınlanır. Eski listenin yerine geçer; çalışma saatleri ve kişilerin çalışma alanları korunur. Gerekirse aşağıdaki geçmişten eski yayın görülebilir.</p>
-      <div class="filters"><input type="file" id="ia-f" accept=".json,application/json"></div><div id="ia-out" class="mut"></div></div>
+      <div class="filters"><input type="file" id="ia-f" accept=".json,application/json"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="ia-sil" checked> Eski tüm yayınları sil</label></div><div id="ia-out" class="mut"></div></div>
     <div class="tw"><table><thead><tr><th>#</th><th>Yayınlayan</th><th>Tarih</th><th>Kişi</th><th>Liste aralığı</th><th></th></tr></thead><tbody>
     ${d.yayinlar.map((y) => `<tr><td>${y.id}</td><td>${esc(y.kim)}</td><td class="nw">${when(y.tarih)}</td><td>${y.kisi}</td><td class="nw">${tr(y.aralik[0])} – ${tr(y.aralik[1])}</td><td><button class="btn sm" data-yay="${y.id}">Listeyi aç</button></td></tr>`).join('') || '<tr><td colspan="6" class="mut">Yayın yok</td></tr>'}</tbody></table></div>`);
   // içe aktarma: dosya → önizleme → onay → duyurusuz yayın
@@ -314,7 +314,7 @@ async function yay() {
     if (e.target.closest('#ia-ok')) {
       if (!iaListe || !confirm('Yeni liste duyurusuz yayınlansın mı? Şu anki listenin yerine geçer.')) return;
       const out = $('#ia-out'); out.textContent = 'Yayınlanıyor…';
-      try { const r = await api('dev-liste-aktar', { liste: iaListe }); iaListe = null; alert(`Yayınlandı (#${r.id}) · ${r.kisi} kişi · ${tr(r.from)} – ${tr(r.to)}. Duyuru gönderilmedi.`); yay(); } catch (err) { out.textContent = err.message; }
+      try { const r = await api('dev-liste-aktar', { liste: iaListe, eskileriSil: $('#ia-sil').checked ? 1 : 0 }); iaListe = null; alert(`Yayınlandı (#${r.id}) · ${r.kisi} kişi · ${tr(r.from)} – ${tr(r.to)}. Duyuru gönderilmedi.${r.silinenYayin ? ' ' + r.silinenYayin + ' eski yayın silindi.' : ''}`); yay(); } catch (err) { out.textContent = err.message; }
       return;
     }
     const b = e.target.closest('[data-yay]'); if (!b) return;
@@ -399,6 +399,9 @@ async function ai() {
     <div class="card"><h3>Fotoğraftan liste okuma</h3>
       <p style="margin:0 0 8px"><b>${d.fotoOkuma ? '🟢 Açık' : '🔴 Kapalı'}</b> — ${d.fotoOkuma ? 'yöneticiler liste fotoğrafı yükleyip otomatik okutabiliyor.' : 'uygulama liste fotoğrafı kabul etmiyor; yeni liste "Yayın geçmişi → Liste içe aktar" ile yayınlanır.'}</p>
       <button class="btn${d.fotoOkuma ? ' red' : ' pri'}" id="fo-tog">${d.fotoOkuma ? 'Kapat' : 'Aç'}</button></div>
+    <div class="card"><h3>Claude erişim anahtarı</h3>
+      <p class="mut" style="margin:0 0 8px">Listeleri Claude'un senin yerine yayınlayabilmesi için 30 gün geçerli bir anahtar üretir. Anahtarı yalnızca Claude'un açtığı güvenli forma yapıştır, sohbete yazma. İstediğin an "Oturumlar" sayfasından kapatabilirsin.</p>
+      <button class="btn" id="ea-gen">Anahtar üret</button><div id="ea-out" style="margin-top:8px"></div></div>
     ${durum}
     <div class="card">
       <h3>API anahtarı</h3>
@@ -424,6 +427,12 @@ async function ai() {
       <p class="mut" id="aimodelmsg"></p>
     </div>
     <div class="card"><h3>Test</h3><p class="mut">Kaydettikten sonra uygulamadan/siteden bir vardiya listesi fotoğrafı yükle. İsimlerin üstünde <b>“İsimler yapay zekâ ile okundu”</b> yazısını görürsen çalışıyor demektir.</p></div>`);
+  $('#ea-gen').addEventListener('click', async () => {
+    if (!confirm('30 gün geçerli yeni bir erişim anahtarı üretilsin mi?')) return;
+    try { const r = await api('dev-erisim-anahtari', {}); $('#ea-out').innerHTML = `<input class="mono" readonly value="${esc(r.anahtar)}" style="width:100%" id="ea-val"><div class="filters" style="margin-top:6px"><button class="btn pri" id="ea-copy">Kopyala</button></div><p class="mut">Bu anahtar bir daha gösterilmez.</p>`;
+      $('#ea-copy').addEventListener('click', async () => { const v = $('#ea-val'); v.select(); try { await navigator.clipboard.writeText(v.value); } catch (e) { document.execCommand('copy'); } $('#ea-copy').textContent = 'Kopyalandı ✓'; });
+    } catch (e) { alert(e.message); }
+  });
   $('#fo-tog').addEventListener('click', async () => { try { await api('dev-foto-okuma', { acik: !d.fotoOkuma }); ai(); } catch (e) { alert(e.message); } });
   if (d.configKilit) return;
   $('#aisave').addEventListener('click', async () => {
