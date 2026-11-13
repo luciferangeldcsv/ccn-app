@@ -201,6 +201,7 @@ switch ($r) {
 
   case 'veri': {
     $u = current_user();
+    vira_duyuru($u); // Vira başka yoldan (ör. isim okuma anahtarı) açıldıysa duyuru bir kez gider
     $l = db()->query('SELECT id, data, published_at, published_name FROM rosters ORDER BY id DESC LIMIT 1')->fetch();
     $d = array_values(array_filter(db()->query('SELECT id, title, body, pinned, hedef, created_by, created_name, created_at FROM announcements ORDER BY pinned DESC, id DESC LIMIT 100')->fetchAll(), fn($a) => ann_visible($u, $a)));
     $taslak = level_of($u['title'] ?? '') >= 2 ? (json_decode((string)(meta_get('taslak') ?? ''), true) ?: null) : null;
@@ -1089,6 +1090,7 @@ switch ($r) {
     if ($k !== '' && (mb_strlen($k) < 20 || preg_match('/\s/', $k) || str_starts_with($k, 'sk-ant-'))) fail(400, 'Bu bir Gemini anahtarına benzemiyor (aistudio.google.com/apikey).');
     meta_set('luci_key', $k); meta_set('luci_model_son', '');
     audit($u, 'luci-anahtar', $k === '' ? 'silindi' : 'güncellendi');
+    if ($k !== '') vira_duyuru($u);
     ok(['tanimli' => luci_key() !== '']);
   }
   // Vira'yı uygulamanın içinden açma (DEV / yönetici): anahtar önce denenir, çalışmazsa kaydedilmez
@@ -1102,6 +1104,7 @@ switch ($r) {
     if ($txt === null) fail(400, 'Anahtar denendi ama çalışmadı: ' . mb_substr((string)$err, 0, 160));
     meta_set('luci_key', $k); meta_set('luci_model_son', (string)$model);
     audit($u, 'luci-anahtar', 'uygulamadan açıldı');
+    vira_duyuru($u);
     ok(['luci' => true, 'model' => $model]);
   }
   case 'dev-luci-test': {
@@ -1390,6 +1393,22 @@ function mime_tip(string $path, string $given): string {
   fail(400, 'Bu dosya türü yüklenemez (yalnızca fotoğraf, video ve PDF).');
 }
 function dosya_url(string $r, int $id, string $pfx = ''): string { $exp = time() + 86400; return "{$pfx}api.php?r=$r&id=$id&e=$exp&k=" . hmac(($r === 'ek' ? 'ek:' : 'dosya:') . "$id:$exp"); }
+// "Vira aktif" duyurusu: Vira ilk açıldığında herkese BİR KEZ gider (yönetici/DEV isteğiyle tetiklenir)
+function vira_duyuru(array $u): void {
+  if (!in_array((string)($u['title'] ?? ($u['role'] === 'admin' ? 'yonetici' : '')), ['dev', 'yonetici'], true)) return;
+  if (meta_get('vira_duyuru') !== null || luci_key() === '') return;
+  try {
+    $ins = db()->prepare("INSERT IGNORE INTO meta (k, v) VALUES ('vira_duyuru', ?)"); $ins->execute([now()]);
+    if ($ins->rowCount() !== 1) return; // daha önce gönderildi
+    $t = 'Vira aktif! 👋';
+    $m = "Vardiya Listesi'nin yeni asistanı Vira (Vardiya İzin Rehber Asistanı) artık sizinle! Ekranın sağ altındaki yeşil takvim simgesine dokunun ve sorun:\n• \"Bu hafta vardiyam ne?\"\n• \"Bir sonraki OFF'um ne zaman?\"\n• \"Bugün kim çalışıyor?\"\nVira vardiyalarınızı, OFF günlerinizi ve duyuruları anında söyler. 😊";
+    db()->prepare('INSERT INTO announcements (title, body, pinned, hedef, created_by, created_name, created_at) VALUES (?,?,?,?,?,?,?)')
+      ->execute([$t, $m, 0, '', $u['id'], shown_name($u), now()]);
+    $id = (int)db()->lastInsertId();
+    audit($u, 'duyuru', $t . ' (Vira açıldı, otomatik)');
+    notify(null, ['baslik' => 'Duyuru: ' . $t, 'metin' => mb_substr($m, 0, 180), 'url' => './#duyuru', 'etiket' => "duyuru-$id", 'rozet' => 1], 'duyuru', $u['id']);
+  } catch (Throwable $e) { error_log('vira duyuru: ' . $e->getMessage()); }
+}
 function dev_only(): array {
   $origin = (string)($_SERVER['HTTP_ORIGIN'] ?? '');
   if (in_array($origin, ['https://localhost', 'capacitor://localhost', 'http://localhost'], true)) fail(403, 'Bu panel yalnızca web üzerinden açılır.');
