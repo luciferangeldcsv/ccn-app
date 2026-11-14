@@ -665,7 +665,7 @@ function apiUpload(r, formData, onProgress) {
 }
 function signOut(msg) {
   auth = null; saveAuth(); clearInterval(pollT);
-  store = defaultStore(); try { localStorage.removeItem(STORE_KEY); } catch (e) { /* yoksay */ }
+  store = defaultStore(); try { localStorage.removeItem(STORE_KEY); localStorage.removeItem('ccn-son-duyurular'); } catch (e) { /* yoksay */ }
   srv.bildirimler = []; srv.bildirimSon = 0; if (ui.skFiles) { ui.skFiles.forEach((x) => { try { URL.revokeObjectURL(x.url); } catch (e) {} }); ui.skFiles = []; } srv.v = null; srv.duyurular = []; srv.personel = null; srv.kayitlar = null; srv.gorev = null; srv.egitim = null; srv.sikayet = null; srv.sikayetAcik = 0;
   ui.login = { step: 'giris', hatirla: true, err: msg || '' }; ui.review = null; ui.view = 'gunluk';
   closeSheet(); render();
@@ -747,6 +747,8 @@ async function syncData(force) {
   // ortak (yönetici) ayarlar ve kişinin kendi tercihleri listedekilerin önüne geçer
   applyServerSettings(j.ayarlar, j.ben.tercih);
   try { localStorage.setItem('ccn-son-veri', new Date().toISOString()); } catch (e) { /* yoksay */ }
+  // çevrimdışı açılış için son duyurular (ekler hariç) cihazda saklanır
+  try { localStorage.setItem('ccn-son-duyurular', JSON.stringify((srv.duyurular || []).slice(0, 30).map((d) => ({ ...d, ekler: [] })))); } catch (e) { /* yoksay */ }
 }
 async function publish() {
   if (!Object.keys(store.people).length) { toast('Yayınlanacak liste yok'); return; }
@@ -853,9 +855,10 @@ async function bootServer() {
   if (!SERVER || !auth) return;
   // eski sürümden kalan yayınlanmamış değişiklikler "hazırlanan liste" olarak korunur
   if (canEdit() && store.yeni === undefined && store.pub && Object.keys(store.people).length && store.pub.sig !== pubHash()) { store.yeni = { mod: 'duzenle' }; save(); }
+  if (!srv.duyurular || !srv.duyurular.length) { try { srv.duyurular = JSON.parse(localStorage.getItem('ccn-son-duyurular') || '[]') || []; } catch (e) { srv.duyurular = []; } }
   srv.loading = true;
   try { await syncData(); } catch (e) { if (auth && !srv.offline) toast(e.message); } finally { srv.loading = false; }
-  if (auth) { startPoll(); render(); if (!NATIVE) pushResync(); setTimeout(() => { if (!$overlay.innerHTML && !document.getElementById('intro')) showWhatsNew(!!srv.openNotes); srv.openNotes = false; }, 4200); }
+  if (auth) { startPoll(); render(); if (!NATIVE) pushResync(); setTimeout(() => { if (!$overlay.innerHTML && !document.getElementById('intro')) { if (tourDue()) showTour(); else showWhatsNew(!!srv.openNotes); } srv.openNotes = false; }, 4200); }
 }
 
 // ---------- Uygulama durumu ----------
@@ -1011,7 +1014,7 @@ const LUCI_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="9" y="13"
 // Sohbet her açılışta temiz başlar: kimlik yalnızca bellekte tutulur (uygulama kapanınca biter);
 // uygulama 30 dakikadan uzun arka planda kalırsa da sohbet sıfırlanır. Kayıtlar sunucuda (DEV paneli) kalır.
 const luciYeniSohbet = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-const luci = { open: false, busy: false, msgs: [], foto: '', sohbet: luciYeniSohbet() };
+const luci = { open: false, busy: false, msgs: [], foto: '', sohbet: luciYeniSohbet(), kayit: null, kayitIptal: false };
 let luciGizli = 0;
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { luciGizli = Date.now(); return; }
@@ -1043,17 +1046,19 @@ function luciToggle(force) {
   luciSeen();
   luci.open = force === undefined ? !luci.open : force;
   let p = document.getElementById('luci-panel');
-  if (!luci.open) { if (p) p.remove(); document.body.classList.remove('luci-open'); luciLock(false); return; }
+  if (!luci.open) { if (luci.kayit) { luci.kayitIptal = true; luci.kayit.stop(); } if (p) p.remove(); document.body.classList.remove('luci-open'); luciLock(false); return; }
   if (!p) {
     p = document.createElement('div'); p.id = 'luci-panel'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-label', 'Vira sohbeti');
     p.innerHTML = `<div class="lp-head"><span class="lp-av">${LUCI_SVG}</span><div><b>Vira</b><small>Vardiya İzin Rehber Asistanı</small></div><button type="button" class="lp-x" aria-label="Kapat">×</button></div>
       <div class="lp-msgs" id="lp-msgs"></div>
+      <div id="lp-kis" class="lp-kis" hidden></div>
       <div id="lp-prev" class="lp-prev" hidden></div>
-      <form class="lp-form" id="lp-form"><button type="button" id="lp-cam" class="lp-cam" aria-label="Fotoğraf gönder"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 8h3l1.6-2.2A1.5 1.5 0 0 1 9.8 5h4.4a1.5 1.5 0 0 1 1.2.8L17 8h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button><input type="file" id="lp-file" accept="image/*" hidden><input id="lp-in" maxlength="600" autocomplete="off" enterkeyhint="send" placeholder="Vira'ya yaz…"><button id="lp-send" aria-label="Gönder">➤</button></form>`;
+      <form class="lp-form" id="lp-form"><button type="button" id="lp-cam" class="lp-cam" aria-label="Fotoğraf gönder"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 8h3l1.6-2.2A1.5 1.5 0 0 1 9.8 5h4.4a1.5 1.5 0 0 1 1.2.8L17 8h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19H4a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 4 8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button><input type="file" id="lp-file" accept="image/*" hidden>${luciSesVar() ? `<button type="button" id="lp-mic" class="lp-cam" aria-label="Sesli sor"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>` : ''}<input id="lp-in" maxlength="600" autocomplete="off" enterkeyhint="send" placeholder="Vira'ya yaz…"><button id="lp-send" aria-label="Gönder">➤</button></form>`;
     document.body.appendChild(p);
     p.querySelector('.lp-x').addEventListener('click', () => luciToggle(false));
     p.querySelector('#lp-form').addEventListener('submit', (e) => { e.preventDefault(); luciSend(); });
     p.querySelector('#lp-cam').addEventListener('click', () => { if (!luci.busy) p.querySelector('#lp-file').click(); });
+    const mic = p.querySelector('#lp-mic'); if (mic) mic.addEventListener('click', luciMic);
     p.querySelector('#lp-file').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) luciPickPhoto(f); });
   }
   document.body.classList.add('luci-open'); luciLock(true);
@@ -1081,6 +1086,64 @@ function luciLock(on) {
   }
 }
 const luciFmt = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^\s*[-*•] /gm, '• ').replace(/\n/g, '<br>');
+// Kısayollar: giriş kutusunun üstünde her zaman duran hazır sorular
+const LUCI_KIS = [['📅', 'Bu hafta vardiyam', 'Bu hafta vardiyam ne?'], ['🌿', "Sonraki OFF'um", "Bir sonraki OFF'um ne zaman?"], ['👥', 'Bugün kim çalışıyor', 'Bugün kim çalışıyor?'],
+  ['🤝', 'Benimle aynı vardiyada', 'Bugün benimle aynı vardiyada kimler var?'], ['🔁', 'Takas öner', 'Yaklaşan bir vardiyam için takas yapabileceğim kişileri önerir misin?'], ['🌙', 'Bu ay gecelerim', 'Bu listede kaç gece (3. vardiya) çalışıyorum, hangi günler?']];
+function luciKis() {
+  const k = document.getElementById('lp-kis'); if (!k) return;
+  if (!luciReady()) { k.hidden = true; return; }
+  if (!k.dataset.ok) {
+    k.innerHTML = LUCI_KIS.map(([e, l, q]) => `<button type="button" class="lp-chip" data-q="${esc(q)}">${e} ${esc(l)}</button>`).join('');
+    k.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => { if (luci.busy || luci.kayit) return; const i = document.getElementById('lp-in'); i.value = b.dataset.q; luciSend(); }));
+    k.dataset.ok = '1';
+  }
+  k.hidden = false; k.querySelectorAll('button').forEach((b) => { b.disabled = luci.busy; });
+}
+// Sesli soru: bas → konuş → bas (en fazla 30 sn). Kayıt 16 kHz mono WAV'a çevrilip gönderilir; ses saklanmaz, yalnızca yazıya dökülmüş hali kalır.
+const luciSesVar = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder && (window.AudioContext || window.webkitAudioContext));
+async function luciMic() {
+  const btn = document.getElementById('lp-mic'); if (!btn || luci.busy) return;
+  if (luci.kayit) { luci.kayit.stop(); return; }
+  if (!luciReady()) { luci.msgs.push({ rol: 'luci', metin: 'Henüz açılmadım; yöneticin beni açınca sesli de sorabilirsin 🙂' }); luciDraw(); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+  catch (e) { toast('Mikrofon izni verilmedi. Telefon ayarlarından bu uygulamaya mikrofon izni ver.'); return; }
+  const parts = []; let rec;
+  try { rec = new MediaRecorder(stream); } catch (e) { stream.getTracks().forEach((x) => x.stop()); toast('Bu cihazda ses kaydı desteklenmiyor'); return; }
+  luci.kayit = rec; const t0 = Date.now();
+  const tick = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); btn.dataset.t = s + 's'; if (s >= 30) rec.stop(); }, 250);
+  btn.classList.add('rec'); btn.setAttribute('aria-label', 'Kaydı bitir ve gönder'); btn.dataset.t = '0s';
+  const inp = document.getElementById('lp-in'); if (inp) { inp.dataset.ph = inp.placeholder; inp.placeholder = '🎤 Dinliyorum… bitince tekrar bas'; inp.disabled = true; }
+  rec.ondataavailable = (e) => { if (e.data && e.data.size) parts.push(e.data); };
+  rec.onstop = async () => {
+    clearInterval(tick); stream.getTracks().forEach((x) => x.stop()); luci.kayit = null;
+    if (luci.kayitIptal) { luci.kayitIptal = false; return; } // panel kapatıldı: gönderme
+    btn.classList.remove('rec'); btn.setAttribute('aria-label', 'Sesli sor'); delete btn.dataset.t;
+    if (inp) { inp.placeholder = inp.dataset.ph || "Vira'ya yaz…"; inp.disabled = false; }
+    if (Date.now() - t0 < 700) { toast('Çok kısa oldu; bas, konuş, sonra tekrar bas'); return; }
+    let wav;
+    try { wav = await luciWav(new Blob(parts, { type: rec.mimeType || 'audio/webm' })); } catch (e) { toast('Ses kaydı okunamadı'); return; }
+    const m = { rol: 'kisi', metin: '🎤 Sesli soru…', ses: true }; luci.msgs.push(m); luci.busy = true; luciDraw();
+    try { const j = await api('luci', { mesaj: '', ses: wav, sohbet: luci.sohbet }); m.metin = '🎤 ' + (j.soru || 'Sesli soru'); luci.msgs.push({ rol: 'luci', metin: j.cevap }); }
+    catch (e) { m.metin = '🎤 Sesli soru'; luci.msgs.push({ rol: 'luci', metin: (e && e.message) || 'Şu an cevap veremiyorum, birazdan tekrar dener misin? 🙏' }); }
+    finally { luci.busy = false; luciDraw(); }
+  };
+  rec.start(250);
+}
+async function luciWav(blob) {
+  const AC = window.AudioContext || window.webkitAudioContext; const ac = new AC();
+  const buf = await new Promise((res, rej) => { blob.arrayBuffer().then((ab) => { const p = ac.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); }, rej); });
+  const rate = 16000; const n = Math.max(1, Math.floor(buf.duration * rate)); const out = new Float32Array(n);
+  const ch = buf.numberOfChannels; const src = []; for (let c = 0; c < ch; c++) src.push(buf.getChannelData(c));
+  for (let i = 0; i < n; i++) { const x = i * buf.sampleRate / rate; const a = Math.floor(x); let v = 0; for (let c = 0; c < ch; c++) v += src[c][Math.min(a, src[c].length - 1)] || 0; out[i] = v / ch; }
+  try { ac.close(); } catch (e) { /* yoksay */ }
+  const dv = new DataView(new ArrayBuffer(44 + n * 2)); const w = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) { const s = Math.max(-1, Math.min(1, out[i])); dv.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+  const bytes = new Uint8Array(dv.buffer); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return 'data:audio/wav;base64,' + btoa(bin);
+}
 // Mesaj balonu: kişinin gönderdiği fotoğraf varsa üstte küçük önizleme
 function luciMsgHtml(m, av) {
   if (m.rol === 'luci') return `<div class="lm luci">${av}<p>${luciFmt(m.metin)}</p></div>`;
@@ -1126,15 +1189,16 @@ function luciDraw() {
       box.insertAdjacentHTML('beforeend', `<div class="lp-ac"><b>Vira'yı aç</b><span>Yönetici olarak beni buradan açabilirsin: Gemini anahtarını (aistudio.google.com/apikey) yapıştır, önce deneyip sonra kaydederim.</span><input id="lp-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AQ. ile başlayan anahtar"><button type="button" id="lp-key-go">Vira'yı aç</button><small id="lp-key-msg"></small></div>`);
       document.getElementById('lp-key-go').addEventListener('click', luciActivate);
     }
-    box.scrollTop = box.scrollHeight; return;
+    luciKis(); box.scrollTop = box.scrollHeight; return;
   }
-  const hi = !luci.msgs.length ? `<div class="lm luci">${av}<p>Merhaba${ad ? ' ' + esc(ad) : ''}! 👋 Ben Vira. Vardiyaların, OFF günlerin, kimin ne zaman çalıştığı ya da duyurular hakkında bana istediğini sorabilirsin.</p></div>
-    <div class="lp-chips">${['Bu hafta vardiyam ne?', "Bir sonraki OFF'um ne zaman?", 'Bugün kim çalışıyor?'].map((q) => `<button type="button" class="lp-chip" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : '';
+  const hi = !luci.msgs.length ? `<div class="lm luci">${av}<p>Merhaba${ad ? ' ' + esc(ad) : ''}! 👋 Ben Vira. Vardiyaların, OFF günlerin, kimin ne zaman çalıştığı ya da duyurular hakkında bana istediğini sorabilirsin. Aşağıdaki kısayollara dokunabilir${luciSesVar() ? ', 🎤 ile sesli sorabilir' : ''} ya da yazabilirsin.</p></div>` : '';
+  luciKis();
   box.innerHTML = hi + luci.msgs.map((m) => luciMsgHtml(m, av)).join('')
     + (luci.busy ? `<div class="lm luci">${av}<p class="typing"><i></i><i></i><i></i></p></div>` : '');
   box.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => { const i = document.getElementById('lp-in'); i.value = b.dataset.q; luciSend(); }));
   const sb = document.getElementById('lp-send'); if (sb) sb.disabled = luci.busy;
   const cb = document.getElementById('lp-cam'); if (cb) cb.disabled = luci.busy;
+  const mb = document.getElementById('lp-mic'); if (mb) mb.disabled = luci.busy;
   luciFotoLoad(box);
   box.scrollTop = box.scrollHeight; box.querySelectorAll('img.lm-foto').forEach((im) => im.addEventListener('load', () => { box.scrollTop = box.scrollHeight; }, { once: true }));
 }
@@ -1208,7 +1272,7 @@ function viewDaily() {
   // giriş yapan kişinin kendi günleri (bugünden itibaren 7 gün)
   const me = myRecord();
   const mine = me ? `<section class="card stack mine">
-      <div class="row"><h3 style="flex:1;font-size:18px;margin:0">Benim vardiyam</h3><span class="small muted">${esc(me.name)}</span></div>
+      <div class="row"><h3 style="flex:1;font-size:18px;margin:0">Benim vardiyam</h3><button class="btn small" data-act="hafta-paylas" aria-label="Haftamı görsel olarak paylaş">📤 Paylaş</button></div>
       <div class="pdays">${Array.from({ length: 7 }, (_, i) => addDays(t, i)).map((x) => { const c = me.days[x] || ''; return `<button class="pday k-${c} ${x === d ? 'sel' : ''}" data-act="set-date" data-date="${x}"><span>${i0(x, t)}</span><b>${CODES[c] ? CODES[c].short : '–'}</b></button>`; }).join('')}</div>
       ${SERVER ? mineExtras(me) : ''}
     </section>` : '';
@@ -1420,6 +1484,29 @@ function openTarget(url) {
   if (h && allowedView(h)) { if (h === 'gorev') ui.gDate = todayIso(); go(h); } else go('gunluk');
 }
 // yeni sürüm notları: her sürümde bir kez kendiliğinden açılır
+// ---------- Yeni personel turu: hesabı 30 günden yeni olana ilk girişte bir kez (Ayarlar'dan yeniden açılabilir) ----------
+const tourDue = () => !!(SERVER && auth && auth.ben && auth.ben.yeni && !prefs.turOk);
+function showTour() {
+  const ad = luciAd();
+  const S = [
+    ['👋', `Hoş geldin${ad ? ' ' + ad : ''}!`, 'Vardiya Listesi’nde vardiyanı, OFF günlerini ve duyuruları tek yerden takip edersin. 4 kısa adımda göstereyim.'],
+    ['📅', 'Bugün ve haftan', 'Ana ekranda bugünkü vardiyan, seninle aynı vardiyada olanlar ve önündeki 7 gün var. <b>📤 Paylaş</b> ile haftanı görsel olarak gönderebilirsin.'],
+    ['🗓️', 'Tüm liste her zaman yanında', '<b>Çizelge</b>’de tüm ekibi gün gün görürsün, <b>Kişi Ara</b> ile bir arkadaşının vardiyasına bakarsın. İnternet yokken de son liste açılır.'],
+    ['🔔', 'Bildirimler ve hatırlatma', 'Yeni liste ve duyurularda bildirim gelir. Vardiyandan ne kadar önce hatırlatılacağını <b>Ayarlar</b>’dan seçebilirsin.'],
+    ['💬', 'Vira hep sağ altta', 'Yeşil takvim simgesi <b>Vira</b>, asistanın. Vardiyanı, OFF’unu, kimin çalıştığını yazarak ya da 🎤 sesle sorabilirsin.'],
+  ];
+  let i = 0;
+  const done = () => { prefs.turOk = true; savePrefs(); if (SERVER && auth) api('tercih-kaydet', { tercih: myPrefs() }).catch(() => {}); closeSheet(); };
+  const draw = () => {
+    const [e, h, p] = S[i]; const last = i === S.length - 1;
+    sheet(`<div class="tour"><div class="tour-ic">${e}</div><h3>${esc(h)}</h3><p>${p}</p>
+      <div class="tour-dots">${S.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>
+      <div class="row tour-btns">${last ? '' : '<button class="btn" data-t="gec">Geç</button>'}<span style="flex:1"></span>${i ? '<button class="btn" data-t="geri">Geri</button>' : ''}<button class="btn primary" data-t="ileri">${last ? 'Başlayalım' : 'İleri'}</button></div></div>`, (bg) => {
+      bg.querySelectorAll('[data-t]').forEach((b) => b.addEventListener('click', () => { const a = b.dataset.t; if (a === 'gec' || (a === 'ileri' && last)) return done(); i += a === 'geri' ? -1 : 1; draw(); }));
+    }, true);
+  };
+  draw();
+}
 function showWhatsNew(force) {
   const r = srv.yenilikler; if (!r || !r.surum) return;
   if (!force && prefs.seenNotes === r.surum) return;
@@ -1909,6 +1996,9 @@ function viewSettings() {
   </div>` : '';
   const personal = `<h2 class="sect">${SERVER ? 'Görünüm ve paylaşım<span class="sect-note">Yalnızca sizin için · hesabınıza kaydedilir, her cihazda aynı</span>' : 'Kişisel ayarlar'}</h2>
   <div class="card setlist">
+    ${SERVER && auth ? `<div class="setrow"><span><b>Vardiya hatırlatması</b><small>Vardiyan başlamadan önce bildirim (OFF ve izin günlerinde gelmez)</small></span>
+      <select data-pref="hatirlat" aria-label="Vardiya hatırlatması">${[[0, 'Kapalı'], [30, '30 dk önce'], [60, '1 saat önce'], [120, '2 saat önce']].map(([v, l]) => `<option value="${v}"${(prefs.hatirlat ?? 60) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>` : ''}
+    ${SERVER && auth ? '<div class="setrow"><span><b>Uygulama tanıtımı</b><small>5 adımlık kısa tur</small></span><button class="btn small" data-act="tur-ac">Göster</button></div>' : ''}
     ${sw('data-pref="dark"', dark, 'Koyu tema', 'Kapalıyken açık (krem) tema')}
     <div class="setrow"><span><b>Yazı boyutu</b><small>Bu cihazda</small></span>
       <div class="seg seg3 mini" role="radiogroup" aria-label="Yazı boyutu">${[['1', 'Normal'], ['2', 'Büyük'], ['3', 'Çok büyük']].map(([v, l]) => `<button role="radio" data-act="fs" data-v="${v}" aria-checked="${(prefs.fontScale || '1') === v}">${l}</button>`).join('')}</div></div>
@@ -1966,13 +2056,15 @@ function viewSettings() {
 }
 // yönetici ayarları sunucuya (herkese), kişisel tercihler hesaba kaydedilir
 const orgSettings = () => ({ company: store.settings.company, hours: store.settings.hours, offRule: store.settings.offRule, colors: store.settings.colors, limits: store.settings.limits });
-const myPrefs = () => ({ tema: prefs.theme, paylas: { bold: !!store.settings.share.bold, style: store.settings.share.style } });
+const myPrefs = () => ({ tema: prefs.theme, paylas: { bold: !!store.settings.share.bold, style: store.settings.share.style }, hatirlat: prefs.hatirlat ?? 60, tur: !!prefs.turOk });
 let orgT = null, prefT = null;
 function syncOrg() { save(); if (!SERVER || !auth) { toast('Kaydedildi'); return; } clearTimeout(orgT); orgT = setTimeout(async () => { try { const j = await api('ayar-kaydet', { ayarlar: orgSettings() }); if (srv.v) srv.v.ayar = j.surum.ayar; toast('Kaydedildi · herkese uygulandı'); } catch (e) { toast(e.message); } }, 400); }
 function syncPrefs() { savePrefs(); save(); if (!SERVER || !auth) return; clearTimeout(prefT); prefT = setTimeout(() => api('tercih-kaydet', { tercih: myPrefs() }).catch((e) => toast(e.message)), 400); }
 function applyServerSettings(a, t) {
   if (a) { const S = store.settings; S.company = a.company || ''; for (const g of ['1', '2', '3']) if (a.hours && a.hours[g]) S.hours[g] = a.hours[g]; S.offRule = a.offRule === 'team' ? 'team' : 'return'; if (a.colors) S.colors = { ...S.colors, ...a.colors }; if (a.limits) S.limits = { ...S.limits, ...a.limits }; }
-  if (t) { if (t.tema && t.tema !== prefs.theme) { prefs.theme = t.tema; savePrefs(); applyTheme(); } if (t.paylas) store.settings.share = { bold: !!t.paylas.bold, style: t.paylas.style || 'num' }; }
+  if (t) { if ([0, 30, 60, 120].includes(t.hatirlat) && t.hatirlat !== prefs.hatirlat) { prefs.hatirlat = t.hatirlat; savePrefs(); }
+    if (t.tur && !prefs.turOk) { prefs.turOk = true; savePrefs(); }
+    if (t.tema && t.tema !== prefs.theme) { prefs.theme = t.tema; savePrefs(); applyTheme(); } if (t.paylas) store.settings.share = { bold: !!t.paylas.bold, style: t.paylas.style || 'num' }; }
   save();
 }
 function bindSettings() {
@@ -1980,6 +2072,7 @@ function bindSettings() {
     const k = el.dataset.pref;
     if (k === 'dark') { prefs.theme = el.checked ? 'dark' : 'light'; applyTheme(); }
     if (k === 'bold') store.settings.share.bold = el.checked;
+    if (k === 'hatirlat') { prefs.hatirlat = Number(el.value) || 0; savePrefs(); clearTimeout(prefT); api('tercih-kaydet', { tercih: myPrefs() }).then(() => toast(prefs.hatirlat ? 'Hatırlatma kaydedildi' : 'Hatırlatma kapatıldı')).catch((e) => toast(e.message)); return; }
     if (k === 'cb') { prefs.colorSafe = el.checked; savePrefs(); applyTheme(); return; }
     if (k === 'photo') { if (el.checked) { el.checked = false; askPhotoAccess(() => render()); return; } prefs.photoOk = false; savePrefs(); render(); return; }
     syncPrefs(); render();
@@ -2069,6 +2162,9 @@ function bindView() {
 
 const actions = {
   'goto': (el) => go(el.dataset.view),
+  'mates-all': () => { ui.matesAll = !ui.matesAll; render(); },
+  'hafta-paylas': () => shareWeekImage(),
+  'tur-ac': () => showTour(),
   'clear-demo': () => { store = defaultStore(); save(); render(); toast('Örnek veri temizlendi'); },
   'set-date': (el) => { ui.date = el.dataset.date; ui.gridStart = null; render(); },
   'shift-date': (el) => { ui.date = addDays(ui.date, +el.dataset.n); ui.gridStart = null; render(); },
@@ -2421,9 +2517,16 @@ function todayCard() {
       <ul class="tlist">${items.slice(0, 8).map((m) => `<li class="${m.yapan ? 'done' : ''}"><label><input type="checkbox" disabled ${m.yapan ? 'checked' : ''}><span>${esc(m.metin)}</span></label>${m.yapan ? `<small>${esc(m.yapan)} · ${fmtWhen(m.zaman)}</small>` : ''}</li>`).join('')}</ul>
       ${items.length > 8 ? `<p class="small muted" style="margin:0">+${items.length - 8} madde daha</p>` : ''}
       <div><button class="btn primary" data-act="g-open-today">İşaretlemek için Görevler’e git</button></div>`;
+  // bugün aynı vardiyada olanlar
+  const mates = work ? allPeople(viewPeople()).filter((p) => p !== me && p.days[t] === c) : [];
+  const nice = (s) => String(s).trim().split(/\s+/).map((w) => w.charAt(0).toLocaleUpperCase('tr') + w.slice(1).toLocaleLowerCase('tr')).join(' ');
+  const mateHtml = !work ? '' : !mates.length ? '<p class="small muted" style="margin:0">Bugün bu vardiyada listede senden başka kimse yok.</p>'
+    : `<div class="mates"><div class="row" style="flex-wrap:nowrap"><b style="flex:1">Bugün seninle</b><span class="small muted">${mates.length} kişi</span></div>
+      <ul class="mate-list">${mates.slice(0, ui.matesAll ? 999 : 10).map((p) => `<li><span class="av sm">${esc(initials(p.name))}</span><span>${esc(nice(p.name))}</span></li>`).join('')}${mates.length > 10 ? `<li class="more"><button type="button" data-act="mates-all">${ui.matesAll ? 'Daha az göster' : `+${mates.length - 10} kişi daha`}</button></li>` : ''}</ul></div>`;
   return `<section class="card stack today k-${c}">
     <div class="eyebrow">Bugün · ${DAY_NAMES[parseIso(t).getDay()]} ${fmtShort(t)}</div>
     <div class="row" style="flex-wrap:nowrap;align-items:center;gap:14px">${work ? `<span class="tbig">${c}</span>` : ''}<div style="min-width:0"><h2 style="margin:0;font-size:24px">${esc(title)}</h2>${work && store.settings.hours[c] ? `<div class="muted">${esc(store.settings.hours[c])}</div>` : ''}${!me ? '<div class="small muted">Adınız yayınlanan listede bulunamadı.</div>' : ''}</div></div>
+    ${mateHtml}
     ${taskHtml}
   </section>`;
 }
@@ -2787,6 +2890,54 @@ async function doShare(text, title) {
   showText(title, 'Metni kopyalayıp WhatsApp, SMS veya e-postaya yapıştırabilirsiniz.', text, true);
 }
 
+// ---------- Haftamı paylaş: kişinin bugünden itibaren 7 günü tek görselde (WhatsApp vb.) ----------
+async function weekImage(me) {
+  const W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+  try { await document.fonts.ready; } catch (e) { /* yoksay */ }
+  const css = getComputedStyle(document.documentElement); const font = (css.getPropertyValue('--font-body') || 'sans-serif').trim(); const disp = (css.getPropertyValue('--font-display') || font).trim();
+  const COL = { '1': ['#c77700', '#fff3df'], '2': ['#0f7c74', '#dff4f1'], '3': ['#4b4fb8', '#e6e7fb'], OFF: ['#d32f2f', '#fde3e3'], R: ['#8a3fa8', '#f3e4f9'], YI: ['#2e7d32', '#e2f3e3'], UI: ['#2e7d32', '#e2f3e3'], MI: ['#6b5a2e', '#f2ecdc'] };
+  const LBL = { OFF: 'OFF · hafta tatili', R: 'Raporlu', YI: 'Yıllık izin', UI: 'Ücretsiz izin', MI: 'İzinli' };
+  const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+  const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#eef5ff'); bg.addColorStop(1, '#dce9f8'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const t0 = todayIso(); const days = Array.from({ length: 7 }, (_, i) => addDays(t0, i));
+  const nice = String(me.name).trim().split(/\s+/).map((w) => w.charAt(0).toLocaleUpperCase('tr') + w.slice(1).toLocaleLowerCase('tr')).join(' ');
+  g.fillStyle = '#17202b'; g.font = `700 64px ${disp}`; g.fillText('Haftalık vardiyam', 80, 140);
+  g.fillStyle = '#4a5768'; g.font = `500 38px ${font}`; g.fillText(`${nice} · ${fmtShort(days[0])} – ${fmtShort(days[6])}`, 80, 200);
+  const top = 250, rowH = 130, gap = 12;
+  days.forEach((d, i) => {
+    const c = me.days[d] || ''; const [fg, bk] = COL[c] || ['#5b6675', '#eef1f5']; const y = top + i * (rowH + gap); const dt = parseIso(d);
+    g.save(); g.shadowColor = 'rgba(23,32,43,.10)'; g.shadowBlur = 18; g.shadowOffsetY = 4; g.fillStyle = '#ffffff'; rr(60, y, W - 120, rowH, 28); g.fill(); g.restore();
+    g.fillStyle = fg; rr(60, y, 14, rowH, 7); g.fill();
+    g.fillStyle = '#17202b'; g.font = `700 40px ${disp}`; g.fillText(DAY_NAMES[dt.getDay()], 108, y + 58);
+    g.fillStyle = '#6b7685'; g.font = `500 30px ${font}`; g.fillText(`${dt.getDate()} ${MONTHS[dt.getMonth()]}${d === t0 ? ' · bugün' : ''}`, 108, y + 100);
+    const work = ['1', '2', '3'].includes(c); const label = work ? `${c}. Vardiya` : c ? (LBL[c] || c) : 'Listede yok';
+    const hrs = work ? (store.settings.hours[c] || '') : '';
+    g.font = `700 36px ${disp}`; const lw = g.measureText(label).width; const pw = lw + 56, px = W - 100 - pw, py = y + (hrs ? 20 : 36);
+    g.fillStyle = bk; rr(px, py, pw, 58, 29); g.fill(); g.fillStyle = fg; g.fillText(label, px + 28, py + 41);
+    if (hrs) { g.fillStyle = '#4a5768'; g.font = `500 28px ${font}`; const hw = g.measureText(hrs).width; g.fillText(hrs, W - 100 - hw, py + 92); }
+  });
+  g.fillStyle = '#6b7685'; g.font = `600 28px ${font}`; g.fillText('Vardiya Listesi', 80, H - 44);
+  return await new Promise((res) => cv.toBlob(res, 'image/png'));
+}
+async function shareWeekImage() {
+  const me = myRecord(); if (!me) { toast('Listede adın bulunamadı'); return; }
+  let blob; try { blob = await weekImage(me); } catch (e) { toast('Görsel hazırlanamadı'); return; }
+  if (!blob) { toast('Görsel hazırlanamadı'); return; }
+  const name = `vardiyam-${todayIso()}.png`; const file = new File([blob], name, { type: 'image/png' }); const title = 'Haftalık vardiyam';
+  const P = window.Capacitor && window.Capacitor.Plugins;
+  if (NATIVE && P && P.Filesystem && P.Share) { // uygulama: önce geçici dosya, sonra yerel paylaşım menüsü
+    try {
+      const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+      const w = await P.Filesystem.writeFile({ path: name, data: b64, directory: 'CACHE' });
+      await P.Share.share({ title, files: [w.uri], dialogTitle: title }); return;
+    } catch (e) { if (/cancel/i.test(String(e && e.message))) return; }
+  }
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+  const url = URL.createObjectURL(blob);
+  sheet(`<h3 style="margin:0 0 10px">Haftalık vardiyam</h3><img src="${url}" alt="Haftalık vardiya görseli" style="width:100%;border-radius:12px;border:1px solid var(--line)">
+    <div class="row" style="margin-top:12px"><a class="btn primary" href="${url}" download="${name}">Görseli indir</a><button class="btn" data-x="1">Kapat</button></div>`);
+}
+
 // ---------- Alt sayfalar ----------
 function sheet(html, onBind, locked) {
   $overlay.innerHTML = `<div class="sheet-bg"${locked ? ' data-locked="1"' : ' data-close="1"'}><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
@@ -3118,7 +3269,8 @@ function lev(a, b) {
   return prev[n];
 }
 // OCR'ın bir iki harf farklı okuduğu aynı kişi mi? (adı aynı, uzun isim, en çok 2 harf fark)
-const firstKey = (name) => nameKey(String(name).trim().split(/\s+/)[0] || '');
+// function (const değil): açılışta cihazdaki liste okunurken (load → cleanPeople → sameStrict) henüz tanımlanmamış olmasın
+function firstKey(name) { return nameKey(String(name).trim().split(/\s+/)[0] || ''); }
 // Liste okurken iki satırın aynı kişi sayılması için sıkı ölçü: birebir aynı ya da (uzun isimde) tek harf okuma farkı.
 // "İbrahim Demir" / "İbrahim Özdemir" gibi farklı kişiler birleşmez; kişi sayısı eksik çıkmaz.
 function sameStrict(nameA, nameB) {

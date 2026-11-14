@@ -67,7 +67,9 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Vardiya listesi görsellerini seçip okuyabilmek için fotoğraflarınıza erişim gerekir. Görseller telefon dışına gönderilmez.</string>
+	<string>Vardiya listesi görsellerini seçebilmek ve Vira asistanına fotoğraf gönderebilmek için fotoğraflarınıza erişim gerekir.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Vira asistanına sesli soru sorabilmek için mikrofon erişimi gerekir. Yalnızca mikrofon düğmesine bastığınızda kayıt yapılır.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Vardiya listesinin fotoğrafını çekip okuyabilmek için kamera erişimi gerekir.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>

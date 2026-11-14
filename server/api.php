@@ -43,7 +43,9 @@ function me_out(array $u): array {
     'verebilir' => grantable($t), 'yetki' => ['liste' => $lv >= 2, 'yayin' => $lv >= 3, 'kisi' => $lv >= 2, 'sistem' => $lv >= 4, 'taslak' => $lv >= 2],
     // gizli profil: yalnızca kişinin kendisine döner (başka kimse görmez)
     'kullaniciAdi' => $u['username'] ?? null, 'avatar' => $u['avatar'] ?? null, 'girisTercihi' => $u['login_pref'] ?? 'ad',
-    'tercih' => json_decode((string)($u['prefs'] ?? ''), true) ?: null];
+    'tercih' => json_decode((string)($u['prefs'] ?? ''), true) ?: null]
+    // hesap 30 günden yeniyse tanıtım turu için işaret
+    + (!empty($u['created_at']) ? ['yeni' => strtotime((string)$u['created_at'] . ' UTC') > time() - 30 * 86400] : []);
 }
 const COLOR_KEYS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'];
 
@@ -275,7 +277,8 @@ switch ($r) {
     $u = current_user();
     $in = is_array(body()['tercih'] ?? null) ? body()['tercih'] : [];
     $t = ['tema' => in_array($in['tema'] ?? '', ['light', 'dark', 'auto'], true) ? $in['tema'] : 'auto',
-      'paylas' => ['bold' => !empty($in['paylas']['bold']), 'style' => in_array($in['paylas']['style'] ?? '', ['num', 'bullet', 'plain'], true) ? $in['paylas']['style'] : 'num']];
+      'paylas' => ['bold' => !empty($in['paylas']['bold']), 'style' => in_array($in['paylas']['style'] ?? '', ['num', 'bullet', 'plain'], true) ? $in['paylas']['style'] : 'num'],
+      'hatirlat' => in_array((int)($in['hatirlat'] ?? 60), [0, 30, 60, 120], true) ? (int)($in['hatirlat'] ?? 60) : 60, 'tur' => !empty($in['tur'])];
     db()->prepare('UPDATE personnel SET prefs = ? WHERE id = ?')->execute([json_encode($t), $u['id']]);
     ok(['tercih' => $t]);
   }
@@ -1027,8 +1030,24 @@ switch ($r) {
       $gi = @getimagesizefromstring($bin); if (!$gi || !in_array($gi['mime'] ?? '', ['image/jpeg', 'image/png', 'image/webp'], true)) fail(400, 'Bu bir fotoğraf değil gibi görünüyor.');
       $foto = ['tip' => $gi['mime'], 'bin' => $bin];
     }
-    if ($msg === '' && !$foto) fail(400, 'Mesaj boş.');
     $key = luci_key(); if ($key === '') fail(503, 'Vira şu an kapalı.', ['kapali' => true]);
+    // isteğe bağlı sesli soru (WAV): önce yazıya çevrilir, ses dosyası saklanmaz
+    $sesli = false; $sr = (string)(body()['ses'] ?? '');
+    if ($sr !== '' && $msg === '') {
+      if (!preg_match('#^data:audio/wav;base64,([A-Za-z0-9+/=]+)$#', $sr, $sm)) fail(400, 'Ses kaydı okunamadı.');
+      $sb = base64_decode($sm[1], true);
+      if ($sb === false || strlen($sb) < 2000 || strncmp($sb, 'RIFF', 4) !== 0) fail(400, 'Ses kaydı çok kısa ya da okunamadı.');
+      if (strlen($sb) > 3 * 1048576) fail(413, 'Ses kaydı çok uzun (en fazla 45 saniye).');
+      @set_time_limit(90);
+      [$yazi, $serr] = gemini_generate($key, ['contents' => [['role' => 'user', 'parts' => [
+        ['inlineData' => ['mimeType' => 'audio/wav', 'data' => base64_encode($sb)]],
+        ['text' => 'Bu Türkçe ses kaydında söyleneni aynen yazıya dök. Yalnızca söylenen cümleyi yaz; açıklama, tırnak ya da başka bir şey ekleme. Anlaşılır bir konuşma yoksa yalnızca - yaz.']]]],
+        'generationConfig' => ['temperature' => 0, 'maxOutputTokens' => 300, 'thinkingConfig' => ['thinkingBudget' => 0]]], 40, ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-3.8-flash']);
+      $yazi = trim(preg_replace('/\s+/u', ' ', (string)$yazi) ?? '', " \t\n\"'“”");
+      if ($yazi === '' || $yazi === '-') fail(422, 'Sesini tam anlayamadım 🙂 Biraz daha yakından ve net söyler misin?', ($u['title'] ?? '') === 'dev' && $serr ? ['detay' => $serr] : []);
+      $msg = mb_substr($yazi, 0, 600); $sesli = true;
+    }
+    if ($msg === '' && !$foto) fail(400, 'Mesaj boş.');
     if ($foto) { $st = db()->prepare("SELECT COUNT(*) FROM luci_mesajlar WHERE personnel_id = ? AND foto IS NOT NULL AND created_at > ?"); $st->execute([$u['id'], gmdate('Y-m-d H:i:s', time() - 3600)]);
       if ((int)$st->fetchColumn() >= 15) fail(429, 'Son bir saatte çok fotoğraf gönderdin 🙂 Birazdan yine gönderebilirsin.'); }
     $st = db()->prepare("SELECT COUNT(*) FROM luci_mesajlar WHERE personnel_id = ? AND rol = 'kisi' AND created_at > ?"); $st->execute([$u['id'], gmdate('Y-m-d H:i:s', time() - 3600)]);
@@ -1060,7 +1079,7 @@ switch ($r) {
     if ($model !== (string)(meta_get('luci_model_son') ?? '')) meta_set('luci_model_son', $model);
     $cevap = mb_substr(luci_temiz($text), 0, 2000);
     db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at, sohbet) VALUES (?, 'luci', ?, ?, ?)")->execute([$u['id'], $cevap, now(), $sohbet ?: null]);
-    ok(['cevap' => $cevap]);
+    ok(['cevap' => $cevap] + ($sesli ? ['soru' => $msg] : []));
   }
   // Vira'ya gönderilen fotoğraf: yalnızca gönderen kişi (luci-foto) ya da DEV paneli (dev-luci-foto)
   case 'luci-foto':
@@ -1498,6 +1517,9 @@ function luci_sistem(array $u): string {
     . "6) 'Kim çalışıyor / kimler OFF / kim izinli' gibi sorularda 'Günlük dağılım' satırındaki ilgili listeyi EKSİKSİZ ve AYNEN kullan; kendin sayma, ekleme ya da çıkarma yapma, kişi sayısını da oradan söyle. Liste uzunsa isimleri virgülle sırala.\n"
     . "7) Kişi fotoğraf gönderebilir. Fotoğrafa bakıp vardiya/iş ve uygulama açısından yardımcı ol (ör. bir vardiya listesi, duyuru ya da ekran görüntüsü). Fotoğraftaki vardiya bilgisi aşağıdaki yayındaki listeyle çelişirse yayındaki listeyi esas al ve farkı nazikçe belirt. Fotoğraf işle ilgisizse kısaca ne gördüğünü söyle ve vardiya konularında yardımcı olabileceğini hatırlat. Fotoğraftaki kişilerin görünüşü hakkında yorum yapma.\n"
     . "8) Sohbetlerin ya da fotoğrafların kaydedilip kaydedilmediği, saklanıp saklanmadığı, kimin görebildiği gibi veri/gizlilik soruları gelirse bu konuda bilgi verme: ne 'kaydediliyor' ne 'kaydedilmiyor' de, olumlu ya da olumsuz hiçbir şey söyleme. Kısaca ve sıcak bir dille bu konuda bilgi veremediğini, gizlilikle ilgili soruları için yöneticisine danışabileceğini söyle; sonra vardiya konusunda yardımcı olmayı teklif et.\n\n"
+    . "9) 'Kim benimle aynı vardiyada' sorulursa: konuştuğun kişinin o günkü kodunu kendi satırından bul, 'Günlük dağılım'da aynı kodlu listeyi kendisi hariç AYNEN ver (gün belirtilmemişse bugün).\n"
+    . "10) Takas önerisi istenirse: kişinin çalıştığı bir günü (belirttiyse onu, yoksa yaklaşan ilk çalışma gününü) ele al; o gün OFF olan ve kişinin OFF olduğu bir günde kişinin vardiyasında çalışan kişileri 'Günlük dağılım'dan bul ve en fazla 5 aday say. Takasın kesinleşmesi için şef/müdür onayı gerektiğini hatırlat. Uygun kimse yoksa bunu açıkça söyle.\n"
+    . "11) Mesaj sesli sorudan yazıya çevrilmiş olabilir; küçük yazım/anlama hatalarını hoş gör, anlamı açıksa doğrudan cevap ver.\n"
     . "Bugün: " . $now->format('d.m.Y') . ' ' . $GUN[(int)$now->format('w')] . ', saat ' . $now->format('H:i') . " (Türkiye).\n"
     . "Konuştuğun kişi: $ad" . ($benGrup !== '' ? " ($benGrup. vardiya ekibi)" : '') . ". Listede kendi satırı adına göre bulunur.\n"
     . "Kodlar: 1 = 1. vardiya, 2 = 2. vardiya, 3 = 3. vardiya, OFF = izin günü (çalışmıyor), R = rapor, YI = yıllık izin, UI = ücretsiz izin, MI = mazeret/diğer izin.\n"
