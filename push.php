@@ -99,8 +99,15 @@ function push_to_people(array $pids, array $msg): int {
   return push_send($st->fetchAll(), $msg);
 }
 
-// Vardiya hatırlatması: vardiya başlamadan 1 saat önce, o gün o vardiyada ÇALIŞANLARA (OFF, izin, rapor günlerinde gönderilmez).
+// Vardiya hatırlatması: kişinin seçtiği süre kadar önce (30 dk / 1 saat / 2 saat; varsayılan 1 saat, 0 = kapalı),
+// o gün o vardiyada ÇALIŞANLARA (OFF, izin, rapor günlerinde gönderilmez).
 // Her istekte en fazla 5 dakikada bir bakılır; ayrıca api.php?r=zamanla ile zamanlayıcıdan çağrılabilir.
+// "1 saat 5 dakika" gibi kalan süre (gecikmeli bakışta da doğru süre yazılsın)
+function kalan_sure(int $sn): string {
+  $dk = max(1, (int)round($sn / 60)); $s = intdiv($dk, 60); $d = $dk % 60;
+  if ($dk >= 55 && $d >= 55) { $s++; $d = 0; } elseif ($d <= 4 && $s > 0) $d = 0; // yuvarla
+  return trim(($s ? "$s saat " : '') . ($d ? "$d dakika" : ''));
+}
 function run_reminders(bool $force = false): int {
   $nowUtc = time(); $last = (int)(meta_get('hatirlat_son') ?? 0);
   if (!$force && $nowUtc - $last < 300) return 0;
@@ -111,19 +118,30 @@ function run_reminders(bool $force = false): int {
   $people = $roster ? (json_decode((string)$roster, true)['people'] ?? []) : [];
   if (!$people) return 0;
   $tr = $nowUtc + 10800; $sent = 0;
+  // kişilerin hatırlatma tercihi (dakika)
+  $lead = []; $names = [];
+  foreach (db()->query('SELECT id, name, prefs FROM personnel WHERE banned = 0') as $r) {
+    $pp = json_decode((string)($r['prefs'] ?? ''), true); $l = is_array($pp) && isset($pp['hatirlat']) ? (int)$pp['hatirlat'] : 60;
+    $lead[(int)$r['id']] = in_array($l, [0, 30, 60, 120], true) ? $l : 60; $names[(int)$r['id']] = name_key((string)$r['name']);
+  }
   foreach ([0, 1] as $plus) {
     $date = gmdate('Y-m-d', $tr + $plus * 86400);
     foreach (['1', '2', '3'] as $g) {
       if (!preg_match('/(\d{1,2})[:.](\d{2})/', (string)($hours[$g] ?? ''), $m)) continue;
       $start = strtotime($date . ' 00:00:00 UTC') + ((int)$m[1] % 24) * 3600 + (int)$m[2] * 60; // TR saatiyle, UTC sayısı gibi
-      if ($tr < $start - 3600 || $tr >= $start) continue; // hatırlatma penceresi: başlangıçtan önceki 1 saat
-      $key = "hatirlat:$date:$g"; if (meta_get($key) !== null) continue;
+      if ($tr < $start - 7200 || $tr >= $start) continue; // en erken 2 saat önce
+      $keys = null;
+      foreach ([120, 60, 30] as $L) {
+      if ($tr < $start - $L * 60) continue; // bu sürenin penceresi henüz açılmadı
+      $key = $L === 60 ? "hatirlat:$date:$g" : "hatirlat:$date:$g:$L"; if (meta_get($key) !== null) continue;
       meta_set($key, '1');
-      $keys = []; foreach ($people as $p) if (($p['days'][$date] ?? '') === $g) $keys[name_key((string)$p['name'])] = true;
+      if ($keys === null) { $keys = []; foreach ($people as $p) if (($p['days'][$date] ?? '') === $g) $keys[name_key((string)$p['name'])] = true; }
       if (!$keys) continue;
-      $pids = []; foreach (db()->query('SELECT id, name FROM personnel WHERE banned = 0') as $r) if (isset($keys[name_key((string)$r['name'])])) $pids[] = (int)$r['id'];
+      $pids = []; foreach ($names as $id => $nk) if (isset($keys[$nk]) && $lead[$id] === $L) $pids[] = $id;
+      if (!$pids) continue;
       $st = db()->prepare("SELECT COUNT(*) FROM gorevler WHERE tarih = ? AND (vardiya = '' OR vardiya = ?)"); $st->execute([$date, $g]); $nGorev = (int)$st->fetchColumn();
-      $sent += notify($pids, ['baslik' => "$g. vardiya · " . ($hours[$g] ?? ''), 'metin' => 'Vardiyanız saat ' . sprintf('%02d:%02d', (int)$m[1] % 24, (int)$m[2]) . "'de başlıyor." . ($nGorev ? " Bu vardiya için $nGorev görev listesi var." : ''), 'url' => $nGorev ? './#gorev' : './', 'etiket' => "vardiya-$date-$g"], 'vardiya');
+      $sent += notify($pids, ['baslik' => "$g. vardiya · " . ($hours[$g] ?? ''), 'metin' => 'Vardiyan ' . kalan_sure($start - $tr) . ' sonra başlıyor (saat ' . sprintf('%02d:%02d', (int)$m[1] % 24, (int)$m[2]) . ').' . ($nGorev ? " Bu vardiya için $nGorev görev listesi var." : ''), 'url' => $nGorev ? './#gorev' : './', 'etiket' => "vardiya-$date-$g"], 'vardiya');
+      }
     }
   }
   if (random_int(1, 20) === 1) db()->prepare("DELETE FROM meta WHERE k LIKE 'hatirlat:%' AND k < ?")->execute(['hatirlat:' . gmdate('Y-m-d', $tr - 3 * 86400)]);

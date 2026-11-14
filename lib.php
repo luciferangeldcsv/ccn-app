@@ -407,7 +407,7 @@ function current_user(bool $required = true): ?array {
   if ($u !== false) return $u ?: ($required ? fail(401, 'Oturum geçersiz.', ['cikis' => true]) : null);
   $u = null; $t = token_in();
   if ($t) {
-    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.prefs, p.banned, p.username, p.avatar, p.login_pref FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
+    $st = db()->prepare('SELECT s.id sid, s.remember, s.expires_at, p.id, p.name, p.role, p.title, p.prefs, p.banned, p.username, p.avatar, p.login_pref, p.created_at FROM sessions s JOIN personnel p ON p.id = s.personnel_id WHERE s.token_hash = ?');
     $st->execute([hash('sha256', $t)]);
     $r = $st->fetch();
     if ($r && $r['banned']) { db()->prepare('DELETE FROM sessions WHERE personnel_id = ?')->execute([$r['id']]); $r = null; } // askıya alınan hesap düşer
@@ -415,7 +415,7 @@ function current_user(bool $required = true): ?array {
       // "beni hatırla" oturumu kullanıldıkça uzar; diğeri 12 saatte biter
       $exp = $r['remember'] ? gmdate('Y-m-d H:i:s', time() + 180 * 86400) : $r['expires_at'];
       db()->prepare('UPDATE sessions SET last_seen = ?, expires_at = ? WHERE id = ?')->execute([now(), $exp, $r['sid']]);
-      $u = ['id' => (int)$r['id'], 'name' => $r['name'], 'role' => $r['role'], 'title' => $r['title'] ?: ($r['role'] === 'admin' ? 'yonetici' : 'personel'), 'prefs' => $r['prefs'], 'username' => $r['username'], 'avatar' => $r['avatar'], 'login_pref' => $r['login_pref'], 'sid' => (int)$r['sid']];
+      $u = ['id' => (int)$r['id'], 'name' => $r['name'], 'role' => $r['role'], 'title' => $r['title'] ?: ($r['role'] === 'admin' ? 'yonetici' : 'personel'), 'prefs' => $r['prefs'], 'username' => $r['username'], 'avatar' => $r['avatar'], 'login_pref' => $r['login_pref'], 'sid' => (int)$r['sid'], 'created_at' => $r['created_at']];
     } elseif ($r) {
       db()->prepare('DELETE FROM sessions WHERE id = ?')->execute([$r['sid']]);
     }
