@@ -1,0 +1,9 @@
+assets/
+audio/
+clips/
+output/
+Wav2Lip/
+project.json
+*.mp4
+*.wav
+__pycache__/

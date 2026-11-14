@@ -1,0 +1,12 @@
+{
+  "characters": {
+    "Ayşe": { "image": "ayse.png", "speaker": "Sofia Hellen" },
+    "Mert": { "image": "mert.png", "speaker": "Damien Black" }
+  },
+  "lines": [
+    { "char": "Ayşe", "text": "Merhaba Mert, bugün hava çok güzel değil mi?" },
+    { "char": "Mert", "text": "Evet Ayşe, böyle bir günde dışarı çıkmamak olmaz." },
+    { "char": "Ayşe", "text": "O zaman sahilde yürüyüşe ne dersin?" },
+    { "char": "Mert", "text": "Harika fikir, hemen hazırlanıyorum!" }
+  ]
+}
