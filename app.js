@@ -94,7 +94,7 @@ function defaultStore() {
 let store = load();
 
 // ---------- Cihaz tercihleri (tema, izinler) ve hata günlüğü: "Tüm verileri sil" bunlara dokunmaz ----------
-const APP_VERSION = /^\d/.test('2.9.5') ? '2.9.5' : 'web';
+const APP_VERSION = /^\d/.test('2.9.6') ? '2.9.6' : 'web';
 const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.vardiyapanosu.app';
 const PREFS_KEY = 'ccn-vardiya-prefs', ERR_KEY = 'ccn-vardiya-hatalar';
 const readLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
@@ -1008,13 +1008,22 @@ function render() {
 // ---------- Vira (Vardiya İzin Rehber Asistanı): uygulama içi sohbet asistanı (sağ altta) ----------
 // Vira (Vardiya İzin Rehber Asistanı): gülümseyen mini takvim
 const LUCI_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="9" y="13" width="46" height="43" rx="12" fill="#22b294"/><rect x="9" y="13" width="46" height="20" rx="12" fill="#6ee7cb" opacity=".55"/><rect x="14.5" y="24.5" width="35" height="26" rx="8.5" fill="#fff"/><rect x="20" y="7.5" width="6" height="12" rx="3" fill="#13715f"/><rect x="38" y="7.5" width="6" height="12" rx="3" fill="#13715f"/><ellipse cx="26" cy="35.5" rx="3.1" ry="3.9" fill="#173a34"/><ellipse cx="38" cy="35.5" rx="3.1" ry="3.9" fill="#173a34"/><circle cx="27.2" cy="34" r="1.3" fill="#fff"/><circle cx="39.2" cy="34" r="1.3" fill="#fff"/><ellipse cx="20.5" cy="42" rx="2.8" ry="1.7" fill="#ff7a7a" opacity=".5"/><ellipse cx="43.5" cy="42" rx="2.8" ry="1.7" fill="#ff7a7a" opacity=".5"/><path d="M28.6 41.6q3.4 3.2 6.8 0" stroke="#173a34" stroke-width="1.9" fill="none" stroke-linecap="round"/></svg>';
-const luci = { open: false, loaded: false, busy: false, msgs: [], foto: '' };
+// Sohbet her açılışta temiz başlar: kimlik yalnızca bellekte tutulur (uygulama kapanınca biter);
+// uygulama 30 dakikadan uzun arka planda kalırsa da sohbet sıfırlanır. Kayıtlar sunucuda (DEV paneli) kalır.
+const luciYeniSohbet = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const luci = { open: false, busy: false, msgs: [], foto: '', sohbet: luciYeniSohbet() };
+let luciGizli = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { luciGizli = Date.now(); return; }
+  if (luciGizli && Date.now() - luciGizli > 30 * 60 * 1000 && !luci.busy) { luci.msgs = []; luci.foto = ''; luci.sohbet = luciYeniSohbet(); if (typeof luciPrev === 'function') luciPrev(); if (luci.open) luciDraw(); }
+  luciGizli = 0;
+});
 const luciOn = () => SERVER && !!auth; // düğme her zaman sağ altta; anahtar yoksa sohbet 'hazırlanıyor' der
 const luciReady = () => !!(srv.v && srv.v.luci);
 const luciAd = () => { const a = auth && auth.ben && String(auth.ben.ad || '').trim().split(/\s+/)[0]; return a ? a.charAt(0).toLocaleUpperCase('tr') + a.slice(1).toLocaleLowerCase('tr') : ''; };
 function luciMount() {
   let fab = document.getElementById('luci-fab');
-  if (!luciOn()) { ['luci-fab', 'luci-bub', 'luci-panel'].forEach((id) => { const x = document.getElementById(id); if (x) x.remove(); }); luci.open = false; luci.loaded = false; luci.msgs = []; document.body.classList.remove('luci-open', 'luci-hey'); luciLock(false); return; }
+  if (!luciOn()) { ['luci-fab', 'luci-bub', 'luci-panel'].forEach((id) => { const x = document.getElementById(id); if (x) x.remove(); }); luci.open = false; luci.msgs = []; luci.foto = ''; luci.sohbet = luciYeniSohbet(); document.body.classList.remove('luci-open', 'luci-hey'); luciLock(false); return; }
   if (fab) return;
   fab = document.createElement('button'); fab.id = 'luci-fab'; fab.type = 'button'; fab.setAttribute('aria-label', 'Vira ile konuş'); fab.innerHTML = LUCI_SVG;
   fab.addEventListener('click', () => luciToggle());
@@ -1049,7 +1058,6 @@ function luciToggle(force) {
   }
   document.body.classList.add('luci-open'); luciLock(true);
   luciDraw();
-  if (!luci.loaded && luciReady()) { luci.loaded = true; api('luci-gecmis').then((j) => { if (!luci.msgs.length) luci.msgs = j.mesajlar || []; luciDraw(); }).catch(() => { luci.loaded = false; }); }
   if (!matchMedia('(pointer: coarse)').matches) setTimeout(() => { const i = document.getElementById('lp-in'); if (i) i.focus(); }, 60);
 }
 // Telefonda sohbet açıkken arkadaki sayfa kaymaz (iOS dahil); klavye açılınca pencere klavyenin üstüne oturur
@@ -1142,7 +1150,7 @@ async function luciSend() {
   const inp = document.getElementById('lp-in'); const t = (inp && inp.value || '').trim(); const foto = luci.foto; if ((!t && !foto) || luci.busy) return;
   if (!luciReady()) { inp.value = ''; luci.foto = ''; luciPrev(); luci.msgs.push({ rol: 'kisi', metin: t, fotoSrc: foto }, { rol: 'luci', metin: 'Mesajını aldım 🙂 Ama henüz açılmadım; yöneticin beni açınca buradan hemen cevap vereceğim.' }); luciDraw(); return; }
   inp.value = ''; luci.foto = ''; luciPrev(); luci.msgs.push({ rol: 'kisi', metin: t, fotoSrc: foto }); luci.busy = true; luciDraw();
-  try { const j = await api('luci', foto ? { mesaj: t, foto } : { mesaj: t }); luci.msgs.push({ rol: 'luci', metin: j.cevap }); }
+  try { const j = await api('luci', foto ? { mesaj: t, foto, sohbet: luci.sohbet } : { mesaj: t, sohbet: luci.sohbet }); luci.msgs.push({ rol: 'luci', metin: j.cevap }); }
   catch (e) { luci.msgs.push({ rol: 'luci', metin: (e && e.message) || 'Şu an cevap veremiyorum, birazdan tekrar dener misin? 🙏' }); }
   finally { luci.busy = false; luciDraw(); }
 }
