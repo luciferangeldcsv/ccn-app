@@ -229,13 +229,14 @@ const UPLOAD_MAX = 104857600; // 100 MB
 const UPLOAD_TYPES = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif', 'image/heic' => 'heic',
   'application/pdf' => 'pdf', 'video/mp4' => 'mp4', 'video/quicktime' => 'mov', 'video/webm' => 'webm', 'video/x-matroska' => 'mkv', 'video/3gpp' => '3gp'];
 // Yüklenen geçici dosyayı (ya da ikili veriyi) diske taşır; ['yol', 'tip', 'boyut', 'ad'] döner
-function store_upload(string $tmp, string $tip, string $ad, bool $isUploaded = true): array {
-  if (!isset(UPLOAD_TYPES[$tip])) fail(400, 'Bu dosya türü yüklenemez (yalnızca fotoğraf, video ve PDF).');
+function store_upload(string $tmp, string $tip, string $ad, bool $isUploaded = true, ?array $types = null): array {
+  $types = $types ?? UPLOAD_TYPES; // Vira sesi gibi iç kayıtlar kendi türünü verir; genel yüklemeler değişmez
+  if (!isset($types[$tip])) fail(400, 'Bu dosya türü yüklenemez (yalnızca fotoğraf, video ve PDF).');
   $boyut = (int)@filesize($tmp); if ($boyut <= 0) fail(400, 'Dosya okunamadı.');
   if ($boyut > UPLOAD_MAX) fail(413, 'Dosya en fazla 100 MB olabilir.');
   $sub = substr(bin2hex(random_bytes(1)), 0, 2); $dir = uploads_dir() . '/' . $sub;
   if (!is_dir($dir)) @mkdir($dir, 0770, true);
-  $name = bin2hex(random_bytes(16)) . '.' . UPLOAD_TYPES[$tip]; $dest = "$dir/$name";
+  $name = bin2hex(random_bytes(16)) . '.' . $types[$tip]; $dest = "$dir/$name";
   $okMove = $isUploaded ? @move_uploaded_file($tmp, $dest) : @rename($tmp, $dest);
   if (!$okMove) return []; // yazılamadı: çağıran veritabanına düşürür
   @chmod($dest, 0640);
