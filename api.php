@@ -883,6 +883,15 @@ switch ($r) {
       'ad' => $r['ad'], 'tip' => $r['tip'], 'boyut' => (int)$r['boyut'], 'video' => strncmp($r['tip'], 'video/', 6) === 0, 'tarih' => utc($r['created_at']),
       'yukleyenId' => $r['created_by'] ? (int)$r['created_by'] : null, 'yukleyen' => $r['name'], 'unvan' => $r['ptitle'], 'askida' => (bool)$r['banned'], 'uyari' => 0, 'ip' => null, 'cihaz' => '',
       'durum' => null, 'url' => dosya_url('ek', (int)$r['id'], '../')];
+    // Vira'ya gönderilen fotoğraflar ve sesli sorular (gizli; yalnızca DEV paneli)
+    luci_table();
+    $st = db()->query("SELECT m.id, m.personnel_id, m.metin, m.foto, m.foto_tip, m.created_at, p.name, p.title, p.banned, p.strike FROM luci_mesajlar m LEFT JOIN personnel p ON p.id = m.personnel_id WHERE m.foto IS NOT NULL ORDER BY m.id DESC");
+    foreach ($st as $r) { $ses = strncmp((string)$r['foto_tip'], 'audio/', 6) === 0; $yol = uploads_dir() . '/' . $r['foto'];
+      $all[] = ['kaynak' => 'vira', 'id' => (int)$r['id'], 'bolum' => $ses ? 'Vira · sesli soru' : 'Vira · fotoğraf', 'tur' => 'vira',
+        'ad' => (string)$r['metin'], 'not' => mb_substr((string)$r['metin'], 0, 160), 'tip' => (string)($r['foto_tip'] ?: 'image/jpeg'), 'boyut' => is_file($yol) ? (int)filesize($yol) : 0, 'video' => false,
+        'tarih' => utc($r['created_at']), 'ip' => null, 'cihaz' => '',
+        'yukleyenId' => $r['personnel_id'] ? (int)$r['personnel_id'] : null, 'yukleyen' => $r['name'], 'unvan' => $r['title'], 'askida' => (bool)$r['banned'], 'uyari' => (int)$r['strike'],
+        'durum' => null, 'url' => dosya_url('vira-dosya', (int)$r['id'], '../')]; }
     // profil fotoğrafları (pp) — yalnızca DEV panelinde moderasyon için; normal hiçbir yerde görünmez
     if ($tur === '' || $tur === 'pp' || $tip === 'foto') {
       $st = db()->query("SELECT id, name, title, avatar, banned, strike, updated_at FROM personnel WHERE avatar IS NOT NULL");
@@ -893,9 +902,10 @@ switch ($r) {
         'durum' => null, 'url' => (string)$r['avatar']];
     }
     usort($all, fn($x, $y) => strcmp($y['tarih'], $x['tarih']));
-    if ($tur !== '' && in_array($tur, ['sikayet', 'egitim', 'duyuru', 'pp'], true)) $all = array_values(array_filter($all, fn($f) => $f['tur'] === $tur));
+    if ($tur !== '' && in_array($tur, ['sikayet', 'egitim', 'duyuru', 'pp', 'vira'], true)) $all = array_values(array_filter($all, fn($f) => $f['tur'] === $tur));
     if ($tip === 'foto') $all = array_values(array_filter($all, fn($f) => strncmp($f['tip'], 'image/', 6) === 0));
     elseif ($tip === 'pdf') $all = array_values(array_filter($all, fn($f) => $f['tip'] === 'application/pdf'));
+    elseif ($tip === 'ses') $all = array_values(array_filter($all, fn($f) => strncmp($f['tip'], 'audio/', 6) === 0));
     $toplam = count($all);
     ok(['toplam' => $toplam, 'sayfa' => $sayfa, 'sayfaSayisi' => max(1, (int)ceil($toplam / $adet)), 'foto' => count(array_filter($all, fn($f) => strncmp($f['tip'], 'image/', 6) === 0)),
       'dosyalar' => array_slice($all, ($sayfa - 1) * $adet, $adet)]);
@@ -908,6 +918,12 @@ switch ($r) {
       $uploader = $r ? $id : null; $uad = $r['name'] ?? ''; $utitle = $r['title'] ?? '';
       db()->prepare('UPDATE personnel SET avatar = NULL WHERE id = ?')->execute([$id]);
     } elseif ($kaynak === 'ek') { db()->prepare('DELETE FROM duyuru_ek WHERE id = ?')->execute([$id]); }
+    elseif ($kaynak === 'vira') { // Vira fotoğrafı/sesi: dosya silinir, mesaj metni kayıtta kalır
+      luci_table(); $st = db()->prepare('SELECT m.personnel_id, m.foto, p.name, p.title FROM luci_mesajlar m LEFT JOIN personnel p ON p.id = m.personnel_id WHERE m.id = ?'); $st->execute([$id]); $r = $st->fetch();
+      $uploader = $r && $r['personnel_id'] ? (int)$r['personnel_id'] : null; $uad = $r['name'] ?? ''; $utitle = $r['title'] ?? '';
+      if ($r && $r['foto'] && strpos((string)$r['foto'], '..') === false) @unlink(uploads_dir() . '/' . $r['foto']);
+      db()->prepare('UPDATE luci_mesajlar SET foto = NULL, foto_tip = NULL WHERE id = ?')->execute([$id]);
+    }
     else {
       $st = db()->prepare('SELECT d.uploader_id, d.yol, p.name, p.title FROM dosyalar d LEFT JOIN personnel p ON p.id = d.uploader_id WHERE d.id = ?'); $st->execute([$id]); $r = $st->fetch();
       $uploader = $r && $r['uploader_id'] ? (int)$r['uploader_id'] : null; $uad = $r['name'] ?? ''; $utitle = $r['title'] ?? '';
@@ -1032,30 +1048,37 @@ switch ($r) {
     }
     $key = luci_key(); if ($key === '') fail(503, 'Vira şu an kapalı.', ['kapali' => true]);
     // isteğe bağlı sesli soru (WAV): önce yazıya çevrilir, ses dosyası saklanmaz
-    $sesli = false; $sr = (string)(body()['ses'] ?? '');
+    $sesli = false; $sesYol = null; $sr = (string)(body()['ses'] ?? '');
+    $sohbetIn = substr(preg_replace('/[^a-z0-9]/', '', strtolower((string)(body()['sohbet'] ?? ''))) ?? '', 0, 24);
     if ($sr !== '' && $msg === '') {
       if (!preg_match('#^data:audio/wav;base64,([A-Za-z0-9+/=]+)$#', $sr, $sm)) fail(400, 'Ses kaydı okunamadı.');
       $sb = base64_decode($sm[1], true);
       if ($sb === false || strlen($sb) < 2000 || strncmp($sb, 'RIFF', 4) !== 0) fail(400, 'Ses kaydı çok kısa ya da okunamadı.');
       if (strlen($sb) > 3 * 1048576) fail(413, 'Ses kaydı çok uzun (en fazla 45 saniye).');
       @set_time_limit(90);
+      // ses kaydı gizli klasöre kaydedilir (yalnızca DEV paneli: Dosyalar ve Vira sohbetleri)
+      $tmp = tempnam(sys_get_temp_dir(), 'vira'); file_put_contents($tmp, $sb);
+      $sesYol = (store_upload($tmp, 'audio/wav', 'vira-ses', false, ['audio/wav' => 'wav'])['yol'] ?? null); @unlink($tmp);
       [$yazi, $serr] = gemini_generate($key, ['contents' => [['role' => 'user', 'parts' => [
         ['inlineData' => ['mimeType' => 'audio/wav', 'data' => base64_encode($sb)]],
         ['text' => 'Bu Türkçe ses kaydında söyleneni aynen yazıya dök. Yalnızca söylenen cümleyi yaz; açıklama, tırnak ya da başka bir şey ekleme. Anlaşılır bir konuşma yoksa yalnızca - yaz.']]]],
         'generationConfig' => ['temperature' => 0, 'maxOutputTokens' => 300, 'thinkingConfig' => ['thinkingBudget' => 0]]], 40, ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-3.8-flash']);
       $yazi = trim(preg_replace('/\s+/u', ' ', (string)$yazi) ?? '', " \t\n\"'“”");
-      if ($yazi === '' || $yazi === '-') fail(422, 'Sesini tam anlayamadım 🙂 Biraz daha yakından ve net söyler misin?', ($u['title'] ?? '') === 'dev' && $serr ? ['detay' => $serr] : []);
+      if ($yazi === '' || $yazi === '-') {
+        if ($sesYol) db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at, foto, foto_tip, sohbet) VALUES (?, 'kisi', ?, ?, ?, 'audio/wav', ?)")->execute([$u['id'], '🎤 (sesli soru anlaşılamadı)', now(), $sesYol, $sohbetIn ?: null]);
+        fail(422, 'Sesini tam anlayamadım 🙂 Biraz daha yakından ve net söyler misin?', ($u['title'] ?? '') === 'dev' && $serr ? ['detay' => $serr] : []);
+      }
       $msg = mb_substr($yazi, 0, 600); $sesli = true;
     }
     if ($msg === '' && !$foto) fail(400, 'Mesaj boş.');
-    if ($foto) { $st = db()->prepare("SELECT COUNT(*) FROM luci_mesajlar WHERE personnel_id = ? AND foto IS NOT NULL AND created_at > ?"); $st->execute([$u['id'], gmdate('Y-m-d H:i:s', time() - 3600)]);
+    if ($foto) { $st = db()->prepare("SELECT COUNT(*) FROM luci_mesajlar WHERE personnel_id = ? AND foto IS NOT NULL AND foto_tip LIKE 'image/%' AND created_at > ?"); $st->execute([$u['id'], gmdate('Y-m-d H:i:s', time() - 3600)]);
       if ((int)$st->fetchColumn() >= 15) fail(429, 'Son bir saatte çok fotoğraf gönderdin 🙂 Birazdan yine gönderebilirsin.'); }
     $st = db()->prepare("SELECT COUNT(*) FROM luci_mesajlar WHERE personnel_id = ? AND rol = 'kisi' AND created_at > ?"); $st->execute([$u['id'], gmdate('Y-m-d H:i:s', time() - 3600)]);
     if ((int)$st->fetchColumn() >= 40) fail(429, 'Biraz soluklanalım 🙂 Son bir saatte çok mesaj yazdın; birazdan yine yazabilirsin.');
     // geçmiş (son 12 mesaj) — kayıttan önce okunur
     $sohbet = substr(preg_replace('/[^a-z0-9]/', '', strtolower((string)(body()['sohbet'] ?? ''))) ?? '', 0, 24);
-    if ($sohbet !== '') { $st = db()->prepare('SELECT rol, metin, foto FROM luci_mesajlar WHERE personnel_id = ? AND sohbet = ? ORDER BY id DESC LIMIT 12'); $st->execute([$u['id'], $sohbet]); }
-    else { $st = db()->prepare('SELECT rol, metin, foto FROM luci_mesajlar WHERE personnel_id = ? ORDER BY id DESC LIMIT 12'); $st->execute([$u['id']]); } // eski sürümler
+    if ($sohbet !== '') { $st = db()->prepare('SELECT rol, metin, foto, foto_tip FROM luci_mesajlar WHERE personnel_id = ? AND sohbet = ? ORDER BY id DESC LIMIT 12'); $st->execute([$u['id'], $sohbet]); }
+    else { $st = db()->prepare('SELECT rol, metin, foto, foto_tip FROM luci_mesajlar WHERE personnel_id = ? ORDER BY id DESC LIMIT 12'); $st->execute([$u['id']]); } // eski sürümler
     $gecmis = array_reverse($st->fetchAll());
     $yol = null;
     if ($foto) { // gizli kayıt: ccn-veri/ (web'den erişilemez), yalnızca kişinin kendisi ve DEV paneli görür
@@ -1063,9 +1086,9 @@ switch ($r) {
       $s = store_upload($tmp, $foto['tip'], 'vira-foto', false); @unlink($tmp);
       $yol = $s['yol'] ?? null;
     }
-    db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at, foto, foto_tip, sohbet) VALUES (?, 'kisi', ?, ?, ?, ?, ?)")->execute([$u['id'], $msg, now(), $yol, $foto ? $foto['tip'] : null, $sohbet ?: null]);
+    db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at, foto, foto_tip, sohbet) VALUES (?, 'kisi', ?, ?, ?, ?, ?)")->execute([$u['id'], $msg, now(), $yol ?? $sesYol, $yol ? $foto['tip'] : ($sesYol ? 'audio/wav' : null), $sohbet ?: null]);
     $contents = [];
-    foreach ($gecmis as $g) { $tx = ($g['foto'] ? '[Fotoğraf gönderdi] ' : '') . $g['metin']; if (trim($tx) === '') continue; $contents[] = ['role' => $g['rol'] === 'luci' ? 'model' : 'user', 'parts' => [['text' => $tx]]]; }
+    foreach ($gecmis as $g) { $tx = ($g['foto'] && strncmp((string)$g['foto_tip'], 'image/', 6) === 0 ? '[Fotoğraf gönderdi] ' : '') . $g['metin']; if (trim($tx) === '') continue; $contents[] = ['role' => $g['rol'] === 'luci' ? 'model' : 'user', 'parts' => [['text' => $tx]]]; }
     $parts = [];
     if ($foto) $parts[] = ['inlineData' => ['mimeType' => $foto['tip'], 'data' => base64_encode($foto['bin'])]];
     $parts[] = ['text' => $msg !== '' ? $msg : 'Bu fotoğrafı gönderdim.'];
@@ -1081,6 +1104,14 @@ switch ($r) {
     db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at, sohbet) VALUES (?, 'luci', ?, ?, ?)")->execute([$u['id'], $cevap, now(), $sohbet ?: null]);
     ok(['cevap' => $cevap] + ($sesli ? ['soru' => $msg] : []));
   }
+  // DEV paneli Dosyalar: imzalı bağlantı ('vira:' imzası; şikayet/eğitim bağlantılarıyla karışmaz)
+  case 'vira-dosya': {
+    $id = (int)($_GET['id'] ?? 0); $e = (int)($_GET['e'] ?? 0); $k = (string)($_GET['k'] ?? '');
+    if ($e < time() || !hash_equals(hmac("vira:$id:$e"), $k)) fail(403, 'Bağlantının süresi doldu. Sayfayı yenileyin.');
+    luci_table(); $st = db()->prepare('SELECT foto, foto_tip FROM luci_mesajlar WHERE id = ?'); $st->execute([$id]); $f = $st->fetch();
+    if (!$f || !$f['foto']) fail(404, 'Dosya bulunamadı.');
+    serve_file($f['foto'], $f['foto_tip'] ?: 'image/jpeg', strncmp((string)$f['foto_tip'], 'audio/', 6) === 0 ? 'vira-ses.wav' : 'vira-foto');
+  }
   // Vira'ya gönderilen fotoğraf: yalnızca gönderen kişi (luci-foto) ya da DEV paneli (dev-luci-foto)
   case 'luci-foto':
   case 'dev-luci-foto': {
@@ -1094,9 +1125,9 @@ switch ($r) {
     dev_only(); luci_table();
     $kisi = (int)($_GET['kisi'] ?? 0);
     if ($kisi) {
-      $st = db()->prepare('SELECT id, rol, metin, created_at, foto FROM luci_mesajlar WHERE personnel_id = ? ORDER BY id LIMIT 2000'); $st->execute([$kisi]);
+      $st = db()->prepare('SELECT id, rol, metin, created_at, foto, foto_tip FROM luci_mesajlar WHERE personnel_id = ? ORDER BY id LIMIT 2000'); $st->execute([$kisi]);
       $p = db()->prepare('SELECT name, title FROM personnel WHERE id = ?'); $p->execute([$kisi]); $pp = $p->fetch() ?: ['name' => '(silinmiş hesap)', 'title' => ''];
-      ok(['kisi' => ['id' => $kisi, 'ad' => $pp['name'], 'unvan' => $pp['title']], 'mesajlar' => array_map(fn($r) => ['rol' => $r['rol'], 'metin' => $r['metin'], 'tarih' => utc($r['created_at'])] + ($r['foto'] ? ['foto' => (int)$r['id']] : []), $st->fetchAll())]);
+      ok(['kisi' => ['id' => $kisi, 'ad' => $pp['name'], 'unvan' => $pp['title']], 'mesajlar' => array_map(fn($r) => ['rol' => $r['rol'], 'metin' => $r['metin'], 'tarih' => utc($r['created_at'])] + ($r['foto'] ? ['foto' => (int)$r['id'], 'tip' => $r['foto_tip'] ?: 'image/jpeg'] : []), $st->fetchAll())]);
     }
     $q = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 80); $w = ''; $a = [];
     if ($q !== '') { $w = 'WHERE (m.metin LIKE ? OR p.name LIKE ?)'; $a = ["%$q%", "%$q%"]; }
@@ -1413,7 +1444,7 @@ function mime_tip(string $path, string $given): string {
   if (isset(UPLOAD_TYPES[$given])) return $given;
   fail(400, 'Bu dosya türü yüklenemez (yalnızca fotoğraf, video ve PDF).');
 }
-function dosya_url(string $r, int $id, string $pfx = ''): string { $exp = time() + 86400; return "{$pfx}api.php?r=$r&id=$id&e=$exp&k=" . hmac(($r === 'ek' ? 'ek:' : 'dosya:') . "$id:$exp"); }
+function dosya_url(string $r, int $id, string $pfx = ''): string { $exp = time() + 86400; return "{$pfx}api.php?r=$r&id=$id&e=$exp&k=" . hmac(($r === 'ek' ? 'ek:' : ($r === 'vira-dosya' ? 'vira:' : 'dosya:')) . "$id:$exp"); }
 // "Vira aktif" duyurusu: Vira ilk açıldığında herkese BİR KEZ gider (yönetici/DEV isteğiyle tetiklenir)
 function vira_duyuru(array $u): void {
   if (!in_array((string)($u['title'] ?? ($u['role'] === 'admin' ? 'yonetici' : '')), ['dev', 'yonetici'], true)) return;
