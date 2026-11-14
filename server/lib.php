@@ -284,6 +284,8 @@ function luci_table(?PDO $pdo = null): void {
   ($pdo ?? db())->exec("CREATE TABLE IF NOT EXISTS luci_mesajlar (id BIGINT AUTO_INCREMENT PRIMARY KEY, personnel_id INT NOT NULL, rol VARCHAR(5) NOT NULL, metin TEXT NOT NULL, created_at DATETIME NOT NULL, INDEX (personnel_id, id), INDEX (created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
   // fotoğraf sütunu (gizli; dosya ccn-veri/ içinde, dışarıdan erişilemez)
   $pd = $pdo ?? db();
+  // sohbet: uygulamanın her açılışında yeni kimlik; Vira yalnızca o sohbetin geçmişini hatırlar (kayıtlar yine tümüyle saklanır)
+  if (!$pd->query("SHOW COLUMNS FROM luci_mesajlar LIKE 'sohbet'")->fetch()) { try { $pd->exec('ALTER TABLE luci_mesajlar ADD COLUMN sohbet VARCHAR(24) NULL'); } catch (Throwable $e) { /* başka istek eklemiş olabilir */ } }
   if (!$pd->query("SHOW COLUMNS FROM luci_mesajlar LIKE 'foto'")->fetch()) { try { $pd->exec('ALTER TABLE luci_mesajlar ADD COLUMN foto VARCHAR(120) NULL, ADD COLUMN foto_tip VARCHAR(20) NULL'); } catch (Throwable $e) { /* başka istek eklemiş olabilir */ } }
 }
 // Luci'nin anahtarı: panelden girilen Gemini anahtarı; yoksa isim okuma anahtarı Gemini ise o

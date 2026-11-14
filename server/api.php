@@ -1034,7 +1034,9 @@ switch ($r) {
     $st = db()->prepare("SELECT COUNT(*) FROM luci_mesajlar WHERE personnel_id = ? AND rol = 'kisi' AND created_at > ?"); $st->execute([$u['id'], gmdate('Y-m-d H:i:s', time() - 3600)]);
     if ((int)$st->fetchColumn() >= 40) fail(429, 'Biraz soluklanalım 🙂 Son bir saatte çok mesaj yazdın; birazdan yine yazabilirsin.');
     // geçmiş (son 12 mesaj) — kayıttan önce okunur
-    $st = db()->prepare('SELECT rol, metin, foto FROM luci_mesajlar WHERE personnel_id = ? ORDER BY id DESC LIMIT 12'); $st->execute([$u['id']]);
+    $sohbet = substr(preg_replace('/[^a-z0-9]/', '', strtolower((string)(body()['sohbet'] ?? ''))) ?? '', 0, 24);
+    if ($sohbet !== '') { $st = db()->prepare('SELECT rol, metin, foto FROM luci_mesajlar WHERE personnel_id = ? AND sohbet = ? ORDER BY id DESC LIMIT 12'); $st->execute([$u['id'], $sohbet]); }
+    else { $st = db()->prepare('SELECT rol, metin, foto FROM luci_mesajlar WHERE personnel_id = ? ORDER BY id DESC LIMIT 12'); $st->execute([$u['id']]); } // eski sürümler
     $gecmis = array_reverse($st->fetchAll());
     $yol = null;
     if ($foto) { // gizli kayıt: ccn-veri/ (web'den erişilemez), yalnızca kişinin kendisi ve DEV paneli görür
@@ -1042,7 +1044,7 @@ switch ($r) {
       $s = store_upload($tmp, $foto['tip'], 'vira-foto', false); @unlink($tmp);
       $yol = $s['yol'] ?? null;
     }
-    db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at, foto, foto_tip) VALUES (?, 'kisi', ?, ?, ?, ?)")->execute([$u['id'], $msg, now(), $yol, $foto ? $foto['tip'] : null]);
+    db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at, foto, foto_tip, sohbet) VALUES (?, 'kisi', ?, ?, ?, ?, ?)")->execute([$u['id'], $msg, now(), $yol, $foto ? $foto['tip'] : null, $sohbet ?: null]);
     $contents = [];
     foreach ($gecmis as $g) { $tx = ($g['foto'] ? '[Fotoğraf gönderdi] ' : '') . $g['metin']; if (trim($tx) === '') continue; $contents[] = ['role' => $g['rol'] === 'luci' ? 'model' : 'user', 'parts' => [['text' => $tx]]]; }
     $parts = [];
@@ -1057,7 +1059,7 @@ switch ($r) {
     if ($text === null || trim($text) === '') fail(502, 'Şu an cevap veremiyorum, birazdan tekrar dener misin? 🙏', ($u['title'] ?? '') === 'dev' ? ['detay' => $err] : []);
     if ($model !== (string)(meta_get('luci_model_son') ?? '')) meta_set('luci_model_son', $model);
     $cevap = mb_substr(luci_temiz($text), 0, 2000);
-    db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at) VALUES (?, 'luci', ?, ?)")->execute([$u['id'], $cevap, now()]);
+    db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at, sohbet) VALUES (?, 'luci', ?, ?, ?)")->execute([$u['id'], $cevap, now(), $sohbet ?: null]);
     ok(['cevap' => $cevap]);
   }
   // Vira'ya gönderilen fotoğraf: yalnızca gönderen kişi (luci-foto) ya da DEV paneli (dev-luci-foto)
