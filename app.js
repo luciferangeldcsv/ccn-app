@@ -94,7 +94,7 @@ function defaultStore() {
 let store = load();
 
 // ---------- Cihaz tercihleri (tema, izinler) ve hata günlüğü: "Tüm verileri sil" bunlara dokunmaz ----------
-const APP_VERSION = /^\d/.test('2.9.7') ? '2.9.7' : 'web';
+const APP_VERSION = /^\d/.test('2.9.8') ? '2.9.8' : 'web';
 const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.vardiyapanosu.app';
 const PREFS_KEY = 'ccn-vardiya-prefs', ERR_KEY = 'ccn-vardiya-hatalar';
 const readLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
@@ -1312,7 +1312,8 @@ function viewDaily() {
 function shareText(date, which, fmt) {
   const lists = dayLists(date);
   const F = fmt || store.settings.share || { bold: true, style: 'num' };
-  const B = (t) => (F.bold ? `*${t}*` : t);
+  // başlıklar düz yazı: *…* bazı uygulamalarda kalın, bazılarında eğik görünüyordu
+  const B = (t) => t;
   // çalışanlar, OFF, raporlu, izinli: hepsi alt alta liste
   const list = (arr) => (arr.length ? arr.map((p, i) => (F.style === 'num' ? `${i + 1}. ` : F.style === 'bullet' ? '• ' : '') + p.name) : ['-']);
   const block = (g) => {
@@ -1396,7 +1397,7 @@ function mineExtras(me) {
 function myShareText(me) {
   const t = todayIso(); const days = Object.keys(me.days).filter((d) => d >= t).sort().slice(0, 31);
   const L = { OFF: 'OFF', R: 'Rapor', YI: 'Yıllık izin', UI: 'Ücretsiz izin', MI: 'İzin' };
-  return `*${me.name} · vardiya günleri*\n` + days.map((d) => { const c = me.days[d]; return `${fmtShort(d).slice(0, 5)} ${DAY_SHORT[parseIso(d).getDay()]}: ${['1', '2', '3'].includes(c) ? `${c}. vardiya (${store.settings.hours[c] || ''})` : (L[c] || c)}`; }).join('\n');
+  return `${me.name} · vardiya günleri\n` + days.map((d) => { const c = me.days[d]; return `${fmtShort(d).slice(0, 5)} ${DAY_SHORT[parseIso(d).getDay()]}: ${['1', '2', '3'].includes(c) ? `${c}. vardiya (${store.settings.hours[c] || ''})` : (L[c] || c)}`; }).join('\n');
 }
 
 async function changePassword(btn) {
@@ -2003,10 +2004,9 @@ function viewSettings() {
     <div class="setrow"><span><b>Yazı boyutu</b><small>Bu cihazda</small></span>
       <div class="seg seg3 mini" role="radiogroup" aria-label="Yazı boyutu">${[['1', 'Normal'], ['2', 'Büyük'], ['3', 'Çok büyük']].map(([v, l]) => `<button role="radio" data-act="fs" data-v="${v}" aria-checked="${(prefs.fontScale || '1') === v}">${l}</button>`).join('')}</div></div>
     ${sw('data-pref="cb"', !!prefs.colorSafe, 'Renk körlüğüne uygun renkler', 'Vardiya renkleri kırmızı-yeşil ayrımı gerektirmeyen bir paletle gösterilir (bu cihazda)')}
-    ${sw('data-pref="bold"', S.share.bold, 'Paylaşımda başlıklar kalın', 'WhatsApp’ta *kalın* görünür')}
     <div class="setrow"><span><b>İsim listesi biçimi</b><small>Paylaşılan listede isimlerin başı</small></span>
       <div class="seg seg3 mini" role="radiogroup" aria-label="İsim listesi">${[['num', '1. 2. 3.'], ['bullet', '• Madde'], ['plain', 'Düz']].map(([v, l]) => `<button role="radio" data-act="set-sh-style" data-v="${v}" aria-selected="${S.share.style === v}" aria-checked="${S.share.style === v}">${l}</button>`).join('')}</div></div>
-    <pre class="share-prev">${esc((S.share.bold ? '*1. VARDİYA*' : '1. VARDİYA') + '\n' + (S.share.bold ? '*Çalışanlar (2)*' : 'Çalışanlar (2)') + '\n' + ['Ayşe Demir', 'Mehmet Kaya'].map((n, i) => (S.share.style === 'num' ? i + 1 + '. ' : S.share.style === 'bullet' ? '• ' : '') + n).join('\n'))}</pre>
+    <pre class="share-prev">${esc('1. VARDİYA\nÇalışanlar (2)\n' + ['Ayşe Demir', 'Mehmet Kaya'].map((n, i) => (S.share.style === 'num' ? i + 1 + '. ' : S.share.style === 'bullet' ? '• ' : '') + n).join('\n'))}</pre>
   </div>`;
   const adminPart = admin ? `<h2 class="sect">Yönetici ayarları${roleNote}</h2>
   <div class="card setlist">
