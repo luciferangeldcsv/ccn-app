@@ -30,7 +30,7 @@ const BOLUMLER = [
   ['id' => 'sari-alan', 'ad' => 'Sarı Alan', 'max' => ['1' => null, '2' => null, '3' => null]],
   ['id' => 'kirmizi-alan', 'ad' => 'Kırmızı Alan', 'max' => ['1' => null, '2' => null, '3' => null]],
 ];
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari', 'luci', 'dev-luci-anahtar', 'luci-ac', 'bolum-kaydet'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari', 'luci', 'dev-luci-anahtar', 'luci-ac', 'bolum-kaydet', 'yoklama-kaydet'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -1209,6 +1209,43 @@ switch ($r) {
     meta_set($key, json_encode(['kisiler' => $kisiler, 'tercih' => $tercih, 'gun' => $gun, 'kap' => $kap, 'ayar' => $ayar, 'yan' => $yan, 'tarih' => now()] + ($eskiAlindi ? ['eskiAlindi' => true] : []), JSON_UNESCAPED_UNICODE));
     audit($u, 'bolum', count($kisiler) . ' kişilik bölüm listesi güncellendi');
     ok(['kisiler' => $kisiler, 'tercih' => (object)$tercih, 'gun' => (object)array_map(fn($x) => (object)$x, $gun), 'kap' => (object)array_map(fn($x) => (object)$x, $kap), 'ayar' => (object)array_map(fn($x) => (object)$x, $ayar), 'yan' => (object)$yan]);
+  }
+  // ---------- Şef yoklaması: vardiya başında geldi / geç / gelmedi (şef ve üstü) ----------
+  case 'yoklama': {
+    require_level(2, 'Yoklamayı yalnızca şef ve üstü görebilir.'); yoklama_table();
+    $tarih = (string)($_GET['tarih'] ?? ''); $v = (string)($_GET['vardiya'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $tarih) || !in_array($v, ['1', '2', '3'], true)) fail(400, 'Tarih ya da vardiya geçersiz.');
+    $st = db()->prepare('SELECT kisi, ad, durum, dakika, notu, isaretleyen, updated_at FROM yoklama WHERE tarih = ? AND vardiya = ?'); $st->execute([$tarih, $v]);
+    $out = []; foreach ($st as $r) $out[$r['kisi']] = ['ad' => $r['ad'], 'durum' => $r['durum'], 'dakika' => $r['dakika'] !== null ? (int)$r['dakika'] : null, 'not' => $r['notu'], 'kim' => $r['isaretleyen'], 'zaman' => utc($r['updated_at'])];
+    ok(['kayit' => (object)$out]);
+  }
+  case 'yoklama-kaydet': {
+    $u = require_level(2, 'Yoklamayı yalnızca şef ve üstü alabilir.'); yoklama_table();
+    $tarih = (string)(body()['tarih'] ?? ''); $v = (string)(body()['vardiya'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $tarih) || !in_array($v, ['1', '2', '3'], true)) fail(400, 'Tarih ya da vardiya geçersiz.');
+    if ($tarih > gmdate('Y-m-d', time() + 10800 + 86400)) fail(400, 'İleri bir tarih için yoklama alınamaz.');
+    $liste = body()['kisiler'] ?? null; if (!is_array($liste) || !$liste || count($liste) > 300) fail(400, 'Kişi yok.');
+    $n = 0;
+    foreach ($liste as $x) {
+      $k = (string)($x['kisi'] ?? ''); if (!preg_match('/^[a-z]{2,80}$/', $k)) continue;
+      $durum = (string)($x['durum'] ?? '');
+      if ($durum === '') { db()->prepare('DELETE FROM yoklama WHERE tarih = ? AND vardiya = ? AND kisi = ?')->execute([$tarih, $v, $k]); $n++; continue; }
+      if (!in_array($durum, ['geldi', 'gec', 'gelmedi'], true)) continue;
+      $dk = $durum === 'gec' && isset($x['dakika']) && $x['dakika'] !== '' ? max(1, min(600, (int)$x['dakika'])) : null;
+      $not = mb_substr(trim((string)($x['not'] ?? '')), 0, 200) ?: null; $ad = mb_substr(trim((string)($x['ad'] ?? $k)), 0, 120);
+      db()->prepare('INSERT INTO yoklama (tarih, vardiya, kisi, ad, durum, dakika, notu, isaretleyen, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE ad = VALUES(ad), durum = VALUES(durum), dakika = VALUES(dakika), notu = VALUES(notu), isaretleyen = VALUES(isaretleyen), updated_at = VALUES(updated_at)')
+        ->execute([$tarih, $v, $k, $ad, $durum, $dk, $not, shown_name($u), now()]);
+      $n++;
+    }
+    if ($n > 1) audit($u, 'yoklama', "$tarih $v. vardiya: $n kişi işaretlendi");
+    ok(['n' => $n]);
+  }
+  case 'yoklama-ozet': {
+    require_level(2, 'Yoklamayı yalnızca şef ve üstü görebilir.'); yoklama_table();
+    $ay = (string)($_GET['ay'] ?? ''); if (!preg_match('/^\d{4}-\d{2}$/', $ay)) fail(400, 'Ay geçersiz.');
+    $st = db()->prepare("SELECT kisi, MAX(ad) ad, SUM(durum = 'geldi') geldi, SUM(durum = 'gec') gec, SUM(durum = 'gelmedi') gelmedi, COALESCE(SUM(CASE WHEN durum = 'gec' THEN dakika END), 0) gecdk FROM yoklama WHERE tarih BETWEEN ? AND LAST_DAY(?) GROUP BY kisi ORDER BY gelmedi DESC, gec DESC, ad");
+    $st->execute(["$ay-01", "$ay-01"]);
+    ok(['kisiler' => array_map(fn($r) => ['kisi' => $r['kisi'], 'ad' => $r['ad'], 'geldi' => (int)$r['geldi'], 'gec' => (int)$r['gec'], 'gelmedi' => (int)$r['gelmedi'], 'gecdk' => (int)$r['gecdk']], $st->fetchAll())]);
   }
   // DEV paneli Dosyalar: imzalı bağlantı ('vira:' imzası; şikayet/eğitim bağlantılarıyla karışmaz)
   case 'vira-dosya': {
