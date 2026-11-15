@@ -1119,12 +1119,20 @@ switch ($r) {
   // ---------- Bölümler (deneme): yalnızca şefler (ve deneme için DEV); her şef YALNIZCA kendi listesini görür ----------
   // meta bolum_liste:<id> = { kisiler: [nameKey], tercih: { nameKey: bölüm } (her gün), gun: { 'YYYY-MM-DD|vardiya': { nameKey: bölüm } } (o güne özel) }
   case 'bolumler': {
-    $u = bolum_sefi();
-    $d = json_decode((string)(meta_get('bolum_liste:' . (int)$u['id']) ?? ''), true) ?: [];
+    $u = bolum_sefi(); $dev = ($u['title'] ?? '') === 'dev';
+    // şef yalnızca kendi listesini görür; DEV menüden herhangi bir şefin listesini salt okunur açabilir
+    $sef = (int)($_GET['sef'] ?? 0) ?: (int)$u['id'];
+    if ($sef !== (int)$u['id'] && !$dev) fail(403, 'Yalnızca kendi listeni görebilirsin.');
+    $d = json_decode((string)(meta_get('bolum_liste:' . $sef) ?? ''), true) ?: [];
+    $st = db()->prepare('SELECT name FROM personnel WHERE id = ?'); $st->execute([$sef]); $sahipAd = (string)($st->fetchColumn() ?: '');
+    $sefler = [];
+    if ($dev) foreach (db()->query("SELECT p.id, p.name, m.v FROM personnel p LEFT JOIN meta m ON m.k = CONCAT('bolum_liste:', p.id) WHERE p.title = 'sef' AND p.banned = 0 ORDER BY p.name") as $r)
+      $sefler[] = ['id' => (int)$r['id'], 'ad' => $r['name'], 'kisi' => count((json_decode((string)($r['v'] ?? ''), true) ?: [])['kisiler'] ?? [])];
     // ilk denemenin ortak kaydı (bolum_atama) duruyorsa şefe "geri getir" önerilir
     $eski = json_decode((string)(meta_get('bolum_atama') ?? ''), true) ?: []; $eskiN = count((array)($eski['atama'] ?? []));
     ok(['alanlar' => BOLUMLER, 'kisiler' => array_values($d['kisiler'] ?? []), 'tercih' => (object)($d['tercih'] ?? []), 'gun' => (object)array_map(fn($x) => (object)$x, $d['gun'] ?? []), 'tarih' => isset($d['tarih']) ? utc($d['tarih']) : null]
-      + ($eskiN && empty($d['eskiAlindi']) ? ['eski' => ['sayi' => $eskiN, 'guncelleyen' => $eski['guncelleyen'] ?? null, 'tarih' => isset($eski['tarih']) ? utc($eski['tarih']) : null]] : []));
+      + ['sahip' => ['id' => $sef, 'ad' => $sahipAd, 'ben' => $sef === (int)$u['id']], 'sefler' => $sefler]
+      + ($sef === (int)$u['id'] && $eskiN && empty($d['eskiAlindi']) ? ['eski' => ['sayi' => $eskiN, 'guncelleyen' => $eski['guncelleyen'] ?? null, 'tarih' => isset($eski['tarih']) ? utc($eski['tarih']) : null]] : []));
   }
   case 'bolum-kaydet': {
     $u = bolum_sefi();
