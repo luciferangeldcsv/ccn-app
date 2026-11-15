@@ -2170,6 +2170,10 @@ const actions = {
   'b-yenile': () => { srv.bolum = null; render(); },
   'b-ekle': (el) => areaAddSheet(el.dataset.a),
   'b-ayar': () => areaSettingsSheet(),
+  'b-sabitle': () => { const { g, cards } = areaData(); const deg = {}; let n = 0;
+    cards.forEach((c) => { if (c.a.id === '_bos') return; c.kisiler.forEach((p) => { if (srv.bolum.tercih[p.ak] !== c.a.id) { deg[p.ak] = c.a.id; n++; } }); });
+    if (!n) { toast('Ekrandaki herkes zaten bölümüne sabit'); return; }
+    confirmSheet('Bu düzen sabitlensin mi?', `Ekrandaki ${n} kişi şu an bulunduğu bölüme sabitlenir (📌). Her gün çalışanlar kendi bölümüne konur; OFF ya da izinli olanın yeri sabitlenmemişlerden, yoksa Sarı/Kırmızı Alan'dakilerden doldurulur. ${g}. vardiyada bugün çalışmayan seçilmişler için o günlere bakıp ayrıca sabitleyebilirsin.`, 'Sabitle', () => saveAreas({ tercih: deg }, `${n} kişi sabitlendi 📌`)); },
   'b-cikar': (el) => areaRemove(el.dataset.k, el.dataset.a),
   'b-kap': (el) => areaCap(el.dataset.a, Number(el.dataset.n)),
   'b-liste-sil': () => { const B = srv.bolum; const ben = !B.sahip || B.sahip.ben; confirmSheet(ben ? 'Listen silinsin mi?' : `${niceName(B.sahip.ad)} listesi silinsin mi?`, 'Seçilen personel, sabitlemeler ve günlük değişiklikler silinir (sunucuda bir yedeği tutulur).', 'Sil', () => saveAreas(ben ? { listeSil: true } : { listeSil: true, sef: B.sahip.id }, 'Liste silindi').then(() => { if (!ben) { srv.bolum = null; render(); } })); },
@@ -2925,19 +2929,32 @@ function areaBase(a, g, ayar) {
   if (s !== undefined && s !== null) return s;
   return a.max && Object.prototype.hasOwnProperty.call(a.max, g) ? a.max[g] : undefined;
 }
+// Dağılım (her gün, o gün çalışan seçilmişler arasından):
+// 1) sınırlı bölüme 📌 sabitlenenler (sınır içinde), 2) sınırlı bölümlerin boşlukları sırayla: önce sabitlenmemişler, sonra bölümü dolu olan sabitler,
+//    en son Sarı/Kırmızı'ya sabitlenenler, 3) Sarı/Kırmızı'ya sabitlenenler kendi alanına, kalanlar Sarı ve Kırmızı'ya eşit
 function areaDistribute(working, alanlar, g, tercih, gunM, kapM, ayar) {
   gunM = gunM || {}; kapM = kapM || {};
   const act = alanlar.filter((a) => { const b = areaBase(a, g, ayar); return b !== undefined && b !== 0; });
   const base = (a) => { const b = areaBase(a, g, ayar); return b == null ? Infinity : b; };
   const cap = (a) => (kapM[a.id] != null ? kapM[a.id] : base(a));
-  const not = (p, id) => gunM[p.ak] === '-' + id; // bu gün bu bölüme konmasın (×)
-  const res = Object.fromEntries(act.map((a) => [a.id, []])); let pool = [];
+  const not = (p, id) => gunM[p.ak] === '-' + id || tercih[p.ak] === '-' + id; // bu bölüme konmasın (×)
+  const res = Object.fromEntries(act.map((a) => [a.id, []]));
+  const lim = act.filter((a) => cap(a) !== Infinity); const rest = act.filter((a) => cap(a) === Infinity);
+  const restPin = (p) => rest.some((a) => a.id === tercih[p.ak]);
+  let pool = [];
   for (const p of working) { const a = act.find((x) => x.id === gunM[p.ak]); if (a) res[a.id].push({ ...p, gun: true }); else pool.push(p); }
-  const rest0 = pool; pool = [];
-  for (const p of rest0) { const a = act.find((x) => x.id === tercih[p.ak]); if (a && !not(p, a.id) && res[a.id].length < cap(a)) res[a.id].push({ ...p, pin: true }); else pool.push(p); }
-  for (const a of act) if (cap(a) !== Infinity) while (res[a.id].length < cap(a)) { const i = pool.findIndex((p) => !not(p, a.id)); if (i < 0) break; res[a.id].push(pool.splice(i, 1)[0]); }
-  const rest = act.filter((a) => cap(a) === Infinity); const kalan = [];
-  for (const p of pool) { const ok = rest.filter((a) => !not(p, a.id)); if (!ok.length) { kalan.push(p); continue; } const a = ok.reduce((m, x) => (res[x.id].length < res[m.id].length ? x : m), ok[0]); res[a.id].push(p); }
+  const p1 = pool; pool = [];
+  for (const p of p1) { const a = lim.find((x) => x.id === tercih[p.ak]); if (a && !not(p, a.id) && res[a.id].length < cap(a)) res[a.id].push({ ...p, pin: true }); else pool.push(p); }
+  const sira = (p) => (!tercih[p.ak] || String(tercih[p.ak]).startsWith('-') ? 0 : restPin(p) ? 2 : 1);
+  pool.sort((x, y) => sira(x) - sira(y)); // sıralama kararlı: aynı gruptakiler isim sırasında kalır
+  for (const a of lim) while (res[a.id].length < cap(a)) { const i = pool.findIndex((p) => !not(p, a.id)); if (i < 0) break; res[a.id].push(pool.splice(i, 1)[0]); }
+  const kalan = [];
+  for (const p of pool) {
+    const pa = rest.find((x) => x.id === tercih[p.ak] && !not(p, x.id));
+    if (pa) { res[pa.id].push({ ...p, pin: true }); continue; }
+    const ok = rest.filter((a) => !not(p, a.id)); if (!ok.length) { kalan.push(p); continue; }
+    const a = ok.reduce((m, x) => (res[x.id].length < res[m.id].length ? x : m), ok[0]); res[a.id].push(p);
+  }
   return act.map((a) => ({ a, cap: cap(a), varsayilan: base(a), kisiler: res[a.id] })).concat(kalan.length ? [{ a: { id: '_bos', ad: 'Bölümsüz' }, cap: Infinity, varsayilan: Infinity, kisiler: kalan }] : []);
 }
 function areaData() {
@@ -2947,7 +2964,8 @@ function areaData() {
   const mine = B.kisiler.map((k) => byKey[k]).filter(Boolean).sort((x, y) => x.name.localeCompare(y.name, 'tr'));
   const yokListede = B.kisiler.filter((k) => !byKey[k]).length;
   const working = mine.filter((p) => p.days[d] === g);
-  const gunM = (B.gun || {})[`${d}|${g}`] || {}; const kapM = (B.kap || {})[`${d}|${g}`] || {};
+  // düzen şef için sabittir (📌 kişi, ⚙ sayı); her gün o gün çalışan seçilmişler arasından kendiliğinden dağıtılır. Eski güne özel kayıtlar kullanılmaz.
+  const gunM = {}; const kapM = {};
   const cards = areaDistribute(working, B.alanlar, g, B.tercih || {}, gunM, kapM, B.ayar || {});
   const ABS = [['OFF', 'OFF'], ['R', 'Raporlu'], ['YI', 'Yıllık izin'], ['UI', 'Ücretsiz izin'], ['MI', 'İzinli']];
   // OFF / rapor / izin: kişi yalnızca kendi vardiyasının kartında görünür (Günlük ekranla aynı kural: dayLists)
@@ -2964,20 +2982,20 @@ function viewAreas() {
   if (B.hata) return `<div class="card"><p style="margin:0">${esc(B.hata)}</p><div style="margin-top:10px"><button class="btn" data-act="b-yenile">Tekrar dene</button></div></div>`;
   const { d, g, mine, working, cards, absent, diger, kayitsiz, yokListede, gunM, kapM } = areaData(); const h = store.settings.hours[g];
   const nGun = Object.keys(gunM).length + Object.keys(kapM).length; const ben = !B.sahip || B.sahip.ben; // başka şefin listesi: salt okunur (yalnızca DEV)
-  const chip = (p, a) => `<li class="mate-li">${ben ? `<button type="button" class="mate-btn" data-act="b-kisi" data-k="${esc(p.ak)}">` : '<span class="mate-btn">'}<span class="av sm">${esc(initials(p.name))}</span><span>${esc(niceName(p.name))}${p.gun ? ' ✎' : p.pin ? ' 📌' : ''}</span>${ben ? '</button>' : '</span>'}${ben && a ? `<button type="button" class="mate-x" data-act="b-cikar" data-k="${esc(p.ak)}" data-a="${esc(a.id)}" aria-label="${esc(niceName(p.name))} bu bölümden çıkar" title="Bu bölümden çıkar (bu gün)">×</button>` : ''}</li>`;
+  const chip = (p, a) => `<li class="mate-li">${ben ? `<button type="button" class="mate-btn" data-act="b-kisi" data-k="${esc(p.ak)}">` : '<span class="mate-btn">'}<span class="av sm">${esc(initials(p.name))}</span><span>${esc(niceName(p.name))}${p.pin ? ' 📌' : ''}</span>${ben ? '</button>' : '</span>'}${ben && a ? `<button type="button" class="mate-x" data-act="b-cikar" data-k="${esc(p.ak)}" data-a="${esc(a.id)}" aria-label="${esc(niceName(p.name))} bu bölümden çıkar" title="Bu bölümden çıkar (her gün)">×</button>` : ''}</li>`;
   const cardHtml = ({ a, cap, varsayilan, kisiler }) => { const st = cap === Infinity ? '' : kisiler.length > cap ? ' fazla' : kisiler.length < cap ? ' eksik' : '';
     const bos = a.id === '_bos';
     return `<section class="card stack bolum-card${st}">
       <div class="row" style="flex-wrap:nowrap;align-items:center;gap:6px"><h3 style="flex:1;margin:0;font-size:18px">${esc(a.ad)}</h3>
         ${ben && !bos && cap !== Infinity ? `<button type="button" class="kap-btn" data-act="b-kap" data-a="${esc(a.id)}" data-n="-1" aria-label="${esc(a.ad)} sayısını azalt"${cap <= 0 ? ' disabled' : ''}>−</button>` : ''}
-        <span class="bolum-n" title="${cap !== Infinity && cap !== varsayilan ? 'Bu gün için ayarlandı (her gün: ' + varsayilan + ')' : 'Her gün geçerli sayıyı ⚙ Bölüm sayıları ile değiştirebilirsin'}">${kisiler.length}${cap !== Infinity ? '/' + cap : ''}${cap !== Infinity && cap !== varsayilan ? '*' : ''}</span>
+        <span class="bolum-n" title="Kişi sayısı (her gün geçerli; − / + ya da ⚙ Bölüm sayıları ile değişir)">${kisiler.length}${cap !== Infinity ? '/' + cap : ''}</span>
         ${ben && !bos && cap !== Infinity ? `<button type="button" class="kap-btn" data-act="b-kap" data-a="${esc(a.id)}" data-n="1" aria-label="${esc(a.ad)} sayısını artır">+</button>` : ''}</div>
       ${kisiler.length ? `<ul class="mate-list">${kisiler.map((p) => chip(p, bos ? null : a)).join('')}</ul>` : '<p class="small muted" style="margin:0">Kimse yok.</p>'}
-      ${st === ' eksik' ? `<p class="small muted" style="margin:0">${cap - kisiler.length} kişi eksik</p>` : st === ' fazla' ? `<p class="small" style="margin:0;color:var(--off)">Sayıdan ${kisiler.length - cap} kişi fazla (elle eklendi)</p>` : ''}
+      ${st === ' eksik' ? `<p class="small muted" style="margin:0">${cap - kisiler.length} kişi eksik (bu vardiyada yeterli çalışan yok)</p>` : st === ' fazla' ? `<p class="small" style="margin:0;color:var(--off)">Sayıdan ${kisiler.length - cap} kişi fazla</p>` : ''}
       ${ben && !bos ? `<div><button class="btn small" data-act="b-ekle" data-a="${esc(a.id)}">${ICON_PLUS} Kişi ekle</button></div>` : ''}
     </section>`; };
   const head = `<div class="card stack">
-      <div class="row" style="flex-wrap:wrap;gap:10px;align-items:center"><h2 style="flex:1;margin:0;font-size:22px">Bölümler <span class="pill">deneme</span></h2>${B.sefler && B.sefler.length ? `<label class="field" style="margin:0;min-width:230px">Liste<select id="b-sef"><option value="0"${ben ? ' selected' : ''}>Listem</option>${B.sefler.filter((s) => s.id !== auth.ben.id).map((s) => `<option value="${s.id}"${B.sahip && B.sahip.id === s.id && !ben ? ' selected' : ''}>${esc(niceName(s.ad))} listesi (${s.kisi} kişi)</option>`).join('')}</select></label>` : ''}${ben ? `<button class="btn primary" data-act="b-liste">${ICON_PLUS} Personelim (${B.kisiler.length})</button><button class="btn" data-act="b-ayar">⚙ Bölüm sayıları${Object.keys(B.ayar || {}).length ? ' *' : ''}</button>` : ''}${B.kisiler.length && (ben || auth.ben.unvan === 'dev') ? `<button class="btn" data-act="b-liste-sil" style="color:var(--off)">${ben ? 'Listemi sil' : 'Bu listeyi sil'}</button>` : ''}<button class="btn" data-act="b-share">${ICON_SHARE} Paylaş</button></div>
+      <div class="row" style="flex-wrap:wrap;gap:10px;align-items:center"><h2 style="flex:1;margin:0;font-size:22px">Bölümler <span class="pill">deneme</span></h2>${B.sefler && B.sefler.length ? `<label class="field" style="margin:0;min-width:230px">Liste<select id="b-sef"><option value="0"${ben ? ' selected' : ''}>Listem</option>${B.sefler.filter((s) => s.id !== auth.ben.id).map((s) => `<option value="${s.id}"${B.sahip && B.sahip.id === s.id && !ben ? ' selected' : ''}>${esc(niceName(s.ad))} listesi (${s.kisi} kişi)</option>`).join('')}</select></label>` : ''}${ben ? `<button class="btn primary" data-act="b-liste">${ICON_PLUS} Personelim (${B.kisiler.length})</button>${working.length ? '<button class="btn" data-act="b-sabitle" title="Ekrandaki herkesi bulunduğu bölüme sabitler">📌 Bu düzeni sabitle</button>' : ''}<button class="btn" data-act="b-ayar">⚙ Bölüm sayıları${Object.keys(B.ayar || {}).length ? ' *' : ''}</button>` : ''}${B.kisiler.length && (ben || auth.ben.unvan === 'dev') ? `<button class="btn" data-act="b-liste-sil" style="color:var(--off)">${ben ? 'Listemi sil' : 'Bu listeyi sil'}</button>` : ''}<button class="btn" data-act="b-share">${ICON_SHARE} Paylaş</button></div>
       <div class="datebar">
         <button class="iconbtn" aria-label="Önceki gün" data-act="b-gun" data-n="-1">${ICON_LEFT}</button>
         <div class="dtitle"><h2>${fmtShort(d)}</h2><span>${DAY_NAMES[parseIso(d).getDay()]}${d === todayIso() ? ' · bugün' : ''}</span></div>
@@ -2985,9 +3003,8 @@ function viewAreas() {
         <button class="iconbtn" aria-label="Sonraki gün" data-act="b-gun" data-n="1">${ICON_RIGHT}</button>
       </div>
       <div class="seg seg3" role="radiogroup" aria-label="Vardiya">${['1', '2', '3'].map((x) => `<button role="radio" data-act="b-vardiya" data-v="${x}" aria-selected="${x === g}" aria-checked="${x === g}">${x}. Vardiya</button>`).join('')}</div>
-      <p class="small muted" style="margin:0">${h ? `${g}. vardiya ${esc(h)} · ` : ''}${ben ? 'Bu liste yalnızca senin.' : `<b>${esc(niceName(B.sahip.ad))}</b> listesini yalnızca görüntülüyorsun.`} Listedeki ${mine.length} kişiden bu vardiyada <b>${working.length}</b> kişi çalışıyor; bölümlere otomatik dağıtıldı, Sarı ve Kırmızı Alan kalanları eşit paylaşır.${diger ? ` ${diger} kişi başka vardiyada (çalışıyor ya da o vardiyanın OFF/izni).` : ''}${kayitsiz ? ` ${kayitsiz} kişinin bu gün için listede kaydı yok.` : ''}${yokListede ? ` ${yokListede} kişi yayındaki listede bulunamadı.` : ''} ${ben ? ' Her gün geçerli bölüm sayılarını <b>⚙ Bölüm sayıları</b> ile, yalnızca bu günü kartlardaki <b>− / +</b> ile; kişileri <b>Kişi ekle</b> ve <b>×</b> ile bu gün için değiştirebilirsin; isme dokunarak başka bölüme taşı (✎ bu gün) ya da sabitle (📌 her gün).' : ' ✎ yalnızca bu gün, 📌 her gün değiştirilmiş kişiler.'}</p>
+      <p class="small muted" style="margin:0">${h ? `${g}. vardiya ${esc(h)} · ` : ''}${ben ? 'Bu liste yalnızca senin.' : `<b>${esc(niceName(B.sahip.ad))}</b> listesini yalnızca görüntülüyorsun.`} Listedeki ${mine.length} kişiden bu vardiyada <b>${working.length}</b> kişi çalışıyor; bölümlere otomatik dağıtıldı, Sarı ve Kırmızı Alan kalanları eşit paylaşır.${diger ? ` ${diger} kişi başka vardiyada (çalışıyor ya da o vardiyanın OFF/izni).` : ''}${kayitsiz ? ` ${kayitsiz} kişinin bu gün için listede kaydı yok.` : ''}${yokListede ? ` ${yokListede} kişi yayındaki listede bulunamadı.` : ''} ${ben ? ' Düzenin <b>sabittir</b>: bölüme eklediğin kişi (📌) çalıştığı her gün oraya konur; OFF ya da izinliyse yeri o gün çalışan seçtiklerinden kendiliğinden doldurulur. Sayıyı <b>− / +</b>, kişiyi <b>Kişi ekle</b> / <b>×</b> ile ya da isme dokunarak değiştir.' : ' 📌 sabit bölümü olan kişiler.'}</p>
       ${B.eski && ben ? `<div class="banner" style="margin:0"><p style="margin:0"><b>Önceki denemeden kayıtlı ${B.eski.sayi} kişilik bölüm seçimi bulundu</b>${B.eski.guncelleyen ? ` (son değiştiren: ${esc(B.eski.guncelleyen)}${B.eski.tarih ? ', ' + fmtWhen(B.eski.tarih) : ''})` : ''}. Geri getirirsen bu kişiler listene eklenir, seçtiğin bölümler 📌 olarak kalır.</p><div class="row" style="gap:8px;margin-top:8px"><button class="btn primary small" data-act="b-eski-al">Geri getir</button><button class="btn small" data-act="b-eski-gizle">Gerek yok</button></div></div>` : ''}
-      ${nGun ? `<div class="row" style="gap:8px;align-items:center"><span class="small">Bu gün ve vardiyada ${nGun} elle değişiklik var (✎ kişi, * sayı).</span>${ben ? '<button class="btn small" data-act="b-sifirla">Otomatik dağılıma dön</button>' : ''}</div>` : ''}
     </div>`;
   if (!B.kisiler.length) return head + `<div class="card stack" style="margin-top:12px"><p style="margin:0">${ben ? 'Henüz personel seçmedin. <b>Personelim</b> ile kendi ekibini seç; seçtiğin kişiler her gün ve vardiyada bölümlere otomatik dağıtılır.' : 'Bu şef henüz personel seçmemiş.'}</p></div>`;
   return head + `<div class="bolum-grid">${cards.map(cardHtml).join('')}
@@ -3010,7 +3027,7 @@ function areaListSheet() {
   const sec = new Set(B.kisiler);
   sheet(`<h3 style="margin:0 0 4px">Personelim</h3><p class="small muted" style="margin:0 0 10px">Kendi ekibindeki kişileri işaretle; <b>her işaret anında kaydedilir</b>. Her gün ve vardiyada, o vardiyada çalışanlar bölümlere otomatik dağıtılır; OFF olanlar OFF'ta görünür. Bu liste yalnızca senin.</p>
     <div class="row" style="gap:8px;margin-bottom:8px;flex-wrap:wrap"><input type="search" id="be-q" placeholder="İsim ara" autocomplete="off" style="flex:1;min-width:160px"><button class="btn small" id="be-grup">${fmtShort(d).slice(0, 5)} ${g}. vardiyada çalışanları seç</button></div>
-    <div class="be-list" id="be-list">${people.map((p) => { const c = p.days[d] || ''; return `<label class="be-row" data-q="${esc(nameKey(p.name))}" data-c="${esc(c)}"><input type="checkbox" value="${esc(p.ak)}"${sec.has(p.ak) ? ' checked' : ''}><span class="be-name">${esc(niceName(p.name))}</span>${c ? `<span class="be-tag${c === g ? ' be-on' : ''}">${fmtShort(d).slice(0, 5)}: ${esc(CODE_TXT[c] || c)}</span>` : ''}${B.tercih[p.ak] ? `<span class="be-tag be-oth">📌 ${esc(ad[B.tercih[p.ak]] || '')}</span>` : ''}</label>`; }).join('')}</div>
+    <div class="be-list" id="be-list">${people.map((p) => { const c = p.days[d] || ''; return `<label class="be-row" data-q="${esc(nameKey(p.name))}" data-c="${esc(c)}"><input type="checkbox" value="${esc(p.ak)}"${sec.has(p.ak) ? ' checked' : ''}><span class="be-name">${esc(niceName(p.name))}</span>${c ? `<span class="be-tag${c === g ? ' be-on' : ''}">${fmtShort(d).slice(0, 5)}: ${esc(CODE_TXT[c] || c)}</span>` : ''}${B.tercih[p.ak] && ad[B.tercih[p.ak]] ? `<span class="be-tag be-oth">📌 ${esc(ad[B.tercih[p.ak]])}</span>` : ''}</label>`; }).join('')}</div>
     <div class="row" style="margin-top:12px"><span class="small" id="be-say" style="flex:1"></span><button class="btn primary" data-x="1">Tamam</button></div>`, (bg) => {
     // anında kayıt: değişen kişiler (ekle/çıkar) kısa bir beklemeyle sunucuya gider; hata olursa bekleyenler korunup yeniden denenir
     const bek = { ekle: new Set(), cikar: new Set() }; let tmr = null, busy = false, hata = '';
@@ -3035,19 +3052,15 @@ function areaListSheet() {
   });
 }
 function areaPinSheet(k) {
-  const B = srv.bolum; const { d, g, gunM, cards } = areaData(); const p = areaData().all.find((x) => x.ak === k); if (!p) return;
-  const cur = B.tercih[k] || ''; const gunCur = gunM[k] || ''; const c = p.days[d] || '';
+  const B = srv.bolum; const { d, g, cards, all } = areaData(); const p = all.find((x) => x.ak === k); if (!p) return;
+  const cur = B.tercih[k] || ''; const c = p.days[d] || '';
   const simdi = (cards.find((x) => x.kisiler.some((y) => y.ak === k)) || {}).a;
-  const actG = B.alanlar.filter((a) => a.max && Object.prototype.hasOwnProperty.call(a.max, g));
   sheet(`<h3 style="margin:0 0 4px">${esc(niceName(p.name))}</h3>
     <p class="small muted" style="margin:0 0 12px">${fmtShort(d)}: ${esc(CODE_TXT[c] || 'listede kayıt yok')}${simdi ? ` · şu an <b>${esc(simdi.ad)}</b>` : ''}</p>
-    ${c === g ? `<b class="small">✎ Yalnızca ${fmtShort(d).slice(0, 5)} ${g}. vardiya</b>
-    <div class="be-pick" style="margin:6px 0 14px">${actG.map((a) => `<button class="btn${gunCur === a.id ? ' primary' : ''}" data-ga="${esc(a.id)}">${esc(a.ad)}</button>`).join('')}${gunCur ? '<button class="btn" data-ga="">Otomatiğe dön</button>' : ''}</div>` : `<p class="small muted" style="margin:0 0 12px">Bu kişi bu gün ${g}. vardiyada çalışmadığı için yalnızca her gün geçerli sabitleme yapılabilir.</p>`}
-    <b class="small">📌 Her gün (çalıştığı her vardiyada önce buraya; sınır doluysa otomatik)</b>
-    <div class="be-pick" style="margin-top:6px"><button class="btn${!cur ? ' primary' : ''}" data-pa="">Otomatik</button>${B.alanlar.map((a) => `<button class="btn${cur === a.id ? ' primary' : ''}" data-pa="${esc(a.id)}">${esc(a.ad)}</button>`).join('')}</div>
+    <b class="small">Bölümü (her gün)</b><p class="small muted" style="margin:2px 0 6px">Çalıştığı her gün önce buraya konur; bölüm doluysa otomatik dağılıma girer.</p>
+    <div class="be-pick"><button class="btn${!cur || cur.startsWith('-') ? ' primary' : ''}" data-pa="">Otomatik</button>${B.alanlar.map((a) => `<button class="btn${cur === a.id ? ' primary' : ''}" data-pa="${esc(a.id)}">📌 ${esc(a.ad)}</button>`).join('')}</div>
     <div class="row" style="margin-top:14px"><button class="btn" data-pr="1" style="color:var(--off)">Listemden çıkar</button><span style="flex:1"></span><button class="btn" data-x="1">Kapat</button></div>`, (bg) => {
-    bg.querySelectorAll('[data-ga]').forEach((b) => b.addEventListener('click', () => { const a = b.dataset.ga; closeSheet(); saveAreas({ gun: { tarih: d, vardiya: g, degisiklik: { [k]: a } } }, a ? `${niceName(p.name)} → ${B.alanlar.find((x) => x.id === a).ad} (yalnızca bu gün)` : `${niceName(p.name)} otomatik dağılıma döndü`); }));
-    bg.querySelectorAll('[data-pa]').forEach((b) => b.addEventListener('click', () => { const a = b.dataset.pa; closeSheet(); saveAreas({ tercih: { [k]: a } }, a ? `${niceName(p.name)} → 📌 ${B.alanlar.find((x) => x.id === a).ad}` : `${niceName(p.name)} her gün otomatik`); }));
+    bg.querySelectorAll('[data-pa]').forEach((b) => b.addEventListener('click', () => { const a = b.dataset.pa; closeSheet(); saveAreas({ tercih: { [k]: a } }, a ? `${niceName(p.name)} → 📌 ${B.alanlar.find((x) => x.id === a).ad}` : `${niceName(p.name)} otomatik dağılımda`); }));
     bg.querySelector('[data-pr]').addEventListener('click', () => { closeSheet(); saveAreas({ cikar: [k] }, `${niceName(p.name)} listenden çıkarıldı`); });
   });
 }
@@ -3058,15 +3071,15 @@ function areaAddSheet(id) {
   const sec = new Set(B.kisiler);
   const aday = all.filter((p) => p.days[d] === g && !icinde.has(p.ak)).sort((x, y) => (sec.has(x.ak) === sec.has(y.ak) ? x.name.localeCompare(y.name, 'tr') : sec.has(x.ak) ? -1 : 1));
   const row = (p) => `<button type="button" class="be-row be-add" data-k="${esc(p.ak)}" data-q="${esc(nameKey(p.name))}"><span class="be-name">${esc(niceName(p.name))}</span>${yer[p.ak] ? `<span class="be-tag">şu an ${esc(yer[p.ak])}</span>` : ''}${!sec.has(p.ak) ? '<span class="be-tag be-oth">listende yok</span>' : ''}</button>`;
-  sheet(`<h3 style="margin:0 0 4px">${esc(card.a.ad)} · kişi ekle</h3><p class="small muted" style="margin:0 0 10px">${fmtShort(d)} ${g}. vardiyada çalışanlar. Seçtiğin kişi yalnızca bu gün buraya konur (✎); listende yoksa listene de eklenir.${card.cap !== Infinity ? ` Bölüm doluysa sayısı bir artırılır.` : ''}</p>
+  sheet(`<h3 style="margin:0 0 4px">${esc(card.a.ad)} · kişi ekle</h3><p class="small muted" style="margin:0 0 10px">${fmtShort(d)} ${g}. vardiyada çalışanlar. Seçtiğin kişi bu bölüme <b>sabitlenir</b> (📌): çalıştığı her gün buraya konur. Listende yoksa listene de eklenir.${card.cap !== Infinity ? ' Bölüm doluysa sayısı bir artırılır.' : ''}</p>
     <input type="search" id="ba-q" placeholder="İsim ara" autocomplete="off" style="width:100%;margin-bottom:8px">
     <div class="be-list">${aday.length ? aday.map(row).join('') : '<p class="small muted" style="margin:10px">Bu vardiyada eklenebilecek başka kimse yok.</p>'}</div>
     <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn" data-x="1">Kapat</button></div>`, (bg) => {
     bg.querySelector('#ba-q').addEventListener('input', (e) => { const q = nameKey(e.target.value); bg.querySelectorAll('.be-add').forEach((r) => { r.hidden = !!q && !r.dataset.q.includes(q); }); });
     bg.querySelectorAll('.be-add').forEach((b) => b.addEventListener('click', () => {
       const k = b.dataset.k; const p = all.find((x) => x.ak === k); const n = card.kisiler.length + 1;
-      const body = { gun: { tarih: d, vardiya: g, degisiklik: { [k]: id }, ...(card.cap !== Infinity && n > card.cap ? { kap: { [id]: n } } : {}) } };
-      closeSheet(); saveAreas(body, `${niceName(p.name)} → ${card.a.ad} (bu gün)`);
+      const body = { ekle: [k], tercih: { [k]: id }, ...(card.cap !== Infinity && n > card.cap ? { ayar: { [id]: { [g]: n } } } : {}) };
+      closeSheet(); saveAreas(body, `${niceName(p.name)} → 📌 ${card.a.ad}`);
     }));
   });
 }
@@ -3097,15 +3110,15 @@ function areaSettingsSheet() {
     yaz('Değişiklikler anında kaydedilir');
   });
 }
-function areaRemove(k, id) { // × : bu gün bu bölümden çıkar; sınırlı bölümde sayı da bir azalır (boşalan yere başkası gelmesin)
-  const { d, g, cards, all } = areaData(); const card = cards.find((c) => c.a.id === id); const p = all.find((x) => x.ak === k);
-  const body = { gun: { tarih: d, vardiya: g, degisiklik: { [k]: '-' + id }, ...(card && card.cap !== Infinity ? { kap: { [id]: Math.max(0, card.kisiler.length - 1) } } : {}) } };
-  saveAreas(body, `${p ? niceName(p.name) : 'Kişi'} ${card ? card.a.ad : ''} bölümünden çıkarıldı (bu gün)`);
+function areaRemove(k, id) { // × : kişi bu bölüme bir daha konmaz (sabitse sabitlemesi kalkar); yeri seçilmişlerden doldurulur
+  const B = srv.bolum; const { all } = areaData(); const p = all.find((x) => x.ak === k); const a = B.alanlar.find((x) => x.id === id);
+  saveAreas({ tercih: { [k]: B.tercih[k] === id ? '' : '-' + id } }, `${p ? niceName(p.name) : 'Kişi'} ${a ? a.ad : ''} bölümünden çıkarıldı`);
 }
-function areaCap(id, n) { // − / + : bu günün bölüm sayısı
-  const { d, g, cards } = areaData(); const card = cards.find((c) => c.a.id === id); if (!card || card.cap === Infinity) return;
+function areaCap(id, n) { // − / + : bölümün bu vardiyadaki sayısı, her gün geçerli (⚙ Bölüm sayıları ile aynı ayar)
+  const B = srv.bolum; const { g, cards } = areaData(); const card = cards.find((c) => c.a.id === id); if (!card || card.cap === Infinity) return;
+  const a = B.alanlar.find((x) => x.id === id); const def = a.max && Object.prototype.hasOwnProperty.call(a.max, g) ? a.max[g] : 0;
   const yeni = Math.max(0, card.cap + n);
-  saveAreas({ gun: { tarih: d, vardiya: g, kap: { [id]: yeni === card.varsayilan ? null : yeni } } }, `${card.a.ad}: ${yeni} kişi (bu gün)`);
+  saveAreas({ ayar: { [id]: { [g]: yeni === def ? null : yeni } } }, `${card.a.ad}: ${g}. vardiyada ${yeni} kişi (her gün)`);
 }
 function areaShareText() {
   const { d, g, cards, absent } = areaData(); const F = store.settings.share || { style: 'num' }; const h = store.settings.hours[g];
