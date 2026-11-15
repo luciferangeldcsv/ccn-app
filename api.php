@@ -1116,38 +1116,42 @@ switch ($r) {
     db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at, sohbet) VALUES (?, 'luci', ?, ?, ?)")->execute([$u['id'], $cevap, now(), $sohbet ?: null]);
     ok(['cevap' => $cevap] + ($sesli ? ['soru' => $msg] : []));
   }
-  // ---------- Bölümler (deneme): her şefin kendi personel listesi (meta bolum_liste:<id>); dağılım istemcide hesaplanır ----------
+  // ---------- Bölümler (deneme): yalnızca şefler (ve deneme için DEV); her şef YALNIZCA kendi listesini görür ----------
+  // meta bolum_liste:<id> = { kisiler: [nameKey], tercih: { nameKey: bölüm } (her gün), gun: { 'YYYY-MM-DD|vardiya': { nameKey: bölüm } } (o güne özel) }
   case 'bolumler': {
-    $u = require_level(2, 'Bölümleri yalnızca şef ve üstü görebilir.');
-    $sef = (int)($_GET['sef'] ?? 0) ?: (int)$u['id'];
-    if ($sef !== (int)$u['id'] && level_of($u['title'] ?? '') < 3) fail(403, 'Başka şefin listesini yalnızca müdür ve üstü görebilir.');
-    $d = json_decode((string)(meta_get('bolum_liste:' . $sef) ?? ''), true) ?: [];
-    $st = db()->prepare('SELECT name FROM personnel WHERE id = ?'); $st->execute([$sef]); $sahipAd = (string)($st->fetchColumn() ?: '');
-    $sefler = [];
-    if (level_of($u['title'] ?? '') >= 3) {
-      foreach (db()->query("SELECT m.k, p.id, p.name, p.title FROM meta m JOIN personnel p ON p.id = CAST(SUBSTRING(m.k, 13) AS UNSIGNED) WHERE m.k LIKE 'bolum_liste:%' ORDER BY p.name") as $r)
-        $sefler[] = ['id' => (int)$r['id'], 'ad' => $r['name'], 'unvan' => $r['title'], 'kisi' => count((json_decode((string)meta_get($r['k']), true) ?: [])['kisiler'] ?? [])];
-    }
-    ok(['alanlar' => BOLUMLER, 'kisiler' => array_values($d['kisiler'] ?? []), 'tercih' => (object)($d['tercih'] ?? []), 'tarih' => isset($d['tarih']) ? utc($d['tarih']) : null,
-      'sahip' => ['id' => $sef, 'ad' => $sahipAd, 'ben' => $sef === (int)$u['id']], 'sefler' => $sefler]);
+    $u = bolum_sefi();
+    $d = json_decode((string)(meta_get('bolum_liste:' . (int)$u['id']) ?? ''), true) ?: [];
+    ok(['alanlar' => BOLUMLER, 'kisiler' => array_values($d['kisiler'] ?? []), 'tercih' => (object)($d['tercih'] ?? []), 'gun' => (object)array_map(fn($x) => (object)$x, $d['gun'] ?? []), 'tarih' => isset($d['tarih']) ? utc($d['tarih']) : null]);
   }
   case 'bolum-kaydet': {
-    $u = require_level(2, 'Bölüm listesini yalnızca şef ve üstü düzenleyebilir.');
+    $u = bolum_sefi();
     $key = 'bolum_liste:' . (int)$u['id'];
-    $d = json_decode((string)(meta_get($key) ?? ''), true) ?: []; $kisiler = $d['kisiler'] ?? []; $tercih = is_array($d['tercih'] ?? null) ? $d['tercih'] : [];
+    $d = json_decode((string)(meta_get($key) ?? ''), true) ?: [];
+    $kisiler = $d['kisiler'] ?? []; $tercih = is_array($d['tercih'] ?? null) ? $d['tercih'] : []; $gun = is_array($d['gun'] ?? null) ? $d['gun'] : [];
     $ids = array_column(BOLUMLER, 'id'); $ok = fn($k) => is_string($k) && preg_match('/^[a-z]{2,80}$/', $k);
     if (array_key_exists('kisiler', body())) {
       $in = body()['kisiler']; if (!is_array($in) || count($in) > 400) fail(400, 'Liste geçersiz.');
       $kisiler = array_values(array_unique(array_filter($in, $ok)));
-      $tercih = array_intersect_key($tercih, array_flip($kisiler)); // listeden çıkanın tercihi de silinir
+      $tercih = array_intersect_key($tercih, array_flip($kisiler)); // listeden çıkanın ayarları da silinir
+      foreach ($gun as $gk => $m) { $gun[$gk] = array_intersect_key((array)$m, array_flip($kisiler)); if (!$gun[$gk]) unset($gun[$gk]); }
     }
     if (is_array(body()['tercih'] ?? null)) foreach (body()['tercih'] as $k => $a) {
       $k = (string)$k; $a = (string)$a; if (!$ok($k) || !in_array($k, $kisiler, true)) continue;
       if ($a === '') unset($tercih[$k]); elseif (in_array($a, $ids, true)) $tercih[$k] = $a;
     }
-    meta_set($key, json_encode(['kisiler' => $kisiler, 'tercih' => $tercih, 'tarih' => now()], JSON_UNESCAPED_UNICODE));
+    // o güne özel değişiklik: { tarih, vardiya, degisiklik: { nameKey: bölüm | '' } } ya da { tarih, vardiya, sifirla: true }
+    if (is_array(body()['gun'] ?? null)) {
+      $g = body()['gun']; $tarih = (string)($g['tarih'] ?? ''); $v = (string)($g['vardiya'] ?? '');
+      if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $tarih) || !in_array($v, ['1', '2', '3'], true)) fail(400, 'Tarih ya da vardiya geçersiz.');
+      $gk = "$tarih|$v"; $m = (array)($gun[$gk] ?? []);
+      if (!empty($g['sifirla'])) $m = [];
+      foreach ((array)($g['degisiklik'] ?? []) as $k => $a) { $k = (string)$k; $a = (string)$a; if (!$ok($k) || !in_array($k, $kisiler, true)) continue; if ($a === '') unset($m[$k]); elseif (in_array($a, $ids, true)) $m[$k] = $a; }
+      if ($m) $gun[$gk] = $m; else unset($gun[$gk]);
+    }
+    $sinir = gmdate('Y-m-d', time() - 60 * 86400); foreach (array_keys($gun) as $gk) if (substr($gk, 0, 10) < $sinir) unset($gun[$gk]); // 60 günden eskiler atılır
+    meta_set($key, json_encode(['kisiler' => $kisiler, 'tercih' => $tercih, 'gun' => $gun, 'tarih' => now()], JSON_UNESCAPED_UNICODE));
     audit($u, 'bolum', count($kisiler) . ' kişilik bölüm listesi güncellendi');
-    ok(['kisiler' => $kisiler, 'tercih' => (object)$tercih]);
+    ok(['kisiler' => $kisiler, 'tercih' => (object)$tercih, 'gun' => (object)array_map(fn($x) => (object)$x, $gun)]);
   }
   // DEV paneli Dosyalar: imzalı bağlantı ('vira:' imzası; şikayet/eğitim bağlantılarıyla karışmaz)
   case 'vira-dosya': {
@@ -1488,6 +1492,12 @@ function mime_tip(string $path, string $given): string {
   if (isset(UPLOAD_TYPES[$m])) return $m;
   if (isset(UPLOAD_TYPES[$given])) return $given;
   fail(400, 'Bu dosya türü yüklenemez (yalnızca fotoğraf, video ve PDF).');
+}
+// Bölümler ekranı yalnızca şeflere (deneme için DEV'e de) açık; başkasına "bilinmeyen işlem" döner
+function bolum_sefi(): array {
+  $u = current_user(); $t = (string)($u['title'] ?? '');
+  if (!in_array($t, ['sef', 'dev'], true)) fail(404, 'Bilinmeyen işlem.');
+  return $u;
 }
 function dosya_url(string $r, int $id, string $pfx = ''): string { $exp = time() + 86400; return "{$pfx}api.php?r=$r&id=$id&e=$exp&k=" . hmac(($r === 'ek' ? 'ek:' : ($r === 'vira-dosya' ? 'vira:' : 'dosya:')) . "$id:$exp"); }
 // "Vira aktif" duyurusu: Vira ilk açıldığında herkese BİR KEZ gider (yönetici/DEV isteğiyle tetiklenir)
