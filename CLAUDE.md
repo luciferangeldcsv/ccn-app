@@ -58,6 +58,7 @@ Birim test paketi yok. Doğrulama, yerel sunucuya karşı Playwright betikleriyl
 - `push.php`: Web Push + bildirim merkezi (`notify(pids|null, msg, tur)`). `run_reminders()` ayrı bir cron'la değil, `surum`/`veri` isteklerinde en fazla 5 dakikada bir çalışır (`?r=zamanla` ile dışarıdan da tetiklenebilir). Vardiya hatırlatmasının süresi kişinin `prefs.hatirlat` değerinden gelir.
 - **Yüklenen dosyalar:** `ccn-veri/` (`.htaccess` ile web'e kapalı). Yazma `store_upload()`, okuma yetki kontrolünden sonra `serve_file()` ile yapılır.
 - **Yayın verisi:** `rosters` tablosunda JSON `{people:{key:{name, group, days:{'YYYY-MM-DD': kod}}}, rules, settings}`; en son satır yayındaki listedir.
+- **Bölümler (deneme):** `?r=bolumler` / `bolum-kaydet` (şef+). Bölüm listesi `api.php` başındaki `BOLUMLER` sabitinde (Merkez Lab yalnızca 2. ve 3. vardiya). Atamalar yayınlanan listeden ayrı olarak `meta.bolum_atama` içinde tutulur (`{atama: {nameKey: bölümId}}`). İstemcide `viewAreas()` yalnızca web panelinin sol menüsünde görünür (`canAreas()`), telefon uygulamasının alt sekmelerinde yoktur.
 - `livadmin/index.html`: DEV paneli (loglar, oturumlar, yayın geçmişi ve duyurusuz liste içe aktarma, yapay zekâ ayarları, Vira sohbet kayıtları). Kendi küçük `api()` yardımcısı vardır.
 
 ### Yapay zekâ (Gemini)
