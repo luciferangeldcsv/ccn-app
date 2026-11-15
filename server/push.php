@@ -144,6 +144,28 @@ function run_reminders(bool $force = false): int {
       }
     }
   }
+  // Yoklama hatırlatması: vardiya başladıktan 30 dk sonra (3 saate kadar) yoklama hiç alınmamışsa o vardiyanın şeflerine bir kez
+  try {
+    yoklama_table();
+    foreach ([0, -1] as $plus) {
+      $date = gmdate('Y-m-d', $tr + $plus * 86400);
+      foreach (['1', '2', '3'] as $g) {
+        if (!preg_match('/(\d{1,2})[:.](\d{2})/', (string)($hours[$g] ?? ''), $m)) continue;
+        $start = strtotime($date . ' 00:00:00 UTC') + ((int)$m[1] % 24) * 3600 + (int)$m[2] * 60;
+        if ($tr < $start + 1800 || $tr >= $start + 3 * 3600) continue;
+        $key = "yoklama_hat:$date:$g"; if (meta_get($key) !== null) continue;
+        meta_set($key, '1');
+        $st = db()->prepare('SELECT COUNT(*) FROM yoklama WHERE tarih = ? AND vardiya = ?'); $st->execute([$date, $g]); if ((int)$st->fetchColumn() > 0) continue;
+        $calisan = []; foreach ($people as $p) if (($p['days'][$date] ?? '') === $g) $calisan[name_key((string)$p['name'])] = true;
+        if (!$calisan) continue;
+        $sefler = db()->query("SELECT id, name FROM personnel WHERE title = 'sef' AND banned = 0")->fetchAll();
+        $pids = array_map(fn($r) => (int)$r['id'], array_filter($sefler, fn($r) => isset($calisan[name_key((string)$r['name'])])));
+        if (!$pids) $pids = array_map(fn($r) => (int)$r['id'], $sefler); // listede şef bulunamazsa tüm şefler
+        if ($pids) $sent += notify($pids, ['baslik' => "$g. vardiya yoklaması alınmadı", 'metin' => 'Vardiya başladı (saat ' . sprintf('%02d:%02d', (int)$m[1] % 24, (int)$m[2]) . ', ' . count($calisan) . ' kişi). Yoklamayı almak için dokun.', 'url' => './#yoklama', 'etiket' => "yoklama-$date-$g"], 'yoklama');
+      }
+    }
+  } catch (Throwable $e) { error_log('ccn yoklama hatırlatma: ' . $e->getMessage()); }
+  if (random_int(1, 20) === 1) db()->prepare("DELETE FROM meta WHERE k LIKE 'yoklama_hat:%' AND k < ?")->execute(['yoklama_hat:' . gmdate('Y-m-d', $tr - 3 * 86400)]);
   if (random_int(1, 20) === 1) db()->prepare("DELETE FROM meta WHERE k LIKE 'hatirlat:%' AND k < ?")->execute(['hatirlat:' . gmdate('Y-m-d', $tr - 3 * 86400)]);
   return $sent;
 }
