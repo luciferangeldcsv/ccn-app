@@ -27,7 +27,7 @@ const BOLUMLER = [
   ['id' => 'cocuk-acil', 'ad' => 'Çocuk Acil', 'max' => ['1' => 3, '2' => 3, '3' => 3]],
   ['id' => 'merkez-lab', 'ad' => 'Merkez Lab', 'max' => ['2' => 1, '3' => 1]],
   ['id' => 'numune', 'ad' => 'Numune', 'max' => ['1' => 2, '2' => 2, '3' => 2]],
-  ['id' => 'yogun-bakim', 'ad' => 'Yoğun Bakım', 'max' => ['1' => 2, '2' => 2, '3' => 2]],
+  ['id' => 'yogun-bakim', 'ad' => 'Yoğun Bakım', 'max' => ['1' => 5, '2' => 2, '3' => 1]],
   ['id' => 'sari-alan', 'ad' => 'Sarı Alan', 'max' => ['1' => null, '2' => null, '3' => null]],
   ['id' => 'kirmizi-alan', 'ad' => 'Kırmızı Alan', 'max' => ['1' => null, '2' => null, '3' => null]],
 ];
