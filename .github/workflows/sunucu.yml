@@ -32,7 +32,8 @@ jobs:
           REPO="https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
           if git clone -q --depth 1 -b sunucu "$REPO" /tmp/srv 2>/dev/null; then :; else
             mkdir /tmp/srv && cd /tmp/srv && git init -q -b sunucu && git remote add origin "$REPO" && cd -; fi
-          rsync -a --delete --exclude .git dist-server/ /tmp/srv/
+          # --checksum: içerik karşılaştırılır (sürüm numarası aynı uzunlukta olduğundan boyut+tarih yetmiyordu, index.html/web.txt eski kalıyordu)
+          rsync -a --checksum --delete --exclude .git dist-server/ /tmp/srv/
           cd /tmp/srv
           git config user.name "github-actions" && git config user.email "github-actions@users.noreply.github.com"
           git add -A
