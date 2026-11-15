@@ -1278,6 +1278,7 @@ function viewDaily() {
   const me = myRecord();
   const mine = me ? `<section class="card stack mine">
       <div class="row"><h3 style="flex:1;font-size:18px;margin:0">Benim vardiyam</h3><button class="btn small" data-act="hafta-paylas" aria-label="Haftamı görsel olarak paylaş">📤 Paylaş</button></div>
+      ${countdownText(me) ? `<div class="geri-sayim" id="geri-sayim" aria-live="polite">${countdownText(me)}</div>` : ''}
       <div class="pdays">${Array.from({ length: 7 }, (_, i) => addDays(t, i)).map((x) => { const c = me.days[x] || ''; return `<button class="pday k-${c} ${x === d ? 'sel' : ''}" data-act="set-date" data-date="${x}"><span>${i0(x, t)}</span><b>${CODES[c] ? CODES[c].short : '–'}</b></button>`; }).join('')}</div>
       ${SERVER ? mineExtras(me) : ''}
     </section>` : '';
@@ -2985,7 +2986,12 @@ function areaData() {
   const byKey = Object.fromEntries(all.map((p) => [p.ak, p]));
   const mine = B.kisiler.map((k) => byKey[k]).filter(Boolean).sort((x, y) => x.name.localeCompare(y.name, 'tr'));
   const yokListede = B.kisiler.filter((k) => !byKey[k]).length;
-  const working = mine.filter((p) => p.days[d] === g);
+  // yoklamada 'gelmedi' işaretlenen o gün dağılıma girmez, yeri kendiliğinden dolar; geç gelen ⏰ ile görünür
+  const yk = srv.yoklama && srv.yoklama.key === `${d}|${g}` ? srv.yoklama.kayit : null;
+  if (!yk && canRoll() && srv.yoklamaYuk !== `${d}|${g}`) loadRoll(d, g);
+  const durum = (p) => (yk && yk[p.ak] ? yk[p.ak].durum : '');
+  const gelmedi = mine.filter((p) => p.days[d] === g && durum(p) === 'gelmedi');
+  const working = mine.filter((p) => p.days[d] === g && durum(p) !== 'gelmedi').map((p) => (durum(p) === 'gec' ? { ...p, gecti: yk[p.ak].dakika || true } : p));
   // düzen şef için sabittir (📌 kişi, ⚙ sayı); her gün o gün çalışan seçilmişler arasından kendiliğinden dağıtılır. Eski güne özel kayıtlar kullanılmaz.
   const gunM = {}; const kapM = {};
   const cards = areaDistribute(working, B.alanlar, g, B.tercih || {}, gunM, kapM, B.ayar || {}, B.yan || {});
@@ -2993,7 +2999,7 @@ function areaData() {
   // OFF / rapor / izin: kişi yalnızca kendi vardiyasının kartında görünür (Günlük ekranla aynı kural: dayLists)
   const team = store.settings.offRule === 'team';
   const absOf = (p) => (team && p.group ? p.group : absenceShift(p, d));
-  const absent = ABS.map(([c, l]) => ({ c, l, kisiler: mine.filter((p) => p.days[d] === c && absOf(p) === g) })).filter((x) => x.kisiler.length);
+  const absent = (gelmedi.length ? [{ c: 'YOK', l: 'Gelmedi (yoklama)', kisiler: gelmedi }] : []).concat(ABS.map(([c, l]) => ({ c, l, kisiler: mine.filter((p) => p.days[d] === c && absOf(p) === g) })).filter((x) => x.kisiler.length));
   const diger = mine.filter((p) => (['1', '2', '3'].includes(p.days[d]) && p.days[d] !== g) || (p.days[d] && !['1', '2', '3'].includes(p.days[d]) && absOf(p) !== g)).length;
   const kayitsiz = mine.filter((p) => !p.days[d]).length;
   const secSet = new Set(B.kisiler);
@@ -3006,7 +3012,7 @@ function viewAreas() {
   if (B.hata) return `<div class="card"><p style="margin:0">${esc(B.hata)}</p><div style="margin-top:10px"><button class="btn" data-act="b-yenile">Tekrar dene</button></div></div>`;
   const { d, g, mine, working, cards, absent, diger, kayitsiz, yokListede, gunM, kapM, disari } = areaData(); const h = store.settings.hours[g];
   const nGun = Object.keys(gunM).length + Object.keys(kapM).length; const ben = !B.sahip || B.sahip.ben; // başka şefin listesi: salt okunur (yalnızca DEV)
-  const chip = (p, a) => `<li class="mate-li">${ben ? `<button type="button" class="mate-btn" data-act="b-kisi" data-k="${esc(p.ak)}">` : '<span class="mate-btn">'}<span class="av sm">${esc(initials(p.name))}</span><span>${esc(niceName(p.name))}${p.pin ? ' 📌' : p.yan ? ' ↔' : ''}</span>${ben ? '</button>' : '</span>'}${ben && a ? `<button type="button" class="mate-x" data-act="b-cikar" data-k="${esc(p.ak)}" data-a="${esc(a.id)}" aria-label="${esc(niceName(p.name))} bu bölümden çıkar" title="Bu bölümden çıkar (her gün)">×</button>` : ''}</li>`;
+  const chip = (p, a) => `<li class="mate-li">${ben ? `<button type="button" class="mate-btn" data-act="b-kisi" data-k="${esc(p.ak)}">` : '<span class="mate-btn">'}<span class="av sm">${esc(initials(p.name))}</span><span>${esc(niceName(p.name))}${p.pin ? ' 📌' : p.yan ? ' ↔' : ''}${p.gecti ? ` <span class="gec-etiket" title="Yoklamada geç">⏰${p.gecti === true ? '' : ' ' + p.gecti + ' dk'}</span>` : ''}</span>${ben ? '</button>' : '</span>'}${ben && a ? `<button type="button" class="mate-x" data-act="b-cikar" data-k="${esc(p.ak)}" data-a="${esc(a.id)}" aria-label="${esc(niceName(p.name))} bu bölümden çıkar" title="Bu bölümden çıkar (her gün)">×</button>` : ''}</li>`;
   const cardHtml = ({ a, cap, varsayilan, kisiler }) => { const st = cap === Infinity ? '' : kisiler.length > cap ? ' fazla' : kisiler.length < cap ? ' eksik' : '';
     const bos = a.id === '_bos';
     return `<section class="card stack bolum-card${st}">
@@ -3192,11 +3198,11 @@ function rollNow() {
   if (m >= s[3] || m < s[1]) return { d: m < s[1] ? addDays(t, -1) : t, g: '3' };
   return { d: t, g: m >= s[2] ? '2' : '1' };
 }
-async function loadRoll() {
-  const d = ui.yTarih, g = ui.yVardiya, key = `${d}|${g}`; if (srv.yoklamaYuk === key) return; srv.yoklamaYuk = key;
+async function loadRoll(d = ui.yTarih, g = ui.yVardiya) {
+  const key = `${d}|${g}`; if (srv.yoklamaYuk === key) return; srv.yoklamaYuk = key;
   try { const j = await api(`yoklama&tarih=${d}&vardiya=${g}`); srv.yoklama = { key, kayit: j.kayit || {} }; }
   catch (e) { srv.yoklama = { key, kayit: {}, hata: e.message }; }
-  srv.yoklamaYuk = null; if (ui.view === 'yoklama') render();
+  srv.yoklamaYuk = null; if (ui.view === 'yoklama' || ui.view === 'bolum') render();
 }
 async function loadRollMonth() {
   const ay = ui.yAy; if (srv.yoklamaAyYuk === ay) return; srv.yoklamaAyYuk = ay;
@@ -3274,6 +3280,31 @@ function rollShareText() {
   parts.push(`Geldi: ${grp('geldi').length} · İşaretlenmedi: ${people.length - grp('geldi').length - gc.length - gm.length}`);
   return parts.join('\n\n');
 }
+// ---------- Vardiya geri sayımı: sıradaki (ya da süren) vardiyaya kalan süre; 30 sn'de bir kendini günceller ----------
+function nextShift(me) {
+  const now = new Date();
+  for (let i = -1; i <= 31; i++) {
+    const d = addDays(todayIso(), i); const c = me.days[d]; if (!['1', '2', '3'].includes(c)) continue;
+    const m = String(store.settings.hours[c] || '').match(/(\d{1,2})[:.](\d{2})\s*[–\-]\s*(\d{1,2})[:.](\d{2})/); if (!m) continue;
+    const s = parseIso(d); s.setHours(Number(m[1]) % 24, Number(m[2]), 0, 0); const e = parseIso(d); e.setHours(Number(m[3]) % 24, Number(m[4]), 0, 0);
+    if (e <= s) e.setDate(e.getDate() + 1);
+    if (e > now) return { d, c, s, e };
+  }
+  return null;
+}
+function fmtDur(ms) {
+  const dk = Math.max(1, Math.ceil(ms / 60000)); const g = Math.floor(dk / 1440), sa = Math.floor((dk % 1440) / 60), m = dk % 60;
+  if (g) return `${g} gün${sa ? ' ' + sa + ' sa' : ''}`;
+  return sa ? `${sa} sa${m ? ' ' + m + ' dk' : ''}` : `${m} dk`;
+}
+function countdownText(me) {
+  const n = me && nextShift(me); if (!n) return '';
+  const now = new Date();
+  if (now >= n.s) return `🟢 ${n.c}. vardiyan sürüyor · bitişe <b>${fmtDur(n.e - now)}</b>`;
+  const t = todayIso(); const gun = n.d === t ? 'bugün' : n.d === addDays(t, 1) ? 'yarın' : `${parseIso(n.d).getDate()} ${MONTHS[parseIso(n.d).getMonth()]} ${DAY_NAMES[parseIso(n.d).getDay()]}`;
+  return `⏳ ${n.c}. vardiyana <b>${fmtDur(n.s - now)}</b> <span class="muted">(${gun} ${String(n.s.getHours()).padStart(2, '0')}:${String(n.s.getMinutes()).padStart(2, '0')})</span>`;
+}
+setInterval(() => { const el = document.getElementById('geri-sayim'); if (!el) return; const me = myRecord(); const tx = me ? countdownText(me) : ''; if (tx && el.innerHTML !== tx) el.innerHTML = tx; }, 30000);
 // ---------- Haftamı paylaş: kişinin bugünden itibaren 7 günü tek görselde (WhatsApp vb.) ----------
 async function weekImage(me) {
   const W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
