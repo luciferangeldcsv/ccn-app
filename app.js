@@ -972,12 +972,10 @@ function renderTabs() {
   if (SERVER && auth) $prof.innerHTML = `${avHtml(auth.ben)}<span class="pn"><b>${esc(auth.ben.ad)}</b><small>${esc(titleOf(auth.ben))}</small></span>`;
   if (side) {
     const un = unreadCount();
-    if (canAreas() && auth.ben.unvan === 'dev' && !srv.bolumSefler && !srv.bolumSefYuk) { srv.bolumSefYuk = true; api('bolumler').then((j) => { srv.bolumSefler = j.sefler || []; render(); }).catch(() => {}); }
     $side.innerHTML = `<div class="side-title">Yönetim paneli</div>
       <button type="button" class="side-prof" data-act="profil">${avHtml(auth.ben)}<div><b>${esc(auth.ben.ad)}</b><span class="role-badge">${esc(titleOf(auth.ben))}</span></div></button>
       <div class="side-search"><input type="search" id="side-q" placeholder="Kişi ara (ad soyad)" autocomplete="off" value="${esc(ui.sideQ || '')}" aria-label="Kişi ara"><div id="side-res">${sideResults()}</div></div>
       <nav class="side-nav">${tabList().filter((v) => v !== 'personel').flatMap((v) => (v === 'cizelge' && canAreas() ? [v, 'bolum'] : [v])).map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}${v === 'sikayet' && srv.sikayetAcik ? `<span class="badge">${srv.sikayetAcik}</span>` : ''}</button>`).join('')}</nav>
-      ${canAreas() ? `<div class="side-sub">Bölüm listeleri</div><nav class="side-nav">${[[0, 'Listem', null], ...(srv.bolumSefler || []).filter((s) => s.id !== auth.ben.id).map((s) => [s.id, s.ad, s.kisi])].map(([id, l, n]) => `<button type="button" data-bsef="${id}" aria-current="${ui.view === 'bolum' && (ui.bSef || 0) === id ? 'page' : 'false'}">${id ? '<span class="rdot r-sef"></span>' : TAB_ICON.bolum}<span>${esc(id ? niceName(l) : l)}</span>${n != null ? `<span class="cnt">${n}</span>` : ''}</button>`).join('')}</nav>` : ''}
       ${canPeople() ? `<div class="side-sub">Kişiler</div><nav class="side-nav">${[['all', 'Tüm kişiler', 2], ['yonetici', 'Yöneticiler', 4], ['mudur', 'Müdürler', 3], ['sef', 'Şefler', 2], ['personel', 'Personeller', 2]].filter(([, , m]) => myLevel() >= m).map(([k, l]) => {
         const n = srv.personel ? (k === 'all' ? srv.personel.length : srv.personel.filter((p) => p.unvan === k).length) : '';
         const on = ui.view === 'personel' && (ui.pRole || 'all') === k;
@@ -2170,6 +2168,10 @@ const actions = {
   'goto': (el) => go(el.dataset.view),
   'mates-all': () => { ui.matesAll = !ui.matesAll; render(); },
   'b-yenile': () => { srv.bolum = null; render(); },
+  'b-ekle': (el) => areaAddSheet(el.dataset.a),
+  'b-cikar': (el) => areaRemove(el.dataset.k, el.dataset.a),
+  'b-kap': (el) => areaCap(el.dataset.a, Number(el.dataset.n)),
+  'b-liste-sil': () => { const B = srv.bolum; const ben = !B.sahip || B.sahip.ben; confirmSheet(ben ? 'Listen silinsin mi?' : `${niceName(B.sahip.ad)} listesi silinsin mi?`, 'Seçilen personel, sabitlemeler ve günlük değişiklikler silinir (sunucuda bir yedeği tutulur).', 'Sil', () => saveAreas(ben ? { listeSil: true } : { listeSil: true, sef: B.sahip.id }, 'Liste silindi').then(() => { if (!ben) { srv.bolum = null; render(); } })); },
   'b-eski-al': () => saveAreas({ eskiAl: true }, 'Önceki seçimlerin geri getirildi'),
   'b-eski-gizle': () => saveAreas({ eskiGizle: true }, ''),
   'b-sifirla': () => confirmSheet('Otomatik dağılıma dönülsün mü?', 'Bu gün ve vardiyadaki elle yapılan değişiklikler (✎) silinir. 📌 sabitlemeler kalır.', 'Otomatiğe dön', () => saveAreas({ gun: { tarih: ui.bTarih || todayIso(), vardiya: ui.bVardiya || '1', sifirla: true } }, 'Otomatik dağılıma dönüldü')),
@@ -2909,24 +2911,26 @@ async function doShare(text, title) {
 // Sunucu: meta bolum_liste:<şef id> = { kisiler, tercih (📌 her gün), gun: { 'tarih|vardiya': { nameKey: bölüm } } (✎ o güne özel) }. Dağılım burada hesaplanır.
 async function loadAreas() {
   if (srv.bolumYuk) return; srv.bolumYuk = true;
-  try { const j = await api('bolumler' + (ui.bSef ? '&sef=' + ui.bSef : '')); srv.bolum = { alanlar: j.alanlar || [], kisiler: j.kisiler || [], tercih: j.tercih || {}, gun: j.gun || {}, tarih: j.tarih, eski: j.eski || null, sahip: j.sahip || null }; if (j.sefler && j.sefler.length) srv.bolumSefler = j.sefler; }
-  catch (e) { srv.bolum = { alanlar: [], kisiler: [], tercih: {}, gun: {}, hata: e.message }; }
+  try { const j = await api('bolumler' + (ui.bSef ? '&sef=' + ui.bSef : '')); srv.bolum = { alanlar: j.alanlar || [], kisiler: j.kisiler || [], tercih: j.tercih || {}, gun: j.gun || {}, kap: j.kap || {}, tarih: j.tarih, eski: j.eski || null, sahip: j.sahip || null, sefler: j.sefler || [] }; }
+  catch (e) { srv.bolum = { alanlar: [], kisiler: [], tercih: {}, gun: {}, kap: {}, sefler: [], hata: e.message }; }
   srv.bolumYuk = false; if (ui.view === 'bolum') render();
 }
 const niceName = (s) => String(s).trim().split(/\s+/).map((w) => w.charAt(0).toLocaleUpperCase('tr') + w.slice(1).toLocaleLowerCase('tr')).join(' ');
 const CODE_TXT = { '1': '1. vardiya', '2': '2. vardiya', '3': '3. vardiya', OFF: 'OFF', R: 'rapor', YI: 'yıllık izin', UI: 'ücretsiz izin', MI: 'izin' };
 // Dağılım: 0) o güne özel değişiklikler (✎, sınır aşılabilir), 1) 📌 sabit bölümler (sınır içinde), 2) sınırlı bölümler sırayla dolar, 3) kalanlar Sarı ve Kırmızı Alan'a eşit bölünür
-function areaDistribute(working, alanlar, g, tercih, gunM) {
+function areaDistribute(working, alanlar, g, tercih, gunM, kapM) {
+  gunM = gunM || {}; kapM = kapM || {};
   const act = alanlar.filter((a) => a.max && Object.prototype.hasOwnProperty.call(a.max, g));
-  const cap = (a) => (a.max[g] == null ? Infinity : a.max[g]);
+  const cap = (a) => (kapM[a.id] != null ? kapM[a.id] : a.max[g] == null ? Infinity : a.max[g]);
+  const not = (p, id) => gunM[p.ak] === '-' + id; // bu gün bu bölüme konmasın (×)
   const res = Object.fromEntries(act.map((a) => [a.id, []])); let pool = [];
-  for (const p of working) { const a = act.find((x) => x.id === (gunM || {})[p.ak]); if (a) res[a.id].push({ ...p, gun: true }); else pool.push(p); }
+  for (const p of working) { const a = act.find((x) => x.id === gunM[p.ak]); if (a) res[a.id].push({ ...p, gun: true }); else pool.push(p); }
   const rest0 = pool; pool = [];
-  for (const p of rest0) { const a = act.find((x) => x.id === tercih[p.ak]); if (a && res[a.id].length < cap(a)) res[a.id].push({ ...p, pin: true }); else pool.push(p); }
-  for (const a of act) if (cap(a) !== Infinity) while (res[a.id].length < cap(a) && pool.length) res[a.id].push(pool.shift());
-  const rest = act.filter((a) => cap(a) === Infinity);
-  if (rest.length) while (pool.length) { const a = rest.reduce((m, x) => (res[x.id].length < res[m.id].length ? x : m), rest[0]); res[a.id].push(pool.shift()); }
-  return act.map((a) => ({ a, cap: cap(a), kisiler: res[a.id] }));
+  for (const p of rest0) { const a = act.find((x) => x.id === tercih[p.ak]); if (a && !not(p, a.id) && res[a.id].length < cap(a)) res[a.id].push({ ...p, pin: true }); else pool.push(p); }
+  for (const a of act) if (cap(a) !== Infinity) while (res[a.id].length < cap(a)) { const i = pool.findIndex((p) => !not(p, a.id)); if (i < 0) break; res[a.id].push(pool.splice(i, 1)[0]); }
+  const rest = act.filter((a) => cap(a) === Infinity); const kalan = [];
+  for (const p of pool) { const ok = rest.filter((a) => !not(p, a.id)); if (!ok.length) { kalan.push(p); continue; } const a = ok.reduce((m, x) => (res[x.id].length < res[m.id].length ? x : m), ok[0]); res[a.id].push(p); }
+  return act.map((a) => ({ a, cap: cap(a), varsayilan: a.max[g] == null ? Infinity : a.max[g], kisiler: res[a.id] })).concat(kalan.length ? [{ a: { id: '_bos', ad: 'Bölümsüz' }, cap: Infinity, varsayilan: Infinity, kisiler: kalan }] : []);
 }
 function areaData() {
   const B = srv.bolum; const d = ui.bTarih || todayIso(); const g = ui.bVardiya || '1';
@@ -2935,29 +2939,34 @@ function areaData() {
   const mine = B.kisiler.map((k) => byKey[k]).filter(Boolean).sort((x, y) => x.name.localeCompare(y.name, 'tr'));
   const yokListede = B.kisiler.filter((k) => !byKey[k]).length;
   const working = mine.filter((p) => p.days[d] === g);
-  const gunM = (B.gun || {})[`${d}|${g}`] || {};
-  const cards = areaDistribute(working, B.alanlar, g, B.tercih || {}, gunM);
+  const gunM = (B.gun || {})[`${d}|${g}`] || {}; const kapM = (B.kap || {})[`${d}|${g}`] || {};
+  const cards = areaDistribute(working, B.alanlar, g, B.tercih || {}, gunM, kapM);
   const ABS = [['OFF', 'OFF'], ['R', 'Raporlu'], ['YI', 'Yıllık izin'], ['UI', 'Ücretsiz izin'], ['MI', 'İzinli']];
   const absent = ABS.map(([c, l]) => ({ c, l, kisiler: mine.filter((p) => p.days[d] === c) })).filter((x) => x.kisiler.length);
   const diger = mine.filter((p) => ['1', '2', '3'].includes(p.days[d]) && p.days[d] !== g).length;
   const kayitsiz = mine.filter((p) => !p.days[d]).length;
-  return { d, g, all, mine, working, cards, absent, diger, kayitsiz, yokListede, gunM };
+  return { d, g, all, mine, working, cards, absent, diger, kayitsiz, yokListede, gunM, kapM };
 }
 function viewAreas() {
   if (!srv.bolum) { loadAreas(); return '<div class="card"><p class="muted" style="margin:0">Bölümler yükleniyor…</p></div>'; }
   const B = srv.bolum;
   if (B.hata) return `<div class="card"><p style="margin:0">${esc(B.hata)}</p><div style="margin-top:10px"><button class="btn" data-act="b-yenile">Tekrar dene</button></div></div>`;
-  const { d, g, mine, working, cards, absent, diger, kayitsiz, yokListede, gunM } = areaData(); const h = store.settings.hours[g];
-  const nGun = Object.keys(gunM).length; const ben = !B.sahip || B.sahip.ben; // başka şefin listesi: salt okunur (yalnızca DEV)
-  const chip = (p) => `<li>${ben ? `<button type="button" class="mate-btn" data-act="b-kisi" data-k="${esc(p.ak)}">` : '<span class="mate-btn">'}<span class="av sm">${esc(initials(p.name))}</span><span>${esc(niceName(p.name))}${p.gun ? ' ✎' : p.pin ? ' 📌' : ''}</span>${ben ? '</button>' : '</span>'}</li>`;
-  const cardHtml = ({ a, cap, kisiler }) => { const st = cap === Infinity ? '' : kisiler.length > cap ? ' fazla' : kisiler.length < cap ? ' eksik' : '';
+  const { d, g, mine, working, cards, absent, diger, kayitsiz, yokListede, gunM, kapM } = areaData(); const h = store.settings.hours[g];
+  const nGun = Object.keys(gunM).length + Object.keys(kapM).length; const ben = !B.sahip || B.sahip.ben; // başka şefin listesi: salt okunur (yalnızca DEV)
+  const chip = (p, a) => `<li class="mate-li">${ben ? `<button type="button" class="mate-btn" data-act="b-kisi" data-k="${esc(p.ak)}">` : '<span class="mate-btn">'}<span class="av sm">${esc(initials(p.name))}</span><span>${esc(niceName(p.name))}${p.gun ? ' ✎' : p.pin ? ' 📌' : ''}</span>${ben ? '</button>' : '</span>'}${ben && a ? `<button type="button" class="mate-x" data-act="b-cikar" data-k="${esc(p.ak)}" data-a="${esc(a.id)}" aria-label="${esc(niceName(p.name))} bu bölümden çıkar" title="Bu bölümden çıkar (bu gün)">×</button>` : ''}</li>`;
+  const cardHtml = ({ a, cap, varsayilan, kisiler }) => { const st = cap === Infinity ? '' : kisiler.length > cap ? ' fazla' : kisiler.length < cap ? ' eksik' : '';
+    const bos = a.id === '_bos';
     return `<section class="card stack bolum-card${st}">
-      <div class="row" style="flex-wrap:nowrap;align-items:center"><h3 style="flex:1;margin:0;font-size:18px">${esc(a.ad)}</h3><span class="bolum-n">${kisiler.length}${cap !== Infinity ? '/' + cap : ''}</span></div>
-      ${kisiler.length ? `<ul class="mate-list">${kisiler.map(chip).join('')}</ul>` : '<p class="small muted" style="margin:0">Kimse yok.</p>'}
-      ${st === ' eksik' ? `<p class="small muted" style="margin:0">${cap - kisiler.length} kişi eksik</p>` : st === ' fazla' ? `<p class="small" style="margin:0;color:var(--off)">Sınırdan ${kisiler.length - cap} kişi fazla (elle eklendi)</p>` : ''}
+      <div class="row" style="flex-wrap:nowrap;align-items:center;gap:6px"><h3 style="flex:1;margin:0;font-size:18px">${esc(a.ad)}</h3>
+        ${ben && !bos && cap !== Infinity ? `<button type="button" class="kap-btn" data-act="b-kap" data-a="${esc(a.id)}" data-n="-1" aria-label="${esc(a.ad)} sayısını azalt"${cap <= 0 ? ' disabled' : ''}>−</button>` : ''}
+        <span class="bolum-n" title="${cap !== Infinity && cap !== varsayilan ? 'Bu gün için ayarlandı (varsayılan ' + varsayilan + ')' : ''}">${kisiler.length}${cap !== Infinity ? '/' + cap : ''}${cap !== Infinity && cap !== varsayilan ? '*' : ''}</span>
+        ${ben && !bos && cap !== Infinity ? `<button type="button" class="kap-btn" data-act="b-kap" data-a="${esc(a.id)}" data-n="1" aria-label="${esc(a.ad)} sayısını artır">+</button>` : ''}</div>
+      ${kisiler.length ? `<ul class="mate-list">${kisiler.map((p) => chip(p, bos ? null : a)).join('')}</ul>` : '<p class="small muted" style="margin:0">Kimse yok.</p>'}
+      ${st === ' eksik' ? `<p class="small muted" style="margin:0">${cap - kisiler.length} kişi eksik</p>` : st === ' fazla' ? `<p class="small" style="margin:0;color:var(--off)">Sayıdan ${kisiler.length - cap} kişi fazla (elle eklendi)</p>` : ''}
+      ${ben && !bos ? `<div><button class="btn small" data-act="b-ekle" data-a="${esc(a.id)}">${ICON_PLUS} Kişi ekle</button></div>` : ''}
     </section>`; };
   const head = `<div class="card stack">
-      <div class="row" style="flex-wrap:wrap;gap:10px;align-items:center"><h2 style="flex:1;margin:0;font-size:22px">${ben ? 'Bölümler · Listem' : `Bölümler · ${esc(niceName(B.sahip.ad))} listesi`} <span class="pill">deneme</span></h2>${ben ? `<button class="btn primary" data-act="b-liste">${ICON_PLUS} Personelim (${B.kisiler.length})</button>` : ''}<button class="btn" data-act="b-share">${ICON_SHARE} Paylaş</button></div>
+      <div class="row" style="flex-wrap:wrap;gap:10px;align-items:center"><h2 style="flex:1;margin:0;font-size:22px">Bölümler <span class="pill">deneme</span></h2>${B.sefler && B.sefler.length ? `<label class="field" style="margin:0;min-width:230px">Liste<select id="b-sef"><option value="0"${ben ? ' selected' : ''}>Listem</option>${B.sefler.filter((s) => s.id !== auth.ben.id).map((s) => `<option value="${s.id}"${B.sahip && B.sahip.id === s.id && !ben ? ' selected' : ''}>${esc(niceName(s.ad))} listesi (${s.kisi} kişi)</option>`).join('')}</select></label>` : ''}${ben ? `<button class="btn primary" data-act="b-liste">${ICON_PLUS} Personelim (${B.kisiler.length})</button>` : ''}${B.kisiler.length && (ben || auth.ben.unvan === 'dev') ? `<button class="btn" data-act="b-liste-sil" style="color:var(--off)">${ben ? 'Listemi sil' : 'Bu listeyi sil'}</button>` : ''}<button class="btn" data-act="b-share">${ICON_SHARE} Paylaş</button></div>
       <div class="datebar">
         <button class="iconbtn" aria-label="Önceki gün" data-act="b-gun" data-n="-1">${ICON_LEFT}</button>
         <div class="dtitle"><h2>${fmtShort(d)}</h2><span>${DAY_NAMES[parseIso(d).getDay()]}${d === todayIso() ? ' · bugün' : ''}</span></div>
@@ -2965,20 +2974,21 @@ function viewAreas() {
         <button class="iconbtn" aria-label="Sonraki gün" data-act="b-gun" data-n="1">${ICON_RIGHT}</button>
       </div>
       <div class="seg seg3" role="radiogroup" aria-label="Vardiya">${['1', '2', '3'].map((x) => `<button role="radio" data-act="b-vardiya" data-v="${x}" aria-selected="${x === g}" aria-checked="${x === g}">${x}. Vardiya</button>`).join('')}</div>
-      <p class="small muted" style="margin:0">${h ? `${g}. vardiya ${esc(h)} · ` : ''}${ben ? 'Bu liste yalnızca senin.' : `<b>${esc(niceName(B.sahip.ad))}</b> listesini yalnızca görüntülüyorsun.`} Listedeki ${mine.length} kişiden bu vardiyada <b>${working.length}</b> kişi çalışıyor; bölümlere otomatik dağıtıldı, Sarı ve Kırmızı Alan kalanları eşit paylaşır.${diger ? ` ${diger} kişi başka vardiyada.` : ''}${kayitsiz ? ` ${kayitsiz} kişinin bu gün için listede kaydı yok.` : ''}${yokListede ? ` ${yokListede} kişi yayındaki listede bulunamadı.` : ''} ${ben ? ' Değiştirmek için isme dokun: <b>✎</b> yalnızca bu gün, <b>📌</b> her gün.' : ' ✎ yalnızca bu gün, 📌 her gün değiştirilmiş kişiler.'}</p>
+      <p class="small muted" style="margin:0">${h ? `${g}. vardiya ${esc(h)} · ` : ''}${ben ? 'Bu liste yalnızca senin.' : `<b>${esc(niceName(B.sahip.ad))}</b> listesini yalnızca görüntülüyorsun.`} Listedeki ${mine.length} kişiden bu vardiyada <b>${working.length}</b> kişi çalışıyor; bölümlere otomatik dağıtıldı, Sarı ve Kırmızı Alan kalanları eşit paylaşır.${diger ? ` ${diger} kişi başka vardiyada.` : ''}${kayitsiz ? ` ${kayitsiz} kişinin bu gün için listede kaydı yok.` : ''}${yokListede ? ` ${yokListede} kişi yayındaki listede bulunamadı.` : ''} ${ben ? ' Bölüm sayısını <b>− / +</b> ile, kişileri <b>Kişi ekle</b> ve <b>×</b> ile bu gün için değiştirebilirsin; isme dokunarak başka bölüme taşı (✎ bu gün) ya da sabitle (📌 her gün).' : ' ✎ yalnızca bu gün, 📌 her gün değiştirilmiş kişiler.'}</p>
       ${B.eski && ben ? `<div class="banner" style="margin:0"><p style="margin:0"><b>Önceki denemeden kayıtlı ${B.eski.sayi} kişilik bölüm seçimi bulundu</b>${B.eski.guncelleyen ? ` (son değiştiren: ${esc(B.eski.guncelleyen)}${B.eski.tarih ? ', ' + fmtWhen(B.eski.tarih) : ''})` : ''}. Geri getirirsen bu kişiler listene eklenir, seçtiğin bölümler 📌 olarak kalır.</p><div class="row" style="gap:8px;margin-top:8px"><button class="btn primary small" data-act="b-eski-al">Geri getir</button><button class="btn small" data-act="b-eski-gizle">Gerek yok</button></div></div>` : ''}
-      ${nGun ? `<div class="row" style="gap:8px;align-items:center"><span class="small">Bu gün ve vardiyada ${nGun} elle değişiklik var (✎).</span>${ben ? '<button class="btn small" data-act="b-sifirla">Otomatik dağılıma dön</button>' : ''}</div>` : ''}
+      ${nGun ? `<div class="row" style="gap:8px;align-items:center"><span class="small">Bu gün ve vardiyada ${nGun} elle değişiklik var (✎ kişi, * sayı).</span>${ben ? '<button class="btn small" data-act="b-sifirla">Otomatik dağılıma dön</button>' : ''}</div>` : ''}
     </div>`;
   if (!B.kisiler.length) return head + `<div class="card stack" style="margin-top:12px"><p style="margin:0">${ben ? 'Henüz personel seçmedin. <b>Personelim</b> ile kendi ekibini seç; seçtiğin kişiler her gün ve vardiyada bölümlere otomatik dağıtılır.' : 'Bu şef henüz personel seçmemiş.'}</p></div>`;
   return head + `<div class="bolum-grid">${cards.map(cardHtml).join('')}
-      ${absent.map((x) => `<section class="card stack bolum-card bolum-bos"><div class="row" style="flex-wrap:nowrap;align-items:center"><h3 style="flex:1;margin:0;font-size:18px">${esc(x.l)}</h3><span class="bolum-n off">${x.kisiler.length}</span></div><ul class="mate-list">${x.kisiler.map((p) => chip(p)).join('')}</ul></section>`).join('')}
+      ${absent.map((x) => `<section class="card stack bolum-card bolum-bos"><div class="row" style="flex-wrap:nowrap;align-items:center"><h3 style="flex:1;margin:0;font-size:18px">${esc(x.l)}</h3><span class="bolum-n off">${x.kisiler.length}</span></div><ul class="mate-list">${x.kisiler.map((p) => chip(p, null)).join('')}</ul></section>`).join('')}
     </div>`;
 }
 function bindAreas() {
   const i = document.getElementById('b-date'); if (i) i.addEventListener('change', () => { if (i.value) { ui.bTarih = i.value; render(); } });
+  const s = document.getElementById('b-sef'); if (s) s.addEventListener('change', () => { ui.bSef = Number(s.value) || 0; srv.bolum = null; render(); });
 }
 async function saveAreas(body, msg) {
-  try { const j = await api('bolum-kaydet', body); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; if (body.eskiAl || body.eskiGizle) srv.bolum.eski = null; if (msg !== '') toast(msg || 'Kaydedildi'); }
+  try { const j = await api('bolum-kaydet', body); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; srv.bolum.kap = j.kap || {}; if (body.eskiAl || body.eskiGizle) srv.bolum.eski = null; if (msg !== '') toast(msg || 'Kaydedildi'); }
   catch (e) { toast(e.message); }
   render();
 }
@@ -2998,7 +3008,7 @@ function areaListSheet() {
     const gonder = async () => {
       clearTimeout(tmr); if (busy || (!bek.ekle.size && !bek.cikar.size)) { durum(); return; }
       const ekle = [...bek.ekle], cikar = [...bek.cikar]; bek.ekle.clear(); bek.cikar.clear(); busy = true; durum();
-      try { const j = await api('bolum-kaydet', { ekle, cikar }); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; hata = ''; }
+      try { const j = await api('bolum-kaydet', { ekle, cikar }); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; srv.bolum.kap = j.kap || {}; hata = ''; }
       catch (e) { ekle.forEach((k) => { if (!bek.cikar.has(k)) bek.ekle.add(k); }); cikar.forEach((k) => { if (!bek.ekle.has(k)) bek.cikar.add(k); }); hata = e.message || 'bağlantı'; tmr = setTimeout(gonder, 4000); }
       busy = false; durum(); if (bek.ekle.size || bek.cikar.size) { if (!hata) gonder(); } else if (!document.getElementById('be-list')) render();
     };
@@ -3029,6 +3039,35 @@ function areaPinSheet(k) {
     bg.querySelectorAll('[data-pa]').forEach((b) => b.addEventListener('click', () => { const a = b.dataset.pa; closeSheet(); saveAreas({ tercih: { [k]: a } }, a ? `${niceName(p.name)} → 📌 ${B.alanlar.find((x) => x.id === a).ad}` : `${niceName(p.name)} her gün otomatik`); }));
     bg.querySelector('[data-pr]').addEventListener('click', () => { closeSheet(); saveAreas({ cikar: [k] }, `${niceName(p.name)} listenden çıkarıldı`); });
   });
+}
+// Bölüme kişi ekle (yalnızca bu gün): bu vardiyada çalışan herkes; listende olmayan da eklenebilir (listene de girer)
+function areaAddSheet(id) {
+  const B = srv.bolum; const { d, g, all, cards } = areaData(); const card = cards.find((c) => c.a.id === id); if (!card) return;
+  const icinde = new Set(card.kisiler.map((p) => p.ak)); const yer = {}; cards.forEach((c) => c.kisiler.forEach((p) => { yer[p.ak] = c.a.ad; }));
+  const sec = new Set(B.kisiler);
+  const aday = all.filter((p) => p.days[d] === g && !icinde.has(p.ak)).sort((x, y) => (sec.has(x.ak) === sec.has(y.ak) ? x.name.localeCompare(y.name, 'tr') : sec.has(x.ak) ? -1 : 1));
+  const row = (p) => `<button type="button" class="be-row be-add" data-k="${esc(p.ak)}" data-q="${esc(nameKey(p.name))}"><span class="be-name">${esc(niceName(p.name))}</span>${yer[p.ak] ? `<span class="be-tag">şu an ${esc(yer[p.ak])}</span>` : ''}${!sec.has(p.ak) ? '<span class="be-tag be-oth">listende yok</span>' : ''}</button>`;
+  sheet(`<h3 style="margin:0 0 4px">${esc(card.a.ad)} · kişi ekle</h3><p class="small muted" style="margin:0 0 10px">${fmtShort(d)} ${g}. vardiyada çalışanlar. Seçtiğin kişi yalnızca bu gün buraya konur (✎); listende yoksa listene de eklenir.${card.cap !== Infinity ? ` Bölüm doluysa sayısı bir artırılır.` : ''}</p>
+    <input type="search" id="ba-q" placeholder="İsim ara" autocomplete="off" style="width:100%;margin-bottom:8px">
+    <div class="be-list">${aday.length ? aday.map(row).join('') : '<p class="small muted" style="margin:10px">Bu vardiyada eklenebilecek başka kimse yok.</p>'}</div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn" data-x="1">Kapat</button></div>`, (bg) => {
+    bg.querySelector('#ba-q').addEventListener('input', (e) => { const q = nameKey(e.target.value); bg.querySelectorAll('.be-add').forEach((r) => { r.hidden = !!q && !r.dataset.q.includes(q); }); });
+    bg.querySelectorAll('.be-add').forEach((b) => b.addEventListener('click', () => {
+      const k = b.dataset.k; const p = all.find((x) => x.ak === k); const n = card.kisiler.length + 1;
+      const body = { gun: { tarih: d, vardiya: g, degisiklik: { [k]: id }, ...(card.cap !== Infinity && n > card.cap ? { kap: { [id]: n } } : {}) } };
+      closeSheet(); saveAreas(body, `${niceName(p.name)} → ${card.a.ad} (bu gün)`);
+    }));
+  });
+}
+function areaRemove(k, id) { // × : bu gün bu bölümden çıkar; sınırlı bölümde sayı da bir azalır (boşalan yere başkası gelmesin)
+  const { d, g, cards, all } = areaData(); const card = cards.find((c) => c.a.id === id); const p = all.find((x) => x.ak === k);
+  const body = { gun: { tarih: d, vardiya: g, degisiklik: { [k]: '-' + id }, ...(card && card.cap !== Infinity ? { kap: { [id]: Math.max(0, card.kisiler.length - 1) } } : {}) } };
+  saveAreas(body, `${p ? niceName(p.name) : 'Kişi'} ${card ? card.a.ad : ''} bölümünden çıkarıldı (bu gün)`);
+}
+function areaCap(id, n) { // − / + : bu günün bölüm sayısı
+  const { d, g, cards } = areaData(); const card = cards.find((c) => c.a.id === id); if (!card || card.cap === Infinity) return;
+  const yeni = Math.max(0, card.cap + n);
+  saveAreas({ gun: { tarih: d, vardiya: g, kap: { [id]: yeni === card.varsayilan ? null : yeni } } }, `${card.a.ad}: ${yeni} kişi (bu gün)`);
 }
 function areaShareText() {
   const { d, g, cards, absent } = areaData(); const F = store.settings.share || { style: 'num' }; const h = store.settings.hours[g];
