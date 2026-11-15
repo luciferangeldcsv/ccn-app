@@ -1178,7 +1178,7 @@ switch ($r) {
     foreach (array_keys($kap) as $gk) if (substr($gk, 0, 10) < gmdate('Y-m-d', time() - 60 * 86400)) unset($kap[$gk]);
     if (is_array(body()['tercih'] ?? null)) foreach (body()['tercih'] as $k => $a) {
       $k = (string)$k; $a = (string)$a; if (!$ok($k) || !in_array($k, $kisiler, true)) continue;
-      if ($a === '') unset($tercih[$k]); elseif (in_array($a, $ids, true)) $tercih[$k] = $a;
+      if ($a === '') unset($tercih[$k]); elseif (in_array(ltrim($a, '-'), $ids, true)) $tercih[$k] = $a; // '-bölüm' = bu bölüme hiç konmasın
     }
     // o güne özel değişiklik: { tarih, vardiya, degisiklik: { nameKey: bölüm | '' } } ya da { tarih, vardiya, sifirla: true }
     if (is_array(body()['gun'] ?? null)) {
