@@ -289,6 +289,15 @@ function luci_table(?PDO $pdo = null): void {
   if (!$pd->query("SHOW COLUMNS FROM luci_mesajlar LIKE 'sohbet'")->fetch()) { try { $pd->exec('ALTER TABLE luci_mesajlar ADD COLUMN sohbet VARCHAR(24) NULL'); } catch (Throwable $e) { /* başka istek eklemiş olabilir */ } }
   if (!$pd->query("SHOW COLUMNS FROM luci_mesajlar LIKE 'foto'")->fetch()) { try { $pd->exec('ALTER TABLE luci_mesajlar ADD COLUMN foto VARCHAR(120) NULL, ADD COLUMN foto_tip VARCHAR(20) NULL'); } catch (Throwable $e) { /* başka istek eklemiş olabilir */ } }
 }
+// Duyuru tepkileri (kişi başına duyuru başına tek tepki) ve öneri kutusu (isimsiz gönderilebilir; sahip = hmac, yalnızca kendisi görür)
+function tepki_table(): void {
+  static $done = false; if ($done) return; $done = true;
+  db()->exec("CREATE TABLE IF NOT EXISTS duyuru_tepki (duyuru_id INT NOT NULL, personnel_id INT NOT NULL, tepki VARCHAR(8) NOT NULL, at DATETIME NOT NULL, PRIMARY KEY (duyuru_id, personnel_id), INDEX (duyuru_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+function oneri_table(): void {
+  static $done = false; if ($done) return; $done = true;
+  db()->exec("CREATE TABLE IF NOT EXISTS oneriler (id INT AUTO_INCREMENT PRIMARY KEY, personnel_id INT NULL, ad VARCHAR(120) NULL, unvan VARCHAR(20) NULL, sahip CHAR(64) NOT NULL, metin TEXT NOT NULL, durum VARCHAR(16) NOT NULL DEFAULT 'yeni', cevap VARCHAR(500) NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, INDEX (sahip), INDEX (durum)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
 // Şef yoklaması: tarih + vardiya + kişi (isim anahtarı) başına tek kayıt
 function yoklama_table(): void {
   static $done = false; if ($done) return; $done = true;
