@@ -18,7 +18,15 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari', 'luci', 'dev-luci-anahtar', 'luci-ac'];
+// Bölümler (deneme). vardiya: bölümün çalıştığı vardiyalar
+const BOLUMLER = [
+  ['id' => 'tomo-mr', 'ad' => 'Tomo - MR', 'vardiya' => ['1', '2', '3']], ['id' => 'rontgen-usg', 'ad' => 'Röntgen - USG', 'vardiya' => ['1', '2', '3']],
+  ['id' => 'cocuk-acil', 'ad' => 'Çocuk Acil', 'vardiya' => ['1', '2', '3']], ['id' => 'kadin-dogum', 'ad' => 'Kadın Doğum Acil', 'vardiya' => ['1', '2', '3']],
+  ['id' => 'yesil-alan', 'ad' => 'Yeşil Alan', 'vardiya' => ['1', '2', '3']], ['id' => 'sari-alan', 'ad' => 'Sarı Alan', 'vardiya' => ['1', '2', '3']],
+  ['id' => 'kirmizi-alan', 'ad' => 'Kırmızı Alan', 'vardiya' => ['1', '2', '3']], ['id' => 'numune', 'ad' => 'Numune', 'vardiya' => ['1', '2', '3']],
+  ['id' => 'merkez-lab', 'ad' => 'Merkez Lab', 'vardiya' => ['2', '3']],
+];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari', 'luci', 'dev-luci-anahtar', 'luci-ac', 'bolum-kaydet'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -1103,6 +1111,28 @@ switch ($r) {
     $cevap = mb_substr(luci_temiz($text), 0, 2000);
     db()->prepare("INSERT INTO luci_mesajlar (personnel_id, rol, metin, created_at, sohbet) VALUES (?, 'luci', ?, ?, ?)")->execute([$u['id'], $cevap, now(), $sohbet ?: null]);
     ok(['cevap' => $cevap] + ($sesli ? ['soru' => $msg] : []));
+  }
+  // ---------- Bölümler (deneme): şef ve üstü kişileri bölümlere atar; atamalar yayınlanan listeden ayrı (meta: bolum_atama) ----------
+  case 'bolumler': {
+    require_level(2, 'Bölümleri yalnızca şef ve üstü görebilir.');
+    $d = json_decode((string)(meta_get('bolum_atama') ?? ''), true) ?: [];
+    ok(['alanlar' => BOLUMLER, 'atama' => (object)($d['atama'] ?? []), 'guncelleyen' => $d['guncelleyen'] ?? null, 'tarih' => isset($d['tarih']) ? utc($d['tarih']) : null]);
+  }
+  case 'bolum-kaydet': {
+    $u = require_level(2, 'Bölüm atamasını yalnızca şef ve üstü yapabilir.');
+    $deg = body()['degisiklik'] ?? null; if (!is_array($deg) || !$deg) fail(400, 'Değişiklik yok.');
+    if (count($deg) > 400) fail(400, 'Tek seferde en fazla 400 kişi değiştirilebilir.');
+    $ids = array_column(BOLUMLER, 'id');
+    $d = json_decode((string)(meta_get('bolum_atama') ?? ''), true) ?: []; $at = is_array($d['atama'] ?? null) ? $d['atama'] : [];
+    $n = 0;
+    foreach ($deg as $k => $a) {
+      $k = (string)$k; $a = (string)$a;
+      if (!preg_match('/^[a-z]{2,80}$/', $k) || ($a !== '' && !in_array($a, $ids, true))) continue;
+      if ($a === '') unset($at[$k]); else $at[$k] = $a; $n++;
+    }
+    meta_set('bolum_atama', json_encode(['atama' => $at, 'guncelleyen' => shown_name($u), 'tarih' => now()], JSON_UNESCAPED_UNICODE));
+    audit($u, 'bolum', "$n kişinin bölümü güncellendi");
+    ok(['atama' => (object)$at]);
   }
   // DEV paneli Dosyalar: imzalı bağlantı ('vira:' imzası; şikayet/eğitim bağlantılarıyla karışmaz)
   case 'vira-dosya': {
