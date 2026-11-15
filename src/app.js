@@ -2168,6 +2168,8 @@ const actions = {
   'goto': (el) => go(el.dataset.view),
   'mates-all': () => { ui.matesAll = !ui.matesAll; render(); },
   'b-yenile': () => { srv.bolum = null; render(); },
+  'b-eski-al': () => saveAreas({ eskiAl: true }, 'Önceki seçimlerin geri getirildi'),
+  'b-eski-gizle': () => saveAreas({ eskiGizle: true }, ''),
   'b-sifirla': () => confirmSheet('Otomatik dağılıma dönülsün mü?', 'Bu gün ve vardiyadaki elle yapılan değişiklikler (✎) silinir. 📌 sabitlemeler kalır.', 'Otomatiğe dön', () => saveAreas({ gun: { tarih: ui.bTarih || todayIso(), vardiya: ui.bVardiya || '1', sifirla: true } }, 'Otomatik dağılıma dönüldü')),
   'b-gun': (el) => { ui.bTarih = addDays(ui.bTarih || todayIso(), Number(el.dataset.n)); render(); },
   'b-vardiya': (el) => { ui.bVardiya = el.dataset.v; render(); },
@@ -2905,7 +2907,7 @@ async function doShare(text, title) {
 // Sunucu: meta bolum_liste:<şef id> = { kisiler, tercih (📌 her gün), gun: { 'tarih|vardiya': { nameKey: bölüm } } (✎ o güne özel) }. Dağılım burada hesaplanır.
 async function loadAreas() {
   if (srv.bolumYuk) return; srv.bolumYuk = true;
-  try { const j = await api('bolumler'); srv.bolum = { alanlar: j.alanlar || [], kisiler: j.kisiler || [], tercih: j.tercih || {}, gun: j.gun || {}, tarih: j.tarih }; }
+  try { const j = await api('bolumler'); srv.bolum = { alanlar: j.alanlar || [], kisiler: j.kisiler || [], tercih: j.tercih || {}, gun: j.gun || {}, tarih: j.tarih, eski: j.eski || null }; }
   catch (e) { srv.bolum = { alanlar: [], kisiler: [], tercih: {}, gun: {}, hata: e.message }; }
   srv.bolumYuk = false; if (ui.view === 'bolum') render();
 }
@@ -2962,6 +2964,7 @@ function viewAreas() {
       </div>
       <div class="seg seg3" role="radiogroup" aria-label="Vardiya">${['1', '2', '3'].map((x) => `<button role="radio" data-act="b-vardiya" data-v="${x}" aria-selected="${x === g}" aria-checked="${x === g}">${x}. Vardiya</button>`).join('')}</div>
       <p class="small muted" style="margin:0">${h ? `${g}. vardiya ${esc(h)} · ` : ''}Bu liste yalnızca senin. Listendeki ${mine.length} kişiden bu vardiyada <b>${working.length}</b> kişi çalışıyor; bölümlere otomatik dağıtıldı, Sarı ve Kırmızı Alan kalanları eşit paylaşır.${diger ? ` ${diger} kişi başka vardiyada.` : ''}${kayitsiz ? ` ${kayitsiz} kişinin bu gün için listede kaydı yok.` : ''}${yokListede ? ` ${yokListede} kişi yayındaki listede bulunamadı.` : ''} Değiştirmek için isme dokun: <b>✎</b> yalnızca bu gün, <b>📌</b> her gün.</p>
+      ${B.eski ? `<div class="banner" style="margin:0"><p style="margin:0"><b>Önceki denemeden kayıtlı ${B.eski.sayi} kişilik bölüm seçimi bulundu</b>${B.eski.guncelleyen ? ` (son değiştiren: ${esc(B.eski.guncelleyen)}${B.eski.tarih ? ', ' + fmtWhen(B.eski.tarih) : ''})` : ''}. Geri getirirsen bu kişiler listene eklenir, seçtiğin bölümler 📌 olarak kalır.</p><div class="row" style="gap:8px;margin-top:8px"><button class="btn primary small" data-act="b-eski-al">Geri getir</button><button class="btn small" data-act="b-eski-gizle">Gerek yok</button></div></div>` : ''}
       ${nGun ? `<div class="row" style="gap:8px;align-items:center"><span class="small">Bu gün ve vardiyada ${nGun} elle değişiklik var (✎).</span><button class="btn small" data-act="b-sifirla">Otomatik dağılıma dön</button></div>` : ''}
     </div>`;
   if (!B.kisiler.length) return head + `<div class="card stack" style="margin-top:12px"><p style="margin:0">Henüz personel seçmedin. <b>Personelim</b> ile kendi ekibini seç; seçtiğin kişiler her gün ve vardiyada bölümlere otomatik dağıtılır.</p></div>`;
@@ -2973,7 +2976,7 @@ function bindAreas() {
   const i = document.getElementById('b-date'); if (i) i.addEventListener('change', () => { if (i.value) { ui.bTarih = i.value; render(); } });
 }
 async function saveAreas(body, msg) {
-  try { const j = await api('bolum-kaydet', body); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; toast(msg || 'Kaydedildi'); }
+  try { const j = await api('bolum-kaydet', body); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; if (body.eskiAl || body.eskiGizle) srv.bolum.eski = null; if (msg !== '') toast(msg || 'Kaydedildi'); }
   catch (e) { toast(e.message); }
   render();
 }
@@ -2982,18 +2985,30 @@ function areaListSheet() {
   // o gün bu vardiyada çalışanlar üstte (ekip bilgisi değil, listedeki o günkü vardiya esas: ör. 3. ekipten olup 1. vardiyada çalışan)
   const people = areaData().all.sort((x, y) => ((x.days[d] === g) === (y.days[d] === g) ? x.name.localeCompare(y.name, 'tr') : x.days[d] === g ? -1 : 1));
   const sec = new Set(B.kisiler);
-  sheet(`<h3 style="margin:0 0 4px">Personelim</h3><p class="small muted" style="margin:0 0 10px">Kendi ekibindeki kişileri işaretle. Her gün ve vardiyada, o vardiyada çalışanlar bölümlere otomatik dağıtılır; OFF olanlar OFF'ta görünür. Bu liste yalnızca senin.</p>
+  sheet(`<h3 style="margin:0 0 4px">Personelim</h3><p class="small muted" style="margin:0 0 10px">Kendi ekibindeki kişileri işaretle; <b>her işaret anında kaydedilir</b>. Her gün ve vardiyada, o vardiyada çalışanlar bölümlere otomatik dağıtılır; OFF olanlar OFF'ta görünür. Bu liste yalnızca senin.</p>
     <div class="row" style="gap:8px;margin-bottom:8px;flex-wrap:wrap"><input type="search" id="be-q" placeholder="İsim ara" autocomplete="off" style="flex:1;min-width:160px"><button class="btn small" id="be-grup">${fmtShort(d).slice(0, 5)} ${g}. vardiyada çalışanları seç</button></div>
     <div class="be-list" id="be-list">${people.map((p) => { const c = p.days[d] || ''; return `<label class="be-row" data-q="${esc(nameKey(p.name))}" data-c="${esc(c)}"><input type="checkbox" value="${esc(p.ak)}"${sec.has(p.ak) ? ' checked' : ''}><span class="be-name">${esc(niceName(p.name))}</span>${c ? `<span class="be-tag${c === g ? ' be-on' : ''}">${fmtShort(d).slice(0, 5)}: ${esc(CODE_TXT[c] || c)}</span>` : ''}${B.tercih[p.ak] ? `<span class="be-tag be-oth">📌 ${esc(ad[B.tercih[p.ak]] || '')}</span>` : ''}</label>`; }).join('')}</div>
-    <div class="row" style="margin-top:12px"><span class="small muted" id="be-say" style="flex:1"></span><button class="btn" data-x="1">Vazgeç</button><button class="btn primary" id="be-save">Kaydet</button></div>`, (bg) => {
-    const say = () => { bg.querySelector('#be-say').textContent = bg.querySelectorAll('#be-list input:checked').length + ' kişi seçili'; };
-    bg.querySelector('#be-list').addEventListener('change', say); say();
+    <div class="row" style="margin-top:12px"><span class="small" id="be-say" style="flex:1"></span><button class="btn primary" data-x="1">Tamam</button></div>`, (bg) => {
+    // anında kayıt: değişen kişiler (ekle/çıkar) kısa bir beklemeyle sunucuya gider; hata olursa bekleyenler korunup yeniden denenir
+    const bek = { ekle: new Set(), cikar: new Set() }; let tmr = null, busy = false, hata = '';
+    const durum = () => { const n = bg.querySelectorAll('#be-list input:checked').length; const el = bg.querySelector('#be-say'); if (!el) return;
+      el.textContent = `${n} kişi seçili · ` + (hata ? `Kaydedilemedi (${hata}), yeniden deneniyor…` : busy || bek.ekle.size || bek.cikar.size ? 'Kaydediliyor…' : 'Kaydedildi ✓'); el.style.color = hata ? 'var(--off)' : ''; };
+    const gonder = async () => {
+      clearTimeout(tmr); if (busy || (!bek.ekle.size && !bek.cikar.size)) { durum(); return; }
+      const ekle = [...bek.ekle], cikar = [...bek.cikar]; bek.ekle.clear(); bek.cikar.clear(); busy = true; durum();
+      try { const j = await api('bolum-kaydet', { ekle, cikar }); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; hata = ''; }
+      catch (e) { ekle.forEach((k) => { if (!bek.cikar.has(k)) bek.ekle.add(k); }); cikar.forEach((k) => { if (!bek.ekle.has(k)) bek.cikar.add(k); }); hata = e.message || 'bağlantı'; tmr = setTimeout(gonder, 4000); }
+      busy = false; durum(); if (bek.ekle.size || bek.cikar.size) { if (!hata) gonder(); } else if (!document.getElementById('be-list')) render();
+    };
+    const degis = (c) => { const k = c.value; if (c.checked) { bek.cikar.delete(k); bek.ekle.add(k); } else { bek.ekle.delete(k); bek.cikar.add(k); } };
+    const planla = () => { durum(); clearTimeout(tmr); tmr = setTimeout(gonder, 350); };
+    bg.querySelector('#be-list').addEventListener('change', (e) => { if (e.target.matches('input[type=checkbox]')) { degis(e.target); planla(); } });
     bg.querySelector('#be-q').addEventListener('input', (e) => { const q = nameKey(e.target.value); bg.querySelectorAll('.be-row').forEach((r) => { r.hidden = !!q && !r.dataset.q.includes(q); }); });
-    bg.querySelector('#be-grup').addEventListener('click', () => { bg.querySelectorAll(`.be-row[data-c="${g}"] input`).forEach((c) => { c.checked = true; }); say(); });
-    bg.querySelector('#be-save').addEventListener('click', () => {
-      const kisiler = [...bg.querySelectorAll('#be-list input:checked')].map((c) => c.value);
-      closeSheet(); saveAreas({ kisiler }, `Personel listen kaydedildi (${kisiler.length} kişi)`);
-    });
+    bg.querySelector('#be-grup').addEventListener('click', () => { bg.querySelectorAll(`.be-row[data-c="${g}"] input`).forEach((c) => { if (!c.checked) { c.checked = true; degis(c); } }); planla(); });
+    // pencere kapanınca (Tamam, arka plana dokunma) bekleyen kayıt hemen gider ve ana ekran yenilenir
+    const kapan = new MutationObserver(() => { if (!document.body.contains(bg)) { kapan.disconnect(); if (bek.ekle.size || bek.cikar.size) gonder(); else render(); } });
+    kapan.observe($overlay, { childList: true });
+    durum();
   });
 }
 function areaPinSheet(k) {
@@ -3010,7 +3025,7 @@ function areaPinSheet(k) {
     <div class="row" style="margin-top:14px"><button class="btn" data-pr="1" style="color:var(--off)">Listemden çıkar</button><span style="flex:1"></span><button class="btn" data-x="1">Kapat</button></div>`, (bg) => {
     bg.querySelectorAll('[data-ga]').forEach((b) => b.addEventListener('click', () => { const a = b.dataset.ga; closeSheet(); saveAreas({ gun: { tarih: d, vardiya: g, degisiklik: { [k]: a } } }, a ? `${niceName(p.name)} → ${B.alanlar.find((x) => x.id === a).ad} (yalnızca bu gün)` : `${niceName(p.name)} otomatik dağılıma döndü`); }));
     bg.querySelectorAll('[data-pa]').forEach((b) => b.addEventListener('click', () => { const a = b.dataset.pa; closeSheet(); saveAreas({ tercih: { [k]: a } }, a ? `${niceName(p.name)} → 📌 ${B.alanlar.find((x) => x.id === a).ad}` : `${niceName(p.name)} her gün otomatik`); }));
-    bg.querySelector('[data-pr]').addEventListener('click', () => { closeSheet(); saveAreas({ kisiler: B.kisiler.filter((x) => x !== k) }, `${niceName(p.name)} listenden çıkarıldı`); });
+    bg.querySelector('[data-pr]').addEventListener('click', () => { closeSheet(); saveAreas({ cikar: [k] }, `${niceName(p.name)} listenden çıkarıldı`); });
   });
 }
 function areaShareText() {

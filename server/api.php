@@ -1121,7 +1121,10 @@ switch ($r) {
   case 'bolumler': {
     $u = bolum_sefi();
     $d = json_decode((string)(meta_get('bolum_liste:' . (int)$u['id']) ?? ''), true) ?: [];
-    ok(['alanlar' => BOLUMLER, 'kisiler' => array_values($d['kisiler'] ?? []), 'tercih' => (object)($d['tercih'] ?? []), 'gun' => (object)array_map(fn($x) => (object)$x, $d['gun'] ?? []), 'tarih' => isset($d['tarih']) ? utc($d['tarih']) : null]);
+    // ilk denemenin ortak kaydı (bolum_atama) duruyorsa şefe "geri getir" önerilir
+    $eski = json_decode((string)(meta_get('bolum_atama') ?? ''), true) ?: []; $eskiN = count((array)($eski['atama'] ?? []));
+    ok(['alanlar' => BOLUMLER, 'kisiler' => array_values($d['kisiler'] ?? []), 'tercih' => (object)($d['tercih'] ?? []), 'gun' => (object)array_map(fn($x) => (object)$x, $d['gun'] ?? []), 'tarih' => isset($d['tarih']) ? utc($d['tarih']) : null]
+      + ($eskiN && empty($d['eskiAlindi']) ? ['eski' => ['sayi' => $eskiN, 'guncelleyen' => $eski['guncelleyen'] ?? null, 'tarih' => isset($eski['tarih']) ? utc($eski['tarih']) : null]] : []));
   }
   case 'bolum-kaydet': {
     $u = bolum_sefi();
@@ -1129,9 +1132,22 @@ switch ($r) {
     $d = json_decode((string)(meta_get($key) ?? ''), true) ?: [];
     $kisiler = $d['kisiler'] ?? []; $tercih = is_array($d['tercih'] ?? null) ? $d['tercih'] : []; $gun = is_array($d['gun'] ?? null) ? $d['gun'] : [];
     $ids = array_column(BOLUMLER, 'id'); $ok = fn($k) => is_string($k) && preg_match('/^[a-z]{2,80}$/', $k);
-    if (array_key_exists('kisiler', body())) {
-      $in = body()['kisiler']; if (!is_array($in) || count($in) > 400) fail(400, 'Liste geçersiz.');
-      $kisiler = array_values(array_unique(array_filter($in, $ok)));
+    $eskiAlindi = !empty($d['eskiAlindi']);
+    // ekle / çıkar: her işaretleme anında yalnızca değişen kişiler gelir (iki sekme/cihaz birbirinin seçimini silmesin)
+    if (is_array(body()['ekle'] ?? null) || is_array(body()['cikar'] ?? null)) {
+      $ekle = array_filter((array)(body()['ekle'] ?? []), $ok); $cikar = array_filter((array)(body()['cikar'] ?? []), $ok);
+      if (count($ekle) + count($cikar) > 400) fail(400, 'Tek seferde en fazla 400 kişi değiştirilebilir.');
+      $kisiler = array_values(array_diff(array_unique(array_merge($kisiler, $ekle)), $cikar));
+    }
+    // ilk denemedeki ortak atamaları geri getir: kişiler listeye, seçtiği bölümler 📌 olarak
+    if (!empty(body()['eskiAl'])) {
+      $eski = json_decode((string)(meta_get('bolum_atama') ?? ''), true) ?: [];
+      foreach ((array)($eski['atama'] ?? []) as $k => $a) { if (!$ok($k)) continue; if (!in_array($k, $kisiler, true)) $kisiler[] = $k; if (!isset($tercih[$k]) && in_array($a, $ids, true)) $tercih[$k] = $a; }
+      $eskiAlindi = true;
+    }
+    if (!empty(body()['eskiGizle'])) $eskiAlindi = true;
+    if (array_key_exists('kisiler', body()) || is_array(body()['cikar'] ?? null)) {
+      if (array_key_exists('kisiler', body())) { $in = body()['kisiler']; if (!is_array($in) || count($in) > 400) fail(400, 'Liste geçersiz.'); $kisiler = array_values(array_unique(array_filter($in, $ok))); }
       $tercih = array_intersect_key($tercih, array_flip($kisiler)); // listeden çıkanın ayarları da silinir
       foreach ($gun as $gk => $m) { $gun[$gk] = array_intersect_key((array)$m, array_flip($kisiler)); if (!$gun[$gk]) unset($gun[$gk]); }
     }
@@ -1149,7 +1165,8 @@ switch ($r) {
       if ($m) $gun[$gk] = $m; else unset($gun[$gk]);
     }
     $sinir = gmdate('Y-m-d', time() - 60 * 86400); foreach (array_keys($gun) as $gk) if (substr($gk, 0, 10) < $sinir) unset($gun[$gk]); // 60 günden eskiler atılır
-    meta_set($key, json_encode(['kisiler' => $kisiler, 'tercih' => $tercih, 'gun' => $gun, 'tarih' => now()], JSON_UNESCAPED_UNICODE));
+    if (count($kisiler) > 400) fail(400, 'Liste en fazla 400 kişi olabilir.');
+    meta_set($key, json_encode(['kisiler' => $kisiler, 'tercih' => $tercih, 'gun' => $gun, 'tarih' => now()] + ($eskiAlindi ? ['eskiAlindi' => true] : []), JSON_UNESCAPED_UNICODE));
     audit($u, 'bolum', count($kisiler) . ' kişilik bölüm listesi güncellendi');
     ok(['kisiler' => $kisiler, 'tercih' => (object)$tercih, 'gun' => (object)array_map(fn($x) => (object)$x, $gun)]);
   }
