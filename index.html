@@ -597,6 +597,11 @@ h4.ph { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color
 .rangebar .field { min-width: 150px; }
 .rangebar .small, .rangebar .chips { align-self: flex-end; margin-bottom: 9px; }
 
+/* Duyuru tepkileri ve öneri kutusu */
+.tepki-bar { display: flex; flex-wrap: wrap; gap: 6px; } .tepki { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; min-height: 34px; }
+.tepki b { font-size: 13px; color: var(--muted); } .tepki.on { border-color: var(--accent); background: var(--surface-2, var(--surface)); box-shadow: 0 0 0 1px var(--accent); } .tepki.on b { color: var(--accent); } .tepki.kim { font-size: 13px; color: var(--muted); }
+.oneri-list { display: grid; gap: 8px; max-height: 40vh; overflow: auto; } .oneri { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; } .oneri small { color: var(--muted); }
+.oneri-d { font-weight: 700; } .oneri-yapildi { color: var(--yi); } .oneri-inceleniyor { color: var(--s1); } .oneri-olmayacak { color: var(--muted); }
 /* Şef yoklaması */
 .y-say { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 15px; } .y-say b { font-size: 18px; margin-left: 4px; }
 .y-say .y-geldi { color: var(--yi); } .y-say .y-gec { color: var(--s1); } .y-say .y-gelmedi { color: var(--off); }
@@ -612,6 +617,9 @@ h4.ph { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color
 .bolum-n.off { background: var(--off); } .bolum-n.dis, .mate-list .av.sm.dis { background: var(--muted); } .bolum-dis { opacity: .95; } .bolum-card.fazla .bolum-n { background: var(--off); } .be-tag.be-on { color: var(--s1); border-color: var(--s1); font-weight: 600; }
 .bolum-n { min-width: 30px; height: 30px; padding: 0 8px; border-radius: 999px; background: var(--accent); color: #fff; font-weight: 700; display: inline-grid; place-items: center; }
 .geri-sayim { font-size: 16px; padding: 8px 12px; border-radius: 12px; background: var(--surface-2, var(--surface)); border: 1px solid var(--line); } .geri-sayim b { font-size: 18px; }
+.drag-ghost { position: fixed; z-index: 200; pointer-events: none; transform: translate(-50%, -50%) scale(1.06); box-shadow: 0 10px 28px rgba(0,0,0,.28); background: var(--surface); border: 1px solid var(--accent); border-radius: 999px; padding: 4px 10px 4px 4px; opacity: .95; }
+.bolum-card.drop-ok { outline: 3px dashed var(--accent); outline-offset: 3px; } body.surukleniyor, body.surukleniyor * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+.bolum-card [data-drag] { touch-action: manipulation; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 .gec-etiket { color: var(--s1); font-weight: 700; font-size: 12px; }
 .bolum-grp { display: grid; gap: 6px; } .bolum-grp-t { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
 .be-sabit { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; } .be-sabit input { width: 20px; height: 20px; flex: none; margin-top: 2px; } .be-sabit span { display: grid; gap: 2px; } .be-sabit small { color: var(--muted); }
@@ -757,7 +765,7 @@ body:has(#overlay > *) #luci-bub, body:has(#overlay > *) #luci-fab { display: no
   setTimeout(off, 6000);
 })();
 </script>
-<script src="app.js?v=efabccb8fd"></script>
+<script src="app.js?v=845c4abc34"></script>
 
 </body>
 </html>

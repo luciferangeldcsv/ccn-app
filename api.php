@@ -18,6 +18,8 @@ set_exception_handler(function (Throwable $e) {
 
 $r = preg_replace('/[^a-z-]/', '', (string)($_GET['r'] ?? ''));
 $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
+const DUYURU_TEPKI = ['👍', '✅', '❤️', '👀'];
+const ONERI_DURUM = ['yeni', 'inceleniyor', 'yapildi', 'olmayacak'];
 // Bölümler (deneme). max: vardiyaya göre en fazla kişi; null = kalan (Sarı ve Kırmızı Alan kalanları eşit paylaşır). Sıra = doldurma önceliği.
 const BOLUMLER = [
   ['id' => 'tomo-mr', 'ad' => 'Tomo - MR', 'max' => ['1' => 2, '2' => 2, '3' => 2]],
@@ -31,7 +33,7 @@ const BOLUMLER = [
   ['id' => 'sari-alan', 'ad' => 'Sarı Alan', 'max' => ['1' => null, '2' => null, '3' => null]],
   ['id' => 'kirmizi-alan', 'ad' => 'Kırmızı Alan', 'max' => ['1' => null, '2' => null, '3' => null]],
 ];
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari', 'luci', 'dev-luci-anahtar', 'luci-ac', 'bolum-kaydet', 'yoklama-kaydet'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari', 'luci', 'dev-luci-anahtar', 'luci-ac', 'bolum-kaydet', 'yoklama-kaydet', 'duyuru-tepki', 'oneri-gonder', 'dev-oneri-durum'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -1211,6 +1213,57 @@ switch ($r) {
     audit($u, 'bolum', count($kisiler) . ' kişilik bölüm listesi güncellendi');
     ok(['kisiler' => $kisiler, 'tercih' => (object)$tercih, 'gun' => (object)array_map(fn($x) => (object)$x, $gun), 'kap' => (object)array_map(fn($x) => (object)$x, $kap), 'ayar' => (object)array_map(fn($x) => (object)$x, $ayar), 'yan' => (object)$yan]);
   }
+  // ---------- Duyuru tepkisi: 👍 ✅ ❤️ 👀 (kişi başına tek; aynısına dokunmak kaldırır) ----------
+  case 'duyuru-tepki': {
+    $u = current_user(); tepki_table();
+    $id = (int)(body()['id'] ?? 0); $tp = (string)(body()['tepki'] ?? '');
+    if (!in_array($tp, DUYURU_TEPKI, true)) fail(400, 'Geçersiz tepki.');
+    $st = db()->prepare('SELECT id FROM announcements WHERE id = ?'); $st->execute([$id]); if (!$st->fetchColumn()) fail(404, 'Duyuru bulunamadı.');
+    $st = db()->prepare('SELECT tepki FROM duyuru_tepki WHERE duyuru_id = ? AND personnel_id = ?'); $st->execute([$id, $u['id']]); $eski = $st->fetchColumn();
+    if ($eski === $tp) db()->prepare('DELETE FROM duyuru_tepki WHERE duyuru_id = ? AND personnel_id = ?')->execute([$id, $u['id']]);
+    else db()->prepare('REPLACE INTO duyuru_tepki (duyuru_id, personnel_id, tepki, at) VALUES (?,?,?,?)')->execute([$id, $u['id'], $tp, now()]);
+    $say = []; $st = db()->prepare('SELECT tepki, COUNT(*) n FROM duyuru_tepki WHERE duyuru_id = ? GROUP BY tepki'); $st->execute([$id]); foreach ($st as $r) $say[$r['tepki']] = (int)$r['n'];
+    ok(['tepki' => (object)$say, 'tepkim' => $eski === $tp ? null : $tp]);
+  }
+  case 'duyuru-tepkiler': {
+    require_level(2, 'Tepki verenleri yalnızca şef ve üstü görebilir.'); tepki_table();
+    $st = db()->prepare('SELECT t.tepki, p.name FROM duyuru_tepki t JOIN personnel p ON p.id = t.personnel_id WHERE t.duyuru_id = ? ORDER BY t.at'); $st->execute([(int)($_GET['id'] ?? 0)]);
+    $out = []; foreach ($st as $r) $out[$r['tepki']][] = $r['name'];
+    ok(['kisiler' => (object)$out]);
+  }
+
+  // ---------- Öneri kutusu: herkes gönderir (isimsiz olabilir), DEV paneli görür ve durumunu işaretler ----------
+  case 'oneri-gonder': {
+    $u = current_user(); oneri_table();
+    $m = trim((string)(body()['metin'] ?? '')); if (mb_strlen($m) < 5) fail(400, 'Önerini biraz daha açık yazar mısın?');
+    $m = mb_substr($m, 0, 2000); $anonim = !empty(body()['anonim']); $sahip = hmac('oneri:' . $u['id']);
+    $st = db()->prepare('SELECT COUNT(*) FROM oneriler WHERE sahip = ? AND created_at > ?'); $st->execute([$sahip, gmdate('Y-m-d H:i:s', time() - 86400)]);
+    if ((int)$st->fetchColumn() >= 10) fail(429, 'Bugün yeterince öneri gönderdin, teşekkürler 🙂 Yarın yine yazabilirsin.');
+    db()->prepare('INSERT INTO oneriler (personnel_id, ad, unvan, sahip, metin, created_at, updated_at) VALUES (?,?,?,?,?,?,?)')
+      ->execute([$anonim ? null : $u['id'], $anonim ? null : $u['name'], $anonim ? null : ($u['title'] ?? null), $sahip, $m, now(), now()]);
+    ok(['id' => (int)db()->lastInsertId()]);
+  }
+  case 'onerilerim': {
+    $u = current_user(); oneri_table();
+    $st = db()->prepare('SELECT id, metin, durum, cevap, personnel_id IS NULL anonim, created_at, updated_at FROM oneriler WHERE sahip = ? ORDER BY id DESC LIMIT 50'); $st->execute([hmac('oneri:' . $u['id'])]);
+    ok(['oneriler' => array_map(fn($r) => ['id' => (int)$r['id'], 'metin' => $r['metin'], 'durum' => $r['durum'], 'cevap' => $r['cevap'], 'anonim' => (bool)$r['anonim'], 'tarih' => utc($r['created_at']), 'guncel' => utc($r['updated_at'])], $st->fetchAll())]);
+  }
+  case 'dev-oneriler': {
+    dev_only(); oneri_table();
+    $d = (string)($_GET['durum'] ?? ''); $w = in_array($d, ONERI_DURUM, true) ? 'WHERE durum = ' . db()->quote($d) : '';
+    $rows = db()->query("SELECT id, ad, unvan, metin, durum, cevap, created_at, updated_at FROM oneriler $w ORDER BY id DESC LIMIT 500")->fetchAll();
+    $say = []; foreach (db()->query('SELECT durum, COUNT(*) n FROM oneriler GROUP BY durum') as $r) $say[$r['durum']] = (int)$r['n'];
+    ok(['say' => (object)$say, 'oneriler' => array_map(fn($r) => ['id' => (int)$r['id'], 'ad' => $r['ad'], 'unvan' => $r['unvan'], 'metin' => $r['metin'], 'durum' => $r['durum'], 'cevap' => $r['cevap'], 'tarih' => utc($r['created_at']), 'guncel' => utc($r['updated_at'])], $rows)]);
+  }
+  case 'dev-oneri-durum': {
+    $u = dev_only(); oneri_table();
+    $id = (int)(body()['id'] ?? 0); $d = (string)(body()['durum'] ?? ''); if (!in_array($d, ONERI_DURUM, true)) fail(400, 'Geçersiz durum.');
+    $c = mb_substr(trim((string)(body()['cevap'] ?? '')), 0, 500) ?: null;
+    db()->prepare('UPDATE oneriler SET durum = ?, cevap = ?, updated_at = ? WHERE id = ?')->execute([$d, $c, now(), $id]);
+    audit($u, 'oneri', "#$id → $d");
+    ok();
+  }
+
   // ---------- Şef yoklaması: vardiya başında geldi / geç / gelmedi (şef ve üstü) ----------
   case 'yoklama': {
     require_level(2, 'Yoklamayı yalnızca şef ve üstü görebilir.'); yoklama_table();
@@ -1478,11 +1531,13 @@ function ann_out(array $u, array $list): array {
   }
   $read = []; foreach (db()->query("SELECT duyuru_id, personnel_id FROM duyuru_okundu WHERE duyuru_id IN ($in)") as $r) $read[(int)$r['duyuru_id']][(int)$r['personnel_id']] = true;
   $mine = []; $st = db()->prepare("SELECT duyuru_id FROM duyuru_okundu WHERE personnel_id = ? AND duyuru_id IN ($in)"); $st->execute([$u['id']]); foreach ($st->fetchAll() as $r) $mine[(int)$r['duyuru_id']] = true;
+  tepki_table(); $tep = []; $benim = [];
+  foreach (db()->query("SELECT duyuru_id, personnel_id, tepki FROM duyuru_tepki WHERE duyuru_id IN ($in)") as $r) { $tep[(int)$r['duyuru_id']][$r['tepki']] = ($tep[(int)$r['duyuru_id']][$r['tepki']] ?? 0) + 1; if ((int)$r['personnel_id'] === (int)$u['id']) $benim[(int)$r['duyuru_id']] = $r['tepki']; }
   $lv = level_of($u['title'] ?? '');
-  return array_map(function ($a) use ($u, $ek, $read, $mine, $lv) {
+  return array_map(function ($a) use ($u, $ek, $read, $mine, $lv, $tep, $benim) {
     $id = (int)$a['id']; $own = (int)$a['created_by'] === $u['id']; $h = (string)($a['hedef'] ?? '');
     return ['id' => $id, 'baslik' => $a['title'], 'metin' => $a['body'], 'sabit' => (bool)$a['pinned'], 'yazan' => $a['created_name'], 'yazanId' => (int)$a['created_by'], 'tarih' => utc($a['created_at']),
-      'hedef' => $h, 'hedefAd' => ANN_TARGETS[$h] ?? 'Herkes', 'ekler' => $ek[$id] ?? [], 'okudum' => isset($mine[$id]),
+      'hedef' => $h, 'hedefAd' => ANN_TARGETS[$h] ?? 'Herkes', 'ekler' => $ek[$id] ?? [], 'okudum' => isset($mine[$id]), 'tepki' => (object)($tep[$id] ?? []), 'tepkim' => $benim[$id] ?? null,
       'okuma' => ($lv >= 3 || $own) ? (function () use ($a, $h, $read, $id) { $aud = array_values(array_diff(ann_audience($h), [(int)$a['created_by']])); $r = $read[$id] ?? []; return ['okuyan' => count(array_filter($aud, fn($p) => isset($r[$p]))), 'toplam' => count($aud)]; })() : null];
   }, $list);
 }
