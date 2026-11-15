@@ -289,6 +289,11 @@ function luci_table(?PDO $pdo = null): void {
   if (!$pd->query("SHOW COLUMNS FROM luci_mesajlar LIKE 'sohbet'")->fetch()) { try { $pd->exec('ALTER TABLE luci_mesajlar ADD COLUMN sohbet VARCHAR(24) NULL'); } catch (Throwable $e) { /* başka istek eklemiş olabilir */ } }
   if (!$pd->query("SHOW COLUMNS FROM luci_mesajlar LIKE 'foto'")->fetch()) { try { $pd->exec('ALTER TABLE luci_mesajlar ADD COLUMN foto VARCHAR(120) NULL, ADD COLUMN foto_tip VARCHAR(20) NULL'); } catch (Throwable $e) { /* başka istek eklemiş olabilir */ } }
 }
+// Şef yoklaması: tarih + vardiya + kişi (isim anahtarı) başına tek kayıt
+function yoklama_table(): void {
+  static $done = false; if ($done) return; $done = true;
+  db()->exec("CREATE TABLE IF NOT EXISTS yoklama (id BIGINT AUTO_INCREMENT PRIMARY KEY, tarih DATE NOT NULL, vardiya CHAR(1) NOT NULL, kisi VARCHAR(80) NOT NULL, ad VARCHAR(120) NOT NULL, durum VARCHAR(10) NOT NULL, dakika SMALLINT NULL, notu VARCHAR(200) NULL, isaretleyen VARCHAR(120) NOT NULL, updated_at DATETIME NOT NULL, UNIQUE KEY tvk (tarih, vardiya, kisi), INDEX (tarih)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
 // Luci'nin anahtarı: panelden girilen Gemini anahtarı; yoksa isim okuma anahtarı Gemini ise o
 function luci_key(): string {
   $k = trim((string)(meta_get('luci_key') ?? ''));

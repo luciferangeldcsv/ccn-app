@@ -914,7 +914,7 @@ function dataRange(src) {
 }
 
 // ---------- Yönlendirme ----------
-const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'gorev', 'duyuru', 'egitim', 'sikayet', 'personel', 'ayarlar', 'bolum'];
+const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'gorev', 'duyuru', 'egitim', 'sikayet', 'personel', 'ayarlar', 'bolum', 'yoklama'];
 // sekmeler kullanıcının rolüne göre
 function tabList() {
   if (!SERVER) return ['gunluk', 'ara', 'cizelge', 'yukle', 'ayarlar'];
@@ -923,7 +923,8 @@ function tabList() {
 }
 // Bölümler (deneme): yalnızca web panelinin sol menüsünde, yalnızca şefler
 const canAreas = () => SERVER && !!auth && !NATIVE && !!auth.ben && ['sef', 'dev'].includes(auth.ben.unvan); // yalnızca şefler (deneme için DEV)
-const allowedView = (v) => VIEWS.includes(v) && (v === 'ara' || (v === 'bolum' ? canAreas() : tabList().includes(v)));
+const canRoll = () => SERVER && !!auth && canEdit() && !NATIVE; // yoklama: şef ve üstü, web paneli
+const allowedView = (v) => VIEWS.includes(v) && (v === 'ara' || (v === 'bolum' ? canAreas() : v === 'yoklama' ? canRoll() : tabList().includes(v)));
 function go(view) {
   ui.view = allowedView(view) ? view : 'gunluk'; render(); window.scrollTo(0, 0);
   try { if (location.hash !== '#' + ui.view) location.hash = ui.view; } catch (e) { /* çerçeve izin vermezse yoksay */ }
@@ -934,11 +935,12 @@ const $tabs = document.querySelector('.tabs');
 const TAB_ICON = {}; document.querySelectorAll('.tab').forEach((b) => { TAB_ICON[b.dataset.view] = b.querySelector('svg').outerHTML; });
 TAB_ICON.duyuru = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 5.5a9 9 0 0 1 0 13"/></svg>';
 TAB_ICON.bolum = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
+TAB_ICON.yoklama = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 12l2 2 4-4M9 17h6"/></svg>';
 TAB_ICON.gorev = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h10M9 12h10M9 19h10"/><path d="M3.5 5l1.5 1.5L7.5 4M3.5 12l1.5 1.5L7.5 11M3.5 19l1.5 1.5L7.5 18"/></svg>';
 TAB_ICON.egitim = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H11v17H4.5A2.5 2.5 0 0 0 2 22.5z"/><path d="M22 5.5A2.5 2.5 0 0 0 19.5 3H13v17h6.5a2.5 2.5 0 0 1 2.5 2.5z"/></svg>';
 TAB_ICON.sikayet = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v4M12 14h.01"/></svg>';
 TAB_ICON.personel = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 20a6.5 6.5 0 0 0-3-5.5"/></svg>';
-const TAB_LABEL = { bolum: 'Bölümler (deneme)', gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', gorev: 'Görevler', duyuru: 'Duyurular', egitim: 'Eğitimler', sikayet: 'Şikayet', personel: 'Personel', ayarlar: 'Ayarlar' };
+const TAB_LABEL = { yoklama: 'Yoklama', bolum: 'Bölümler (deneme)', gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', gorev: 'Görevler', duyuru: 'Duyurular', egitim: 'Eğitimler', sikayet: 'Şikayet', personel: 'Personel', ayarlar: 'Ayarlar' };
 $tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) go(b.dataset.view); });
 function unreadCount() { const seen = prefs.seenAnn || 0; const n = srv.duyurular.filter((a) => a.id > seen).length; setBadge(n); return n; }
 let lastBadge = -1;
@@ -975,7 +977,7 @@ function renderTabs() {
     $side.innerHTML = `<div class="side-title">Yönetim paneli</div>
       <button type="button" class="side-prof" data-act="profil">${avHtml(auth.ben)}<div><b>${esc(auth.ben.ad)}</b><span class="role-badge">${esc(titleOf(auth.ben))}</span></div></button>
       <div class="side-search"><input type="search" id="side-q" placeholder="Kişi ara (ad soyad)" autocomplete="off" value="${esc(ui.sideQ || '')}" aria-label="Kişi ara"><div id="side-res">${sideResults()}</div></div>
-      <nav class="side-nav">${tabList().filter((v) => v !== 'personel').flatMap((v) => (v === 'cizelge' && canAreas() ? [v, 'bolum'] : [v])).map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}${v === 'sikayet' && srv.sikayetAcik ? `<span class="badge">${srv.sikayetAcik}</span>` : ''}</button>`).join('')}</nav>
+      <nav class="side-nav">${tabList().filter((v) => v !== 'personel').flatMap((v) => (v === 'cizelge' ? [v, ...(canAreas() ? ['bolum'] : []), ...(canRoll() ? ['yoklama'] : [])] : [v])).map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}${v === 'sikayet' && srv.sikayetAcik ? `<span class="badge">${srv.sikayetAcik}</span>` : ''}</button>`).join('')}</nav>
       ${canPeople() ? `<div class="side-sub">Kişiler</div><nav class="side-nav">${[['all', 'Tüm kişiler', 2], ['yonetici', 'Yöneticiler', 4], ['mudur', 'Müdürler', 3], ['sef', 'Şefler', 2], ['personel', 'Personeller', 2]].filter(([, , m]) => myLevel() >= m).map(([k, l]) => {
         const n = srv.personel ? (k === 'all' ? srv.personel.length : srv.personel.filter((p) => p.unvan === k).length) : '';
         const on = ui.view === 'personel' && (ui.pRole || 'all') === k;
@@ -1006,7 +1008,7 @@ function render() {
   if (isDirty() && ui.view !== 'yukle') banner += canPublish()
     ? `<div class="banner pub"><p><b>Hazırlanan liste henüz yayında değil.</b> Personel siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button>${ui.view !== 'cizelge' ? '<button class="btn" data-act="goto" data-view="cizelge">Çizelgeye git</button>' : ''}</div>`
     : `<div class="banner pub"><p><b>Hazırladığınız liste henüz yayında değil.</b> “Onaya gönder” deyince müdür ya da yönetici kontrol edip yayınlar.${srv.taslak && auth && srv.taslak.kimId === auth.ben.id && srv.taslak.onay ? ' <b>Onaya gönderildi</b> (' + fmtWhen(srv.taslak.tarih) + ').' : ''}</p><button class="btn primary" data-act="send-approval">${ICON_UPLOAD}Onaya gönder</button>${ui.view !== 'cizelge' ? '<button class="btn" data-act="goto" data-view="cizelge">Çizelgeye git</button>' : ''}</div>`;
-  const views = { bolum: viewAreas, gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, gorev: viewTasks, duyuru: viewAnnouncements, egitim: viewTraining, sikayet: viewComplaints, personel: viewPersonnel, ayarlar: viewSettings };
+  const views = { yoklama: viewRoll, bolum: viewAreas, gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, gorev: viewTasks, duyuru: viewAnnouncements, egitim: viewTraining, sikayet: viewComplaints, personel: viewPersonnel, ayarlar: viewSettings };
   $app.innerHTML = banner + views[ui.view]();
   bindView();
 }
@@ -2158,6 +2160,7 @@ function bindView() {
   if (ui.view === 'ayarlar') { bindSettings(); renderPushCard(); }
   if (ui.view === 'gorev') bindTasks();
   if (ui.view === 'bolum') bindAreas();
+  if (ui.view === 'yoklama') bindRoll();
   if (ui.view === 'egitim') bindTraining();
   if (ui.view === 'sikayet') bindComplaints();
   if (SERVER && auth && ui.view === 'duyuru') { const ids = srv.duyurular.filter((a) => !a.okudum).map((a) => a.id); if (ids.length) { srv.duyurular.forEach((a) => { a.okudum = true; }); api('duyuru-okundu', { ids }).catch(() => {}); } }
@@ -2169,6 +2172,19 @@ const actions = {
   'mates-all': () => { ui.matesAll = !ui.matesAll; render(); },
   'b-yenile': () => { srv.bolum = null; render(); },
   'b-ekle': (el) => areaAddSheet(el.dataset.a),
+  'y-mod': (el) => { ui.yMod = el.dataset.m; render(); },
+  'y-gun': (el) => { ui.yTarih = addDays(ui.yTarih || todayIso(), Number(el.dataset.n)); render(); },
+  'y-vardiya': (el) => { ui.yVardiya = el.dataset.v; render(); },
+  'y-isaret': (el) => { const Y = srv.yoklama; if (!Y) return; const k = el.dataset.k, s = el.dataset.s; const r = Y.kayit[k] || {};
+    if (r.durum === s) return rollSave([{ kisi: k, durum: '' }]);
+    if (s === 'gec') return rollLateSheet(k, 'gec');
+    rollSave([{ kisi: k, ad: rollPerson(k), durum: s, not: r.not || '' }]); },
+  'y-not': (el) => rollLateSheet(el.dataset.k, 'not'),
+  'y-hepsi': () => { const Y = srv.yoklama; if (!Y) return; const [d, g] = Y.key.split('|');
+    const items = (dayLists(d)[g] || { working: [] }).working.map((p) => ({ kisi: nameKey(p.name), ad: p.name, durum: 'geldi' })).filter((x) => !Y.kayit[x.kisi]);
+    if (items.length) rollSave(items); },
+  'y-paylas': () => doShare(rollShareText(), 'Yoklama'),
+  'y-ay-paylas': () => { const A = srv.yoklamaAy; if (!A) return; doShare([`${A.ay} · YOKLAMA ÖZETİ`, ...A.kisiler.map((r) => `${r.ad}: gelmedi ${r.gelmedi}, geç ${r.gec}${r.gecdk ? ' (' + r.gecdk + ' dk)' : ''}, geldi ${r.geldi}`)].join('\n'), 'Yoklama özeti'); },
   'b-ayar': () => areaSettingsSheet(),
   'b-sec': (el) => areaPickSheet(el.dataset.k),
   'b-sec-hepsi': () => { const { disari, g } = areaData(); if (!disari.length) return; confirmSheet(`${disari.length} kişi listene eklensin mi?`, `Bu gün ${g}. vardiyada çalışıp listende olmayan herkes eklenir ve otomatik dağılıma girer.`, 'Ekle', () => saveAreas({ ekle: disari.map((p) => p.ak) }, `${disari.length} kişi listene eklendi`)); },
@@ -3165,6 +3181,97 @@ function areaShareText() {
   const parts = [`${fmtShort(d)} · ${g}. VARDİYA${h ? ` (${h})` : ''} · BÖLÜMLER`];
   for (const c of cards) parts.push([`${c.a.ad} (${c.kisiler.length})`, ...list(c.kisiler)].join('\n'));
   for (const x of absent) parts.push([`${x.l} (${x.kisiler.length})`, ...list(x.kisiler)].join('\n'));
+  return parts.join('\n\n');
+}
+// ---------- Şef yoklaması: seçilen gün + vardiyada çalışanlar için geldi / geç / gelmedi (anında kaydedilir) ----------
+// Açılışta o anki vardiya seçilir (saatler Ayarlar'dan); 3. vardiya gece yarısından sonra önceki güne aittir.
+function rollNow() {
+  const now = new Date(); const m = now.getHours() * 60 + now.getMinutes(); const t = todayIso();
+  const sm = (g) => { const x = String(store.settings.hours[g] || '').match(/(\d{1,2})[:.](\d{2})/); return x ? (Number(x[1]) % 24) * 60 + Number(x[2]) : null; };
+  const s = { 1: sm('1') ?? 420, 2: sm('2') ?? 900, 3: sm('3') ?? 1380 };
+  if (m >= s[3] || m < s[1]) return { d: m < s[1] ? addDays(t, -1) : t, g: '3' };
+  return { d: t, g: m >= s[2] ? '2' : '1' };
+}
+async function loadRoll() {
+  const d = ui.yTarih, g = ui.yVardiya, key = `${d}|${g}`; if (srv.yoklamaYuk === key) return; srv.yoklamaYuk = key;
+  try { const j = await api(`yoklama&tarih=${d}&vardiya=${g}`); srv.yoklama = { key, kayit: j.kayit || {} }; }
+  catch (e) { srv.yoklama = { key, kayit: {}, hata: e.message }; }
+  srv.yoklamaYuk = null; if (ui.view === 'yoklama') render();
+}
+async function loadRollMonth() {
+  const ay = ui.yAy; if (srv.yoklamaAyYuk === ay) return; srv.yoklamaAyYuk = ay;
+  try { const j = await api('yoklama-ozet&ay=' + ay); srv.yoklamaAy = { ay, kisiler: j.kisiler || [] }; }
+  catch (e) { srv.yoklamaAy = { ay, kisiler: [], hata: e.message }; }
+  srv.yoklamaAyYuk = null; if (ui.view === 'yoklama') render();
+}
+const ROLL_TXT = { geldi: 'Geldi', gec: 'Geç', gelmedi: 'Gelmedi' };
+function viewRoll() {
+  if (!ui.yTarih) { const n = rollNow(); ui.yTarih = n.d; ui.yVardiya = n.g; }
+  if (!ui.yAy) ui.yAy = todayIso().slice(0, 7);
+  const mod = ui.yMod === 'ay' ? 'ay' : 'gun';
+  const tabs = `<div class="segtabs"><button class="chip" data-act="y-mod" data-m="gun" aria-pressed="${mod === 'gun'}">Günlük yoklama</button><button class="chip" data-act="y-mod" data-m="ay" aria-pressed="${mod === 'ay'}">Aylık özet</button></div>`;
+  if (mod === 'ay') {
+    const A = srv.yoklamaAy && srv.yoklamaAy.ay === ui.yAy ? srv.yoklamaAy : null; if (!A) loadRollMonth();
+    const rows = A ? A.kisiler : [];
+    return tabs + `<div class="card stack"><div class="row" style="gap:10px;align-items:center;flex-wrap:wrap"><h2 style="flex:1;margin:0;font-size:22px">Aylık özet</h2><input type="month" id="y-ay" value="${esc(ui.yAy)}" aria-label="Ay"><button class="btn" data-act="y-ay-paylas"${rows.length ? '' : ' disabled'}>${ICON_SHARE} Paylaş</button></div>
+      <p class="small muted" style="margin:0">Yalnızca yoklaması alınan vardiyalar sayılır. En çok gelmeyen ve geç kalan üstte.</p>
+      ${!A ? '<p class="muted" style="margin:0">Yükleniyor…</p>' : A.hata ? `<p style="margin:0">${esc(A.hata)}</p>` : !rows.length ? '<p class="muted" style="margin:0">Bu ay için yoklama kaydı yok.</p>'
+      : `<div style="overflow:auto"><table class="ba-tab y-tab"><thead><tr><th style="text-align:left">Ad Soyad</th><th>Gelmedi</th><th>Geç</th><th>Geç (dk)</th><th>Geldi</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(niceName(r.ad))}</td><td class="${r.gelmedi ? 'y-kirmizi' : ''}">${r.gelmedi}</td><td class="${r.gec ? 'y-sari' : ''}">${r.gec}</td><td>${r.gecdk || '-'}</td><td>${r.geldi}</td></tr>`).join('')}</tbody></table></div>`}
+    </div>`;
+  }
+  const d = ui.yTarih, g = ui.yVardiya; const key = `${d}|${g}`;
+  const Y = srv.yoklama && srv.yoklama.key === key ? srv.yoklama : null; if (!Y) loadRoll();
+  const kayit = Y ? Y.kayit : {}; const people = (dayLists(d)[g] || { working: [] }).working.map((p) => ({ ...p, ak: nameKey(p.name) }));
+  const say = { geldi: 0, gec: 0, gelmedi: 0 }; people.forEach((p) => { const r = kayit[p.ak]; if (r && say[r.durum] != null) say[r.durum]++; });
+  const bos = people.length - say.geldi - say.gec - say.gelmedi; const h = store.settings.hours[g];
+  const row = (p) => { const r = kayit[p.ak] || {}; const btn = (s, l) => `<button type="button" class="y-btn y-${s}" data-act="y-isaret" data-k="${esc(p.ak)}" data-s="${s}" aria-pressed="${r.durum === s}">${l}</button>`;
+    return `<li class="y-row y-r-${r.durum || 'bos'}"><div class="y-ad"><b>${esc(niceName(p.name))}</b>${r.durum ? `<small>${esc(ROLL_TXT[r.durum])}${r.durum === 'gec' && r.dakika ? ` · ${r.dakika} dk` : ''}${r.not ? ` · ${esc(r.not)}` : ''} · ${esc(r.kim || '')}${r.zaman ? ', ' + fmtWhen(r.zaman) : ''}</small>` : '<small>işaretlenmedi</small>'}</div>
+      <div class="y-btns">${btn('geldi', '✓ Geldi')}${btn('gec', '⏰ Geç')}${btn('gelmedi', '✗ Gelmedi')}<button type="button" class="y-btn y-not" data-act="y-not" data-k="${esc(p.ak)}" aria-label="Not ekle" title="Not">📝</button></div></li>`; };
+  return tabs + `<div class="card stack">
+      <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap"><h2 style="flex:1;margin:0;font-size:22px">Yoklama</h2>${bos && Y ? `<button class="btn primary" data-act="y-hepsi">✓ İşaretlenmemiş ${bos} kişi geldi</button>` : ''}<button class="btn" data-act="y-paylas"${Y ? '' : ' disabled'}>${ICON_SHARE} Paylaş</button></div>
+      <div class="datebar"><button class="iconbtn" aria-label="Önceki gün" data-act="y-gun" data-n="-1">${ICON_LEFT}</button>
+        <div class="dtitle"><h2>${fmtShort(d)}</h2><span>${DAY_NAMES[parseIso(d).getDay()]}${d === todayIso() ? ' · bugün' : ''}</span></div>
+        <input type="date" id="y-date" value="${d}" aria-label="Tarih seç" style="flex:none;max-width:150px">
+        <button class="iconbtn" aria-label="Sonraki gün" data-act="y-gun" data-n="1">${ICON_RIGHT}</button></div>
+      <div class="seg seg3" role="radiogroup" aria-label="Vardiya">${['1', '2', '3'].map((x) => `<button role="radio" data-act="y-vardiya" data-v="${x}" aria-selected="${x === g}" aria-checked="${x === g}">${x}. Vardiya</button>`).join('')}</div>
+      <div class="y-say"><span class="y-geldi">✓ Geldi <b>${say.geldi}</b></span><span class="y-gec">⏰ Geç <b>${say.gec}</b></span><span class="y-gelmedi">✗ Gelmedi <b>${say.gelmedi}</b></span><span class="muted">İşaretlenmedi <b>${bos}</b></span></div>
+      <p class="small muted" style="margin:0">${h ? `${g}. vardiya ${esc(h)} · ` : ''}Listeye göre bu vardiyada çalışan ${people.length} kişi. Her dokunuş anında kaydedilir; aynı düğmeye tekrar dokunmak işareti kaldırır.</p>
+    </div>
+    ${!Y ? '<div class="card"><p class="muted" style="margin:0">Yükleniyor…</p></div>' : Y.hata ? `<div class="card"><p style="margin:0">${esc(Y.hata)}</p></div>` : !people.length ? '<div class="card"><p class="muted" style="margin:0">Bu gün ve vardiyada listede çalışan yok.</p></div>'
+      : `<ul class="card y-list">${people.map(row).join('')}</ul>`}`;
+}
+function bindRoll() {
+  const i = document.getElementById('y-date'); if (i) i.addEventListener('change', () => { if (i.value) { ui.yTarih = i.value; render(); } });
+  const a = document.getElementById('y-ay'); if (a) a.addEventListener('change', () => { if (a.value) { ui.yAy = a.value; render(); } });
+}
+async function rollSave(items) {
+  const Y = srv.yoklama; if (!Y) return; const [d, g] = Y.key.split('|'); const once = {};
+  items.forEach((x) => { once[x.kisi] = Y.kayit[x.kisi]; if (x.durum) Y.kayit[x.kisi] = { ad: x.ad, durum: x.durum, dakika: x.dakika || null, not: x.not || null, kim: auth.ben.ad, zaman: new Date().toISOString() }; else delete Y.kayit[x.kisi]; });
+  render();
+  try { await api('yoklama-kaydet', { tarih: d, vardiya: g, kisiler: items }); srv.yoklamaAy = null; }
+  catch (e) { Object.entries(once).forEach(([k, v]) => { if (v) Y.kayit[k] = v; else delete Y.kayit[k]; }); render(); toast('Kaydedilemedi: ' + e.message); }
+}
+const rollPerson = (k) => { const p = allPeople(viewPeople()).find((x) => nameKey(x.name) === k); return p ? p.name : k; };
+function rollLateSheet(k, durum) {
+  const Y = srv.yoklama; const r = Y.kayit[k] || {}; const ad = rollPerson(k); const not = durum === 'not';
+  sheet(`<h3 style="margin:0 0 4px">${esc(niceName(ad))}</h3><p class="small muted" style="margin:0 0 10px">${not ? 'Bu yoklama kaydına not ekle.' : 'Kaç dakika geç kaldı?'}</p>
+    ${not ? '' : `<div class="be-pick" style="margin-bottom:10px">${[5, 10, 15, 20, 30, 45, 60, 90].map((n) => `<button class="btn${r.dakika === n ? ' primary' : ''}" data-dk="${n}">${n} dk</button>`).join('')}</div>
+    <label class="field" style="margin:0 0 10px">Başka (dakika)<input type="number" id="y-dk" min="1" max="600" inputmode="numeric" value="${r.durum === 'gec' && r.dakika ? r.dakika : ''}"></label>`}
+    <label class="field" style="margin:0">Not (isteğe bağlı)<input id="y-nt" maxlength="200" value="${esc(r.not || '')}" placeholder="ör. trafik, haber verdi"></label>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn" data-x="1">Vazgeç</button><button class="btn primary" id="y-ok">Kaydet</button></div>`, (bg) => {
+    const kaydet = (dk) => { const nt = bg.querySelector('#y-nt').value.trim(); const s = not ? (r.durum || 'geldi') : 'gec';
+      closeSheet(); rollSave([{ kisi: k, ad, durum: s, dakika: s === 'gec' ? (dk || r.dakika || null) : null, not: nt }]); };
+    bg.querySelectorAll('[data-dk]').forEach((b) => b.addEventListener('click', () => kaydet(Number(b.dataset.dk))));
+    bg.querySelector('#y-ok').addEventListener('click', () => { const v = not ? null : parseInt((bg.querySelector('#y-dk') || {}).value, 10); kaydet(Number.isNaN(v) ? null : v); });
+  });
+}
+function rollShareText() {
+  const Y = srv.yoklama; const [d, g] = Y.key.split('|'); const people = (dayLists(d)[g] || { working: [] }).working.map((p) => ({ ...p, ak: nameKey(p.name) }));
+  const grp = (s) => people.filter((p) => (Y.kayit[p.ak] || {}).durum === s);
+  const parts = [`${fmtShort(d)} · ${g}. VARDİYA · YOKLAMA`];
+  const gm = grp('gelmedi'); if (gm.length) parts.push([`Gelmedi (${gm.length})`, ...gm.map((p) => `- ${p.name}${Y.kayit[p.ak].not ? ' (' + Y.kayit[p.ak].not + ')' : ''}`)].join('\n'));
+  const gc = grp('gec'); if (gc.length) parts.push([`Geç (${gc.length})`, ...gc.map((p) => `- ${p.name}${Y.kayit[p.ak].dakika ? ' · ' + Y.kayit[p.ak].dakika + ' dk' : ''}${Y.kayit[p.ak].not ? ' (' + Y.kayit[p.ak].not + ')' : ''}`)].join('\n'));
+  parts.push(`Geldi: ${grp('geldi').length} · İşaretlenmedi: ${people.length - grp('geldi').length - gc.length - gm.length}`);
   return parts.join('\n\n');
 }
 // ---------- Haftamı paylaş: kişinin bugünden itibaren 7 günü tek görselde (WhatsApp vb.) ----------

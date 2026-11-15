@@ -597,6 +597,15 @@ h4.ph { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color
 .rangebar .field { min-width: 150px; }
 .rangebar .small, .rangebar .chips { align-self: flex-end; margin-bottom: 9px; }
 
+/* Şef yoklaması */
+.y-say { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 15px; } .y-say b { font-size: 18px; margin-left: 4px; }
+.y-say .y-geldi { color: var(--yi); } .y-say .y-gec { color: var(--s1); } .y-say .y-gelmedi { color: var(--off); }
+.y-list { list-style: none; margin: 12px 0 0; padding: 0; } .y-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; } .y-row:last-child { border-bottom: 0; }
+.y-row.y-r-gelmedi { background: var(--off-bg); } .y-row.y-r-gec { background: var(--s1-bg); } .y-row.y-r-geldi .y-ad b { color: var(--yi); }
+.y-ad { flex: 1 1 200px; min-width: 0; display: grid; } .y-ad small { color: var(--muted); }
+.y-btns { display: flex; gap: 6px; flex-wrap: wrap; } .y-btn { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 7px 12px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; min-height: 36px; }
+.y-btn.y-geldi[aria-pressed="true"] { background: var(--yi); border-color: var(--yi); color: #fff; } .y-btn.y-gec[aria-pressed="true"] { background: var(--s1); border-color: var(--s1); color: #fff; } .y-btn.y-gelmedi[aria-pressed="true"] { background: var(--off); border-color: var(--off); color: #fff; } .y-btn.y-not { padding: 7px 10px; }
+.y-tab td:not(:first-child), .y-tab th:not(:first-child) { text-align: center; } .y-kirmizi { color: var(--off); font-weight: 700; } .y-sari { color: var(--s1); font-weight: 700; }
 /* Bölümler (deneme) */
 .bolum-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; align-items: start; }
 .bolum-card { margin: 0; } .bolum-bos { border-style: dashed; } .bolum-card.eksik .bolum-n { background: var(--s1); }
@@ -746,7 +755,7 @@ body:has(#overlay > *) #luci-bub, body:has(#overlay > *) #luci-fab { display: no
   setTimeout(off, 6000);
 })();
 </script>
-<script src="app.js?v=7ab735f2fb"></script>
+<script src="app.js?v=716907f331"></script>
 
 </body>
 </html>
