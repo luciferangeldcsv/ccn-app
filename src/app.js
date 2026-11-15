@@ -2918,7 +2918,7 @@ async function doShare(text, title) {
 // Sunucu: meta bolum_liste:<şef id> = { kisiler, tercih (📌 her gün), gun: { 'tarih|vardiya': { nameKey: bölüm } } (✎ o güne özel) }. Dağılım burada hesaplanır.
 async function loadAreas() {
   if (srv.bolumYuk) return; srv.bolumYuk = true;
-  try { const j = await api('bolumler' + (ui.bSef ? '&sef=' + ui.bSef : '')); srv.bolum = { alanlar: j.alanlar || [], kisiler: j.kisiler || [], tercih: j.tercih || {}, gun: j.gun || {}, kap: j.kap || {}, ayar: j.ayar || {}, tarih: j.tarih, eski: j.eski || null, sahip: j.sahip || null, sefler: j.sefler || [] }; }
+  try { const j = await api('bolumler' + (ui.bSef ? '&sef=' + ui.bSef : '')); srv.bolum = { alanlar: j.alanlar || [], kisiler: j.kisiler || [], tercih: j.tercih || {}, gun: j.gun || {}, kap: j.kap || {}, ayar: j.ayar || {}, yan: j.yan || {}, tarih: j.tarih, eski: j.eski || null, sahip: j.sahip || null, sefler: j.sefler || [] }; }
   catch (e) { srv.bolum = { alanlar: [], kisiler: [], tercih: {}, gun: {}, kap: {}, sefler: [], hata: e.message }; }
   srv.bolumYuk = false; if (ui.view === 'bolum') render();
 }
@@ -2932,30 +2932,34 @@ function areaBase(a, g, ayar) {
   return a.max && Object.prototype.hasOwnProperty.call(a.max, g) ? a.max[g] : undefined;
 }
 // Dağılım (her gün, o gün çalışan seçilmişler arasından):
-// 1) sınırlı bölüme 📌 sabitlenenler (sınır içinde), 2) sınırlı bölümlerin boşlukları sırayla: önce sabitlenmemişler, sonra bölümü dolu olan sabitler,
-//    en son Sarı/Kırmızı'ya sabitlenenler, 3) Sarı/Kırmızı'ya sabitlenenler kendi alanına, kalanlar Sarı ve Kırmızı'ya eşit
-function areaDistribute(working, alanlar, g, tercih, gunM, kapM, ayar) {
-  gunM = gunM || {}; kapM = kapM || {};
+// 1) 📌 sabit personel kendi bölümüne (sınırlı bölümde sınır içinde), 2) sınırlı bölümlerin boşlukları önce o bölümün ↔ yan personeliyle
+//    (yan birden çok bölümde olabilir; dolu bölümü geçer), 3) kalan boşluklar: önce hiçbir yere bağlı olmayanlar, sonra başka bölümün yanı,
+//    sonra bölümü dolu sabitler, en son Sarı/Kırmızı sabitleri, 4) Sarı/Kırmızı: sabitleri ve yanları kendi alanına, kalanlar eşit
+function areaDistribute(working, alanlar, g, tercih, gunM, kapM, ayar, yan) {
+  gunM = gunM || {}; kapM = kapM || {}; yan = yan || {};
   const act = alanlar.filter((a) => { const b = areaBase(a, g, ayar); return b !== undefined && b !== 0; });
   const base = (a) => { const b = areaBase(a, g, ayar); return b == null ? Infinity : b; };
   const cap = (a) => (kapM[a.id] != null ? kapM[a.id] : base(a));
   const not = (p, id) => gunM[p.ak] === '-' + id || tercih[p.ak] === '-' + id; // bu bölüme konmasın (×)
+  const yanOf = (p) => (yan[p.ak] || []);
   const res = Object.fromEntries(act.map((a) => [a.id, []]));
   const lim = act.filter((a) => cap(a) !== Infinity); const rest = act.filter((a) => cap(a) === Infinity);
-  const restPin = (p) => rest.some((a) => a.id === tercih[p.ak]);
   let pool = [];
   for (const p of working) { const a = act.find((x) => x.id === gunM[p.ak]); if (a) res[a.id].push({ ...p, gun: true }); else pool.push(p); }
   const p1 = pool; pool = [];
   for (const p of p1) { const a = lim.find((x) => x.id === tercih[p.ak]); if (a && !not(p, a.id) && res[a.id].length < cap(a)) res[a.id].push({ ...p, pin: true }); else pool.push(p); }
-  const sira = (p) => (!tercih[p.ak] || String(tercih[p.ak]).startsWith('-') ? 0 : restPin(p) ? 2 : 1);
-  pool.sort((x, y) => sira(x) - sira(y)); // sıralama kararlı: aynı gruptakiler isim sırasında kalır
+  for (const a of lim) while (res[a.id].length < cap(a)) { const i = pool.findIndex((p) => yanOf(p).includes(a.id) && !not(p, a.id) && !rest.some((r) => r.id === tercih[p.ak])); if (i < 0) break; res[a.id].push({ ...pool.splice(i, 1)[0], yan: true }); }
+  const restPin = (p) => rest.some((a) => a.id === tercih[p.ak]);
+  const sira = (p) => (restPin(p) ? 3 : tercih[p.ak] && !String(tercih[p.ak]).startsWith('-') ? 2 : yanOf(p).length ? 1 : 0);
+  pool.sort((x, y) => sira(x) - sira(y)); // kararlı: aynı gruptakiler isim sırasında kalır
   for (const a of lim) while (res[a.id].length < cap(a)) { const i = pool.findIndex((p) => !not(p, a.id)); if (i < 0) break; res[a.id].push(pool.splice(i, 1)[0]); }
   const kalan = [];
   for (const p of pool) {
     const pa = rest.find((x) => x.id === tercih[p.ak] && !not(p, x.id));
     if (pa) { res[pa.id].push({ ...p, pin: true }); continue; }
-    const ok = rest.filter((a) => !not(p, a.id)); if (!ok.length) { kalan.push(p); continue; }
-    const a = ok.reduce((m, x) => (res[x.id].length < res[m.id].length ? x : m), ok[0]); res[a.id].push(p);
+    const ya = rest.filter((x) => yanOf(p).includes(x.id) && !not(p, x.id));
+    const ok = ya.length ? ya : rest.filter((a) => !not(p, a.id)); if (!ok.length) { kalan.push(p); continue; }
+    const a = ok.reduce((m, x) => (res[x.id].length < res[m.id].length ? x : m), ok[0]); res[a.id].push(ya.length ? { ...p, yan: true } : p);
   }
   return act.map((a) => ({ a, cap: cap(a), varsayilan: base(a), kisiler: res[a.id] })).concat(kalan.length ? [{ a: { id: '_bos', ad: 'Bölümsüz' }, cap: Infinity, varsayilan: Infinity, kisiler: kalan }] : []);
 }
@@ -2968,7 +2972,7 @@ function areaData() {
   const working = mine.filter((p) => p.days[d] === g);
   // düzen şef için sabittir (📌 kişi, ⚙ sayı); her gün o gün çalışan seçilmişler arasından kendiliğinden dağıtılır. Eski güne özel kayıtlar kullanılmaz.
   const gunM = {}; const kapM = {};
-  const cards = areaDistribute(working, B.alanlar, g, B.tercih || {}, gunM, kapM, B.ayar || {});
+  const cards = areaDistribute(working, B.alanlar, g, B.tercih || {}, gunM, kapM, B.ayar || {}, B.yan || {});
   const ABS = [['OFF', 'OFF'], ['R', 'Raporlu'], ['YI', 'Yıllık izin'], ['UI', 'Ücretsiz izin'], ['MI', 'İzinli']];
   // OFF / rapor / izin: kişi yalnızca kendi vardiyasının kartında görünür (Günlük ekranla aynı kural: dayLists)
   const team = store.settings.offRule === 'team';
@@ -2986,7 +2990,7 @@ function viewAreas() {
   if (B.hata) return `<div class="card"><p style="margin:0">${esc(B.hata)}</p><div style="margin-top:10px"><button class="btn" data-act="b-yenile">Tekrar dene</button></div></div>`;
   const { d, g, mine, working, cards, absent, diger, kayitsiz, yokListede, gunM, kapM, disari } = areaData(); const h = store.settings.hours[g];
   const nGun = Object.keys(gunM).length + Object.keys(kapM).length; const ben = !B.sahip || B.sahip.ben; // başka şefin listesi: salt okunur (yalnızca DEV)
-  const chip = (p, a) => `<li class="mate-li">${ben ? `<button type="button" class="mate-btn" data-act="b-kisi" data-k="${esc(p.ak)}">` : '<span class="mate-btn">'}<span class="av sm">${esc(initials(p.name))}</span><span>${esc(niceName(p.name))}${p.pin ? ' 📌' : ''}</span>${ben ? '</button>' : '</span>'}${ben && a ? `<button type="button" class="mate-x" data-act="b-cikar" data-k="${esc(p.ak)}" data-a="${esc(a.id)}" aria-label="${esc(niceName(p.name))} bu bölümden çıkar" title="Bu bölümden çıkar (her gün)">×</button>` : ''}</li>`;
+  const chip = (p, a) => `<li class="mate-li">${ben ? `<button type="button" class="mate-btn" data-act="b-kisi" data-k="${esc(p.ak)}">` : '<span class="mate-btn">'}<span class="av sm">${esc(initials(p.name))}</span><span>${esc(niceName(p.name))}${p.pin ? ' 📌' : p.yan ? ' ↔' : ''}</span>${ben ? '</button>' : '</span>'}${ben && a ? `<button type="button" class="mate-x" data-act="b-cikar" data-k="${esc(p.ak)}" data-a="${esc(a.id)}" aria-label="${esc(niceName(p.name))} bu bölümden çıkar" title="Bu bölümden çıkar (her gün)">×</button>` : ''}</li>`;
   const cardHtml = ({ a, cap, varsayilan, kisiler }) => { const st = cap === Infinity ? '' : kisiler.length > cap ? ' fazla' : kisiler.length < cap ? ' eksik' : '';
     const bos = a.id === '_bos';
     return `<section class="card stack bolum-card${st}">
@@ -2994,7 +2998,14 @@ function viewAreas() {
         ${ben && !bos && cap !== Infinity ? `<button type="button" class="kap-btn" data-act="b-kap" data-a="${esc(a.id)}" data-n="-1" aria-label="${esc(a.ad)} sayısını azalt"${cap <= 0 ? ' disabled' : ''}>−</button>` : ''}
         <span class="bolum-n" title="Kişi sayısı (her gün geçerli; − / + ya da ⚙ Bölüm sayıları ile değişir)">${kisiler.length}${cap !== Infinity ? '/' + cap : ''}</span>
         ${ben && !bos && cap !== Infinity ? `<button type="button" class="kap-btn" data-act="b-kap" data-a="${esc(a.id)}" data-n="1" aria-label="${esc(a.ad)} sayısını artır">+</button>` : ''}</div>
-      ${kisiler.length ? `<ul class="mate-list">${kisiler.map((p) => chip(p, bos ? null : a)).join('')}</ul>` : '<p class="small muted" style="margin:0">Kimse yok.</p>'}
+      ${(() => { if (!kisiler.length) return '<p class="small muted" style="margin:0">Kimse yok.</p>';
+        const sab = kisiler.filter((p) => p.pin); const dig = kisiler.filter((p) => !p.pin);
+        if (!sab.length || bos) return `<ul class="mate-list">${kisiler.map((p) => chip(p, bos ? null : a)).join('')}</ul>`;
+        return `<div class="bolum-grp"><span class="bolum-grp-t">📌 Sabit (${sab.length})</span><ul class="mate-list">${sab.map((p) => chip(p, a)).join('')}</ul></div>`
+          + (dig.length ? `<div class="bolum-grp"><span class="bolum-grp-t">↔ Yan / otomatik (${dig.length})</span><ul class="mate-list">${dig.map((p) => chip(p, a)).join('')}</ul></div>` : ''); })()}
+      ${(() => { if (bos) return ''; const here = new Set(kisiler.map((p) => p.ak)); const yer = {}; cards.forEach((c) => c.kisiler.forEach((p) => { yer[p.ak] = c.a.ad; }));
+        const ys = mine.filter((p) => (B.yan[p.ak] || []).includes(a.id) && !here.has(p.ak));
+        return ys.length ? `<p class="small muted" style="margin:0">↔ Yan personeli başka yerde: ${ys.map((p) => `${esc(niceName(p.name))} (${p.days[d] === g ? esc(yer[p.ak] || 'bölümsüz') : esc(CODE_TXT[p.days[d]] || 'kayıt yok')})`).join(', ')}</p>` : ''; })()}
       ${st === ' eksik' ? `<p class="small muted" style="margin:0">${cap - kisiler.length} kişi eksik (bu vardiyada yeterli çalışan yok)</p>` : st === ' fazla' ? `<p class="small" style="margin:0;color:var(--off)">Sayıdan ${kisiler.length - cap} kişi fazla</p>` : ''}
       ${ben && !bos ? `<div><button class="btn small" data-act="b-ekle" data-a="${esc(a.id)}">${ICON_PLUS} Kişi ekle</button></div>` : ''}
     </section>`; };
@@ -3007,7 +3018,7 @@ function viewAreas() {
         <button class="iconbtn" aria-label="Sonraki gün" data-act="b-gun" data-n="1">${ICON_RIGHT}</button>
       </div>
       <div class="seg seg3" role="radiogroup" aria-label="Vardiya">${['1', '2', '3'].map((x) => `<button role="radio" data-act="b-vardiya" data-v="${x}" aria-selected="${x === g}" aria-checked="${x === g}">${x}. Vardiya</button>`).join('')}</div>
-      <p class="small muted" style="margin:0">${h ? `${g}. vardiya ${esc(h)} · ` : ''}${ben ? 'Bu liste yalnızca senin.' : `<b>${esc(niceName(B.sahip.ad))}</b> listesini yalnızca görüntülüyorsun.`} Listedeki ${mine.length} kişiden bu vardiyada <b>${working.length}</b> kişi çalışıyor; bölümlere otomatik dağıtıldı, Sarı ve Kırmızı Alan kalanları eşit paylaşır.${diger ? ` ${diger} kişi başka vardiyada (çalışıyor ya da o vardiyanın OFF/izni).` : ''}${disari.length ? ` Bu vardiyada çalışan <b>${disari.length}</b> kişi listede değil (en altta).` : ''}${kayitsiz ? ` ${kayitsiz} kişinin bu gün için listede kaydı yok.` : ''}${yokListede ? ` ${yokListede} kişi yayındaki listede bulunamadı.` : ''} ${ben ? ' Düzenin <b>sabittir</b>: bölüme eklediğin kişi (📌) çalıştığı her gün oraya konur; OFF ya da izinliyse yeri o gün çalışan seçtiklerinden kendiliğinden doldurulur. Sayıyı <b>− / +</b>, kişiyi <b>Kişi ekle</b> / <b>×</b> ile ya da isme dokunarak değiştir.' : ' 📌 sabit bölümü olan kişiler.'}</p>
+      <p class="small muted" style="margin:0">${h ? `${g}. vardiya ${esc(h)} · ` : ''}${ben ? 'Bu liste yalnızca senin.' : `<b>${esc(niceName(B.sahip.ad))}</b> listesini yalnızca görüntülüyorsun.`} Listedeki ${mine.length} kişiden bu vardiyada <b>${working.length}</b> kişi çalışıyor; bölümlere otomatik dağıtıldı, Sarı ve Kırmızı Alan kalanları eşit paylaşır.${diger ? ` ${diger} kişi başka vardiyada (çalışıyor ya da o vardiyanın OFF/izni).` : ''}${disari.length ? ` Bu vardiyada çalışan <b>${disari.length}</b> kişi listede değil (en altta).` : ''}${kayitsiz ? ` ${kayitsiz} kişinin bu gün için listede kaydı yok.` : ''}${yokListede ? ` ${yokListede} kişi yayındaki listede bulunamadı.` : ''} ${ben ? ' Düzenin <b>sabittir</b>: 📌 sabit personel çalıştığı her gün kendi bölümüne konur; OFF ya da izinliyse yeri önce o bölümün ↔ yan personeliyle, yoksa diğer seçtiklerinden kendiliğinden doldurulur. Sayıyı <b>− / +</b>, kişiyi <b>Kişi ekle</b> / <b>×</b> ile ya da isme dokunarak değiştir.' : ' 📌 sabit bölümü olan kişiler.'}</p>
       ${B.eski && ben ? `<div class="banner" style="margin:0"><p style="margin:0"><b>Önceki denemeden kayıtlı ${B.eski.sayi} kişilik bölüm seçimi bulundu</b>${B.eski.guncelleyen ? ` (son değiştiren: ${esc(B.eski.guncelleyen)}${B.eski.tarih ? ', ' + fmtWhen(B.eski.tarih) : ''})` : ''}. Geri getirirsen bu kişiler listene eklenir, seçtiğin bölümler 📌 olarak kalır.</p><div class="row" style="gap:8px;margin-top:8px"><button class="btn primary small" data-act="b-eski-al">Geri getir</button><button class="btn small" data-act="b-eski-gizle">Gerek yok</button></div></div>` : ''}
     </div>`;
   if (!B.kisiler.length) return head + `<div class="card stack" style="margin-top:12px"><p style="margin:0">${ben ? 'Henüz personel seçmedin. <b>Personelim</b> ile kendi ekibini seç; seçtiğin kişiler her gün ve vardiyada bölümlere otomatik dağıtılır.' : 'Bu şef henüz personel seçmemiş.'}</p></div>`;
@@ -3024,7 +3035,7 @@ function bindAreas() {
   const s = document.getElementById('b-sef'); if (s) s.addEventListener('change', () => { ui.bSef = Number(s.value) || 0; srv.bolum = null; render(); });
 }
 async function saveAreas(body, msg) {
-  try { const j = await api('bolum-kaydet', body); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; srv.bolum.kap = j.kap || {}; srv.bolum.ayar = j.ayar || {}; if (body.eskiAl || body.eskiGizle) srv.bolum.eski = null; if (msg !== '') toast(msg || 'Kaydedildi'); }
+  try { const j = await api('bolum-kaydet', body); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; srv.bolum.kap = j.kap || {}; srv.bolum.ayar = j.ayar || {}; srv.bolum.yan = j.yan || {}; if (body.eskiAl || body.eskiGizle) srv.bolum.eski = null; if (msg !== '') toast(msg || 'Kaydedildi'); }
   catch (e) { toast(e.message); }
   render();
 }
@@ -3044,7 +3055,7 @@ function areaListSheet() {
     const gonder = async () => {
       clearTimeout(tmr); if (busy || (!bek.ekle.size && !bek.cikar.size)) { durum(); return; }
       const ekle = [...bek.ekle], cikar = [...bek.cikar]; bek.ekle.clear(); bek.cikar.clear(); busy = true; durum();
-      try { const j = await api('bolum-kaydet', { ekle, cikar }); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; srv.bolum.kap = j.kap || {}; srv.bolum.ayar = j.ayar || {}; hata = ''; }
+      try { const j = await api('bolum-kaydet', { ekle, cikar }); srv.bolum.kisiler = j.kisiler || []; srv.bolum.tercih = j.tercih || {}; srv.bolum.gun = j.gun || {}; srv.bolum.kap = j.kap || {}; srv.bolum.ayar = j.ayar || {}; srv.bolum.yan = j.yan || {}; hata = ''; }
       catch (e) { ekle.forEach((k) => { if (!bek.cikar.has(k)) bek.ekle.add(k); }); cikar.forEach((k) => { if (!bek.ekle.has(k)) bek.cikar.add(k); }); hata = e.message || 'bağlantı'; tmr = setTimeout(gonder, 4000); }
       busy = false; durum(); if (bek.ekle.size || bek.cikar.size) { if (!hata) gonder(); } else if (!document.getElementById('be-list')) render();
     };
@@ -3065,10 +3076,13 @@ function areaPinSheet(k) {
   const simdi = (cards.find((x) => x.kisiler.some((y) => y.ak === k)) || {}).a;
   sheet(`<h3 style="margin:0 0 4px">${esc(niceName(p.name))}</h3>
     <p class="small muted" style="margin:0 0 12px">${fmtShort(d)}: ${esc(CODE_TXT[c] || 'listede kayıt yok')}${simdi ? ` · şu an <b>${esc(simdi.ad)}</b>` : ''}</p>
-    <b class="small">Bölümü (her gün)</b><p class="small muted" style="margin:2px 0 6px">Çalıştığı her gün önce buraya konur; bölüm doluysa otomatik dağılıma girer.</p>
-    <div class="be-pick"><button class="btn${!cur || cur.startsWith('-') ? ' primary' : ''}" data-pa="">Otomatik</button>${B.alanlar.map((a) => `<button class="btn${cur === a.id ? ' primary' : ''}" data-pa="${esc(a.id)}">📌 ${esc(a.ad)}</button>`).join('')}</div>
+    <b class="small">📌 Sabit bölümü</b><p class="small muted" style="margin:2px 0 6px">Çalıştığı her gün önce buraya konur; bölüm doluysa diğer kurallara göre yerleşir.</p>
+    <div class="be-pick"><button class="btn${!cur || cur.startsWith('-') ? ' primary' : ''}" data-pa="">Sabit değil</button>${B.alanlar.map((a) => `<button class="btn${cur === a.id ? ' primary' : ''}" data-pa="${esc(a.id)}">📌 ${esc(a.ad)}</button>`).join('')}</div>
+    <b class="small" style="display:block;margin-top:14px">↔ Yan personeli olduğu bölümler</b><p class="small muted" style="margin:2px 0 6px">Birden çok seçilebilir. Bu bölümlerde yer açıldığında (sabit personel OFF/izinliyse) önce o gelir; bölüm doluysa diğerine geçer.</p>
+    <div class="be-pick">${B.alanlar.map((a) => { const on = (B.yan[k] || []).includes(a.id); return `<button class="btn${on ? ' primary' : ''}" data-ya="${esc(a.id)}" data-on="${on ? 1 : 0}">${on ? '✓ ' : ''}↔ ${esc(a.ad)}</button>`; }).join('')}</div>
     <div class="row" style="margin-top:14px"><button class="btn" data-pr="1" style="color:var(--off)">Listemden çıkar</button><span style="flex:1"></span><button class="btn" data-x="1">Kapat</button></div>`, (bg) => {
     bg.querySelectorAll('[data-pa]').forEach((b) => b.addEventListener('click', () => { const a = b.dataset.pa; closeSheet(); saveAreas({ tercih: { [k]: a } }, a ? `${niceName(p.name)} → 📌 ${B.alanlar.find((x) => x.id === a).ad}` : `${niceName(p.name)} otomatik dağılımda`); }));
+    bg.querySelectorAll('[data-ya]').forEach((b) => b.addEventListener('click', () => { const a = b.dataset.ya; const on = b.dataset.on !== '1'; closeSheet(); saveAreas({ yan: { [k]: { [a]: on } } }, `${niceName(p.name)} ${B.alanlar.find((x) => x.id === a).ad} ${on ? 'yan personeline eklendi ↔' : 'yan personelinden çıkarıldı'}`).then(() => areaPinSheet(k)); }));
     bg.querySelector('[data-pr]').addEventListener('click', () => { closeSheet(); saveAreas({ cikar: [k] }, `${niceName(p.name)} listenden çıkarıldı`); });
   });
 }
@@ -3079,15 +3093,18 @@ function areaAddSheet(id) {
   const sec = new Set(B.kisiler);
   const aday = all.filter((p) => p.days[d] === g && !icinde.has(p.ak)).sort((x, y) => (sec.has(x.ak) === sec.has(y.ak) ? x.name.localeCompare(y.name, 'tr') : sec.has(x.ak) ? -1 : 1));
   const row = (p) => `<button type="button" class="be-row be-add" data-k="${esc(p.ak)}" data-q="${esc(nameKey(p.name))}"><span class="be-name">${esc(niceName(p.name))}</span>${yer[p.ak] ? `<span class="be-tag">şu an ${esc(yer[p.ak])}</span>` : ''}${!sec.has(p.ak) ? '<span class="be-tag be-oth">listende yok</span>' : ''}</button>`;
-  sheet(`<h3 style="margin:0 0 4px">${esc(card.a.ad)} · kişi ekle</h3><p class="small muted" style="margin:0 0 10px">${fmtShort(d)} ${g}. vardiyada çalışanlar. Seçtiğin kişi bu bölüme <b>sabitlenir</b> (📌): çalıştığı her gün buraya konur. Listende yoksa listene de eklenir.${card.cap !== Infinity ? ' Bölüm doluysa sayısı bir artırılır.' : ''}</p>
-    <input type="search" id="ba-q" placeholder="İsim ara" autocomplete="off" style="width:100%;margin-bottom:8px">
+  sheet(`<h3 style="margin:0 0 4px">${esc(card.a.ad)} · kişi ekle</h3><p class="small muted" style="margin:0 0 10px">${fmtShort(d)} ${g}. vardiyada çalışanlar. Listende yoksa listene de eklenir.</p>
+    <label class="be-sabit"><input type="checkbox" id="ba-sabit" checked><span><b>📌 Sabit personel</b><small>İşaretliyse kişi bu bölümün asıl kadrosu olur, çalıştığı her gün buraya konur${card.cap !== Infinity ? ' (bölüm doluysa sayısı bir artırılır)' : ''}. İşaretli değilse <b>↔ yan personel</b> olur: bu bölümde yer açıldığında buraya gelir; birden çok bölümün yanı olabilir, bölüm doluysa diğerine geçer.</small></span></label>
+    <input type="search" id="ba-q" placeholder="İsim ara" autocomplete="off" style="width:100%;margin:8px 0">
     <div class="be-list">${aday.length ? aday.map(row).join('') : '<p class="small muted" style="margin:10px">Bu vardiyada eklenebilecek başka kimse yok.</p>'}</div>
     <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn" data-x="1">Kapat</button></div>`, (bg) => {
     bg.querySelector('#ba-q').addEventListener('input', (e) => { const q = nameKey(e.target.value); bg.querySelectorAll('.be-add').forEach((r) => { r.hidden = !!q && !r.dataset.q.includes(q); }); });
     bg.querySelectorAll('.be-add').forEach((b) => b.addEventListener('click', () => {
-      const k = b.dataset.k; const p = all.find((x) => x.ak === k); const n = card.kisiler.length + 1;
-      const body = { ekle: [k], tercih: { [k]: id }, ...(card.cap !== Infinity && n > card.cap ? { ayar: { [id]: { [g]: n } } } : {}) };
-      closeSheet(); saveAreas(body, `${niceName(p.name)} → 📌 ${card.a.ad}`);
+      const k = b.dataset.k; const p = all.find((x) => x.ak === k); const sabit = bg.querySelector('#ba-sabit').checked;
+      const n = card.kisiler.filter((x) => x.pin).length + 1;
+      const body = sabit ? { ekle: [k], tercih: { [k]: id }, ...(card.cap !== Infinity && n > card.cap ? { ayar: { [id]: { [g]: n } } } : {}) }
+        : { ekle: [k], yan: { [k]: { [id]: true } }, ...(B.tercih[k] === '-' + id ? { tercih: { [k]: '' } } : {}) };
+      closeSheet(); saveAreas(body, sabit ? `${niceName(p.name)} → 📌 ${card.a.ad} (sabit)` : `${niceName(p.name)} → ↔ ${card.a.ad} (yan)`);
     }));
   });
 }
@@ -3130,9 +3147,11 @@ function areaPickSheet(k) {
       saveAreas(a ? { ekle: [k], tercih: { [k]: a } } : { ekle: [k] }, a ? `${niceName(p.name)} listene eklendi → 📌 ${B.alanlar.find((x) => x.id === a).ad}` : `${niceName(p.name)} listene eklendi`); }));
   });
 }
-function areaRemove(k, id) { // × : kişi bu bölüme bir daha konmaz (sabitse sabitlemesi kalkar); yeri seçilmişlerden doldurulur
-  const B = srv.bolum; const { all } = areaData(); const p = all.find((x) => x.ak === k); const a = B.alanlar.find((x) => x.id === id);
-  saveAreas({ tercih: { [k]: B.tercih[k] === id ? '' : '-' + id } }, `${p ? niceName(p.name) : 'Kişi'} ${a ? a.ad : ''} bölümünden çıkarıldı`);
+function areaRemove(k, id) { // × : sabitse sabitliği, yansa yanlığı kalkar; otomatik yerleştiyse bu bölüme bir daha konmaz
+  const B = srv.bolum; const { all } = areaData(); const p = all.find((x) => x.ak === k); const a = B.alanlar.find((x) => x.id === id); const ad = `${p ? niceName(p.name) : 'Kişi'} ${a ? a.ad : ''}`;
+  if (B.tercih[k] === id) return saveAreas({ tercih: { [k]: '' } }, `${ad} sabit personelinden çıkarıldı`);
+  if ((B.yan[k] || []).includes(id)) return saveAreas({ yan: { [k]: { [id]: false } } }, `${ad} yan personelinden çıkarıldı`);
+  return saveAreas({ tercih: { [k]: '-' + id } }, `${ad} bölümünden çıkarıldı`);
 }
 function areaCap(id, n) { // − / + : bölümün bu vardiyadaki sayısı, her gün geçerli (⚙ Bölüm sayıları ile aynı ayar)
   const B = srv.bolum; const { g, cards } = areaData(); const card = cards.find((c) => c.a.id === id); if (!card || card.cap === Infinity) return;
