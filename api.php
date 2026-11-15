@@ -1130,7 +1130,7 @@ switch ($r) {
       $sefler[] = ['id' => (int)$r['id'], 'ad' => $r['name'], 'kisi' => count((json_decode((string)($r['v'] ?? ''), true) ?: [])['kisiler'] ?? [])];
     // ilk denemenin ortak kaydı (bolum_atama) duruyorsa şefe "geri getir" önerilir
     $eski = json_decode((string)(meta_get('bolum_atama') ?? ''), true) ?: []; $eskiN = count((array)($eski['atama'] ?? []));
-    ok(['alanlar' => BOLUMLER, 'kisiler' => array_values($d['kisiler'] ?? []), 'tercih' => (object)($d['tercih'] ?? []), 'gun' => (object)array_map(fn($x) => (object)$x, $d['gun'] ?? []), 'kap' => (object)array_map(fn($x) => (object)$x, $d['kap'] ?? []), 'ayar' => (object)array_map(fn($x) => (object)$x, $d['ayar'] ?? []), 'tarih' => isset($d['tarih']) ? utc($d['tarih']) : null]
+    ok(['alanlar' => BOLUMLER, 'kisiler' => array_values($d['kisiler'] ?? []), 'tercih' => (object)($d['tercih'] ?? []), 'gun' => (object)array_map(fn($x) => (object)$x, $d['gun'] ?? []), 'kap' => (object)array_map(fn($x) => (object)$x, $d['kap'] ?? []), 'ayar' => (object)array_map(fn($x) => (object)$x, $d['ayar'] ?? []), 'yan' => (object)($d['yan'] ?? []), 'tarih' => isset($d['tarih']) ? utc($d['tarih']) : null]
       + ['sahip' => ['id' => $sef, 'ad' => $sahipAd, 'ben' => $sef === (int)$u['id']], 'sefler' => $sefler]
       + ($sef === (int)$u['id'] && $eskiN && empty($d['eskiAlindi']) ? ['eski' => ['sayi' => $eskiN, 'guncelleyen' => $eski['guncelleyen'] ?? null, 'tarih' => isset($eski['tarih']) ? utc($eski['tarih']) : null]] : []));
   }
@@ -1145,9 +1145,9 @@ switch ($r) {
       $v = meta_get('bolum_liste:' . $hedef); if ($v !== null) meta_set('bolum_yedek:' . $hedef, $v);
       db()->prepare('DELETE FROM meta WHERE k = ?')->execute(['bolum_liste:' . $hedef]);
       audit($u, 'bolum', 'bölüm listesi silindi (kişi #' . $hedef . ')');
-      ok(['kisiler' => [], 'tercih' => (object)[], 'gun' => (object)[], 'kap' => (object)[], 'ayar' => (object)[]]);
+      ok(['kisiler' => [], 'tercih' => (object)[], 'gun' => (object)[], 'kap' => (object)[], 'ayar' => (object)[], 'yan' => (object)[]]);
     }
-    $kisiler = $d['kisiler'] ?? []; $tercih = is_array($d['tercih'] ?? null) ? $d['tercih'] : []; $gun = is_array($d['gun'] ?? null) ? $d['gun'] : []; $kap = is_array($d['kap'] ?? null) ? $d['kap'] : []; $ayar = is_array($d['ayar'] ?? null) ? $d['ayar'] : [];
+    $kisiler = $d['kisiler'] ?? []; $tercih = is_array($d['tercih'] ?? null) ? $d['tercih'] : []; $gun = is_array($d['gun'] ?? null) ? $d['gun'] : []; $kap = is_array($d['kap'] ?? null) ? $d['kap'] : []; $ayar = is_array($d['ayar'] ?? null) ? $d['ayar'] : []; $yan = is_array($d['yan'] ?? null) ? $d['yan'] : [];
     $ids = array_column(BOLUMLER, 'id'); $ok = fn($k) => is_string($k) && preg_match('/^[a-z]{2,80}$/', $k);
     // her gün geçerli bölüm sayıları: { bölüm: { vardiya: sayı | null } } (null = varsayılan, 0 = o vardiyada bölüm yok)
     if (is_array(body()['ayar'] ?? null)) {
@@ -1156,6 +1156,7 @@ switch ($r) {
         if (empty($ayar[$a])) unset($ayar[$a]); }
     }
     if (!empty(body()['ayarSifirla'])) $ayar = [];
+    // yan personel: { nameKey: { bölüm: true|false } } — kişi birden çok bölümün yan personeli olabilir
     $eskiAlindi = !empty($d['eskiAlindi']);
     // ekle / çıkar: her işaretleme anında yalnızca değişen kişiler gelir (iki sekme/cihaz birbirinin seçimini silmesin)
     if (is_array(body()['ekle'] ?? null) || is_array(body()['cikar'] ?? null)) {
@@ -1172,10 +1173,16 @@ switch ($r) {
     if (!empty(body()['eskiGizle'])) $eskiAlindi = true;
     if (array_key_exists('kisiler', body()) || is_array(body()['cikar'] ?? null)) {
       if (array_key_exists('kisiler', body())) { $in = body()['kisiler']; if (!is_array($in) || count($in) > 400) fail(400, 'Liste geçersiz.'); $kisiler = array_values(array_unique(array_filter($in, $ok))); }
-      $tercih = array_intersect_key($tercih, array_flip($kisiler)); // listeden çıkanın ayarları da silinir
+      $tercih = array_intersect_key($tercih, array_flip($kisiler)); $yan = array_intersect_key($yan, array_flip($kisiler)); // listeden çıkanın ayarları da silinir
       foreach ($gun as $gk => $m) { $gun[$gk] = array_intersect_key((array)$m, array_flip($kisiler)); if (!$gun[$gk]) unset($gun[$gk]); }
     }
     foreach (array_keys($kap) as $gk) if (substr($gk, 0, 10) < gmdate('Y-m-d', time() - 60 * 86400)) unset($kap[$gk]);
+    if (is_array(body()['yan'] ?? null)) foreach (body()['yan'] as $k => $m) {
+      $k = (string)$k; if (!$ok($k) || !in_array($k, $kisiler, true) || !is_array($m)) continue;
+      $l = array_values(array_filter((array)($yan[$k] ?? []), fn($a) => in_array($a, $ids, true)));
+      foreach ($m as $a => $on) { if (!in_array($a, $ids, true)) continue; $l = array_values(array_diff($l, [$a])); if ($on) $l[] = $a; }
+      if ($l) $yan[$k] = $l; else unset($yan[$k]);
+    }
     if (is_array(body()['tercih'] ?? null)) foreach (body()['tercih'] as $k => $a) {
       $k = (string)$k; $a = (string)$a; if (!$ok($k) || !in_array($k, $kisiler, true)) continue;
       if ($a === '') unset($tercih[$k]); elseif (in_array(ltrim($a, '-'), $ids, true)) $tercih[$k] = $a; // '-bölüm' = bu bölüme hiç konmasın
@@ -1199,9 +1206,9 @@ switch ($r) {
     }
     $sinir = gmdate('Y-m-d', time() - 60 * 86400); foreach (array_keys($gun) as $gk) if (substr($gk, 0, 10) < $sinir) unset($gun[$gk]); // 60 günden eskiler atılır
     if (count($kisiler) > 400) fail(400, 'Liste en fazla 400 kişi olabilir.');
-    meta_set($key, json_encode(['kisiler' => $kisiler, 'tercih' => $tercih, 'gun' => $gun, 'kap' => $kap, 'ayar' => $ayar, 'tarih' => now()] + ($eskiAlindi ? ['eskiAlindi' => true] : []), JSON_UNESCAPED_UNICODE));
+    meta_set($key, json_encode(['kisiler' => $kisiler, 'tercih' => $tercih, 'gun' => $gun, 'kap' => $kap, 'ayar' => $ayar, 'yan' => $yan, 'tarih' => now()] + ($eskiAlindi ? ['eskiAlindi' => true] : []), JSON_UNESCAPED_UNICODE));
     audit($u, 'bolum', count($kisiler) . ' kişilik bölüm listesi güncellendi');
-    ok(['kisiler' => $kisiler, 'tercih' => (object)$tercih, 'gun' => (object)array_map(fn($x) => (object)$x, $gun), 'kap' => (object)array_map(fn($x) => (object)$x, $kap), 'ayar' => (object)array_map(fn($x) => (object)$x, $ayar)]);
+    ok(['kisiler' => $kisiler, 'tercih' => (object)$tercih, 'gun' => (object)array_map(fn($x) => (object)$x, $gun), 'kap' => (object)array_map(fn($x) => (object)$x, $kap), 'ayar' => (object)array_map(fn($x) => (object)$x, $ayar), 'yan' => (object)$yan]);
   }
   // DEV paneli Dosyalar: imzalı bağlantı ('vira:' imzası; şikayet/eğitim bağlantılarıyla karışmaz)
   case 'vira-dosya': {
