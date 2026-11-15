@@ -2950,8 +2950,11 @@ function areaData() {
   const gunM = (B.gun || {})[`${d}|${g}`] || {}; const kapM = (B.kap || {})[`${d}|${g}`] || {};
   const cards = areaDistribute(working, B.alanlar, g, B.tercih || {}, gunM, kapM, B.ayar || {});
   const ABS = [['OFF', 'OFF'], ['R', 'Raporlu'], ['YI', 'Yıllık izin'], ['UI', 'Ücretsiz izin'], ['MI', 'İzinli']];
-  const absent = ABS.map(([c, l]) => ({ c, l, kisiler: mine.filter((p) => p.days[d] === c) })).filter((x) => x.kisiler.length);
-  const diger = mine.filter((p) => ['1', '2', '3'].includes(p.days[d]) && p.days[d] !== g).length;
+  // OFF / rapor / izin: kişi yalnızca kendi vardiyasının kartında görünür (Günlük ekranla aynı kural: dayLists)
+  const team = store.settings.offRule === 'team';
+  const absOf = (p) => (team && p.group ? p.group : absenceShift(p, d));
+  const absent = ABS.map(([c, l]) => ({ c, l, kisiler: mine.filter((p) => p.days[d] === c && absOf(p) === g) })).filter((x) => x.kisiler.length);
+  const diger = mine.filter((p) => (['1', '2', '3'].includes(p.days[d]) && p.days[d] !== g) || (p.days[d] && !['1', '2', '3'].includes(p.days[d]) && absOf(p) !== g)).length;
   const kayitsiz = mine.filter((p) => !p.days[d]).length;
   return { d, g, all, mine, working, cards, absent, diger, kayitsiz, yokListede, gunM, kapM };
 }
@@ -2982,7 +2985,7 @@ function viewAreas() {
         <button class="iconbtn" aria-label="Sonraki gün" data-act="b-gun" data-n="1">${ICON_RIGHT}</button>
       </div>
       <div class="seg seg3" role="radiogroup" aria-label="Vardiya">${['1', '2', '3'].map((x) => `<button role="radio" data-act="b-vardiya" data-v="${x}" aria-selected="${x === g}" aria-checked="${x === g}">${x}. Vardiya</button>`).join('')}</div>
-      <p class="small muted" style="margin:0">${h ? `${g}. vardiya ${esc(h)} · ` : ''}${ben ? 'Bu liste yalnızca senin.' : `<b>${esc(niceName(B.sahip.ad))}</b> listesini yalnızca görüntülüyorsun.`} Listedeki ${mine.length} kişiden bu vardiyada <b>${working.length}</b> kişi çalışıyor; bölümlere otomatik dağıtıldı, Sarı ve Kırmızı Alan kalanları eşit paylaşır.${diger ? ` ${diger} kişi başka vardiyada.` : ''}${kayitsiz ? ` ${kayitsiz} kişinin bu gün için listede kaydı yok.` : ''}${yokListede ? ` ${yokListede} kişi yayındaki listede bulunamadı.` : ''} ${ben ? ' Her gün geçerli bölüm sayılarını <b>⚙ Bölüm sayıları</b> ile, yalnızca bu günü kartlardaki <b>− / +</b> ile; kişileri <b>Kişi ekle</b> ve <b>×</b> ile bu gün için değiştirebilirsin; isme dokunarak başka bölüme taşı (✎ bu gün) ya da sabitle (📌 her gün).' : ' ✎ yalnızca bu gün, 📌 her gün değiştirilmiş kişiler.'}</p>
+      <p class="small muted" style="margin:0">${h ? `${g}. vardiya ${esc(h)} · ` : ''}${ben ? 'Bu liste yalnızca senin.' : `<b>${esc(niceName(B.sahip.ad))}</b> listesini yalnızca görüntülüyorsun.`} Listedeki ${mine.length} kişiden bu vardiyada <b>${working.length}</b> kişi çalışıyor; bölümlere otomatik dağıtıldı, Sarı ve Kırmızı Alan kalanları eşit paylaşır.${diger ? ` ${diger} kişi başka vardiyada (çalışıyor ya da o vardiyanın OFF/izni).` : ''}${kayitsiz ? ` ${kayitsiz} kişinin bu gün için listede kaydı yok.` : ''}${yokListede ? ` ${yokListede} kişi yayındaki listede bulunamadı.` : ''} ${ben ? ' Her gün geçerli bölüm sayılarını <b>⚙ Bölüm sayıları</b> ile, yalnızca bu günü kartlardaki <b>− / +</b> ile; kişileri <b>Kişi ekle</b> ve <b>×</b> ile bu gün için değiştirebilirsin; isme dokunarak başka bölüme taşı (✎ bu gün) ya da sabitle (📌 her gün).' : ' ✎ yalnızca bu gün, 📌 her gün değiştirilmiş kişiler.'}</p>
       ${B.eski && ben ? `<div class="banner" style="margin:0"><p style="margin:0"><b>Önceki denemeden kayıtlı ${B.eski.sayi} kişilik bölüm seçimi bulundu</b>${B.eski.guncelleyen ? ` (son değiştiren: ${esc(B.eski.guncelleyen)}${B.eski.tarih ? ', ' + fmtWhen(B.eski.tarih) : ''})` : ''}. Geri getirirsen bu kişiler listene eklenir, seçtiğin bölümler 📌 olarak kalır.</p><div class="row" style="gap:8px;margin-top:8px"><button class="btn primary small" data-act="b-eski-al">Geri getir</button><button class="btn small" data-act="b-eski-gizle">Gerek yok</button></div></div>` : ''}
       ${nGun ? `<div class="row" style="gap:8px;align-items:center"><span class="small">Bu gün ve vardiyada ${nGun} elle değişiklik var (✎ kişi, * sayı).</span>${ben ? '<button class="btn small" data-act="b-sifirla">Otomatik dağılıma dön</button>' : ''}</div>` : ''}
     </div>`;
