@@ -64,6 +64,7 @@ Birim test paketi yok. Doğrulama, yerel sunucuya karşı Playwright betikleriyl
 - **Duyuru tepkileri:** `duyuru-tepki` (👍 ✅ ❤️ 👀, kişi başına tek; aynısı kaldırır), `duyuru-tepkiler&id` (şef+ kim tepki verdi); `ann_out()` sayıları `tepki`/`tepkim` olarak döner; tablo `duyuru_tepki` (`tepki_table()`).
 - **Öneri kutusu:** herkes `oneri-gonder` (isimsiz seçilirse `personnel_id`/ad boş, `sahip = hmac('oneri:'+id)` ile yalnızca kendisi `onerilerim`'de görür; günde 10), DEV paneli `dev-oneriler` / `dev-oneri-durum` (yeni/inceleniyor/yapildi/olmayacak + yanıt). Tablo `oneriler` (`oneri_table()`).
 - **Bölümler sürükle-bırak:** `[data-drag]` isim → `.bolum-card[data-aid]`; fare 6 px, dokunmatik ~0,4 sn basılı tutunca başlar; bırakınca `areaDrop()` = 📌 sabitleme (doluysa sayı +1). Sürükleme sonrası tıklama bastırılır.
+- **Notlarım:** herkes `notlar` / `not-kaydet` / `not-sil` ile yalnızca kendi notlarını yönetir (tablo `notlar`, `not_table()`; silme gerçek silme). Başka kullanıcıya açan uç nokta yok; DEV paneli `dev-notlar` (ad/metin arama, kişi filtresi). Kullanıcı isteği: Notlarım ekranında kayıt/gizlilik hakkında hiçbir ifade yer almaz (ne "kaydedilir" ne "yalnızca sen görürsün"). İstemcide `viewNotes()`; Ayarlar'dan ve web panelinin sol menüsünden açılır.
 - `livadmin/index.html`: DEV paneli (loglar, oturumlar, yayın geçmişi ve duyurusuz liste içe aktarma, yapay zekâ ayarları, Vira sohbet kayıtları). Kendi küçük `api()` yardımcısı vardır.
 
 ### Yapay zekâ (Gemini)

@@ -33,7 +33,7 @@ const BOLUMLER = [
   ['id' => 'sari-alan', 'ad' => 'Sarı Alan', 'max' => ['1' => null, '2' => null, '3' => null]],
   ['id' => 'kirmizi-alan', 'ad' => 'Kırmızı Alan', 'max' => ['1' => null, '2' => null, '3' => null]],
 ];
-$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari', 'luci', 'dev-luci-anahtar', 'luci-ac', 'bolum-kaydet', 'yoklama-kaydet', 'duyuru-tepki', 'oneri-gonder', 'dev-oneri-durum'];
+$POST_ONLY = ['dev-unvan', 'dev-askiya', 'dev-sil', 'dev-ban', 'dev-ban-sil', 'dev-oturum-kapat', 'dev-dosya-sil', 'taslak-sil', 'taslak-kaydet', 'ayar-kaydet', 'tercih-kaydet', 'giris', 'cikis', 'yayinla', 'personel-kaydet', 'personel-sil', 'personel-toplu', 'pin-sifirla', 'duyuru', 'duyuru-sil', 'tum-oturumlar-kapat', 'gorev-kaydet', 'gorev-sil', 'gorev-isaretle', 'sifre-kontrol', 'bildirim-kaydet', 'bildirim-sil', 'bildirim-test', 'duyuru-okundu', 'sifre-degistir', 'egitim-kaydet', 'egitim-sil', 'dosya-yukle', 'dosya-sil', 'sikayet-gonder', 'sikayet-coz', 'bildirim-okundu', 'profil-kaydet', 'isim-oku', 'dev-ai-kaydet', 'dev-ai-model', 'dev-liste-aktar', 'dev-foto-okuma', 'dev-erisim-anahtari', 'luci', 'dev-luci-anahtar', 'luci-ac', 'bolum-kaydet', 'yoklama-kaydet', 'duyuru-tepki', 'oneri-gonder', 'dev-oneri-durum', 'not-kaydet', 'not-sil'];
 if (in_array($r, $POST_ONLY, true) && !$post) fail(405, 'Yalnızca POST.');
 
 const CODES = ['1', '2', '3', 'OFF', 'R', 'YI', 'UI', 'MI'];
@@ -1230,6 +1230,40 @@ switch ($r) {
     $st = db()->prepare('SELECT t.tepki, p.name FROM duyuru_tepki t JOIN personnel p ON p.id = t.personnel_id WHERE t.duyuru_id = ? ORDER BY t.at'); $st->execute([(int)($_GET['id'] ?? 0)]);
     $out = []; foreach ($st as $r) $out[$r['tepki']][] = $r['name'];
     ok(['kisiler' => (object)$out]);
+  }
+
+  // ---------- Notlarım: kişi yalnızca kendi notlarını görür/düzenler; DEV paneli dev-notlar ----------
+  case 'notlar': {
+    $u = current_user(); not_table();
+    $st = db()->prepare('SELECT id, baslik, metin, created_at, updated_at FROM notlar WHERE personnel_id = ? ORDER BY updated_at DESC LIMIT 500'); $st->execute([$u['id']]);
+    ok(['notlar' => array_map(fn($r) => ['id' => (int)$r['id'], 'baslik' => $r['baslik'], 'metin' => $r['metin'], 'tarih' => utc($r['created_at']), 'guncel' => utc($r['updated_at'])], $st->fetchAll())]);
+  }
+  case 'not-kaydet': {
+    $u = current_user(); not_table();
+    $id = (int)(body()['id'] ?? 0); $b = mb_substr(trim((string)(body()['baslik'] ?? '')), 0, 160); $m = mb_substr((string)(body()['metin'] ?? ''), 0, 20000);
+    if ($id) {
+      $st = db()->prepare('UPDATE notlar SET baslik = ?, metin = ?, updated_at = ? WHERE id = ? AND personnel_id = ?'); $st->execute([$b, $m, now(), $id, $u['id']]);
+      $c = db()->prepare('SELECT COUNT(*) FROM notlar WHERE id = ? AND personnel_id = ?'); $c->execute([$id, $u['id']]); if (!(int)$c->fetchColumn()) fail(404, 'Not bulunamadı.');
+    } else {
+      $c = db()->prepare('SELECT COUNT(*) FROM notlar WHERE personnel_id = ?'); $c->execute([$u['id']]); if ((int)$c->fetchColumn() >= 500) fail(400, 'En fazla 500 not tutulabilir.');
+      db()->prepare('INSERT INTO notlar (personnel_id, baslik, metin, created_at, updated_at) VALUES (?,?,?,?,?)')->execute([$u['id'], $b, $m, now(), now()]); $id = (int)db()->lastInsertId();
+    }
+    ok(['id' => $id, 'guncel' => utc(now())]);
+  }
+  case 'not-sil': {
+    $u = current_user(); not_table();
+    db()->prepare('DELETE FROM notlar WHERE id = ? AND personnel_id = ?')->execute([(int)(body()['id'] ?? 0), $u['id']]);
+    ok();
+  }
+  case 'dev-notlar': {
+    dev_only(); not_table();
+    $q = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 80); $kisi = (int)($_GET['kisi'] ?? 0); $w = []; $a = [];
+    if ($kisi) { $w[] = 'n.personnel_id = ?'; $a[] = $kisi; }
+    if ($q !== '') { $w[] = '(n.baslik LIKE ? OR n.metin LIKE ? OR p.name LIKE ?)'; array_push($a, "%$q%", "%$q%", "%$q%"); }
+    $st = db()->prepare('SELECT n.id, n.personnel_id, n.baslik, n.metin, n.created_at, n.updated_at, p.name, p.title FROM notlar n LEFT JOIN personnel p ON p.id = n.personnel_id ' . ($w ? 'WHERE ' . implode(' AND ', $w) : '') . ' ORDER BY n.updated_at DESC LIMIT 500');
+    $st->execute($a);
+    $toplam = (int)db()->query('SELECT COUNT(*) FROM notlar')->fetchColumn(); $kisiSay = (int)db()->query('SELECT COUNT(DISTINCT personnel_id) FROM notlar')->fetchColumn();
+    ok(['toplam' => $toplam, 'kisiSay' => $kisiSay, 'notlar' => array_map(fn($r) => ['id' => (int)$r['id'], 'kisiId' => (int)$r['personnel_id'], 'ad' => $r['name'] ?? '(silinmiş hesap)', 'unvan' => $r['title'], 'baslik' => $r['baslik'], 'metin' => $r['metin'], 'tarih' => utc($r['created_at']), 'guncel' => utc($r['updated_at'])], $st->fetchAll())]);
   }
 
   // ---------- Öneri kutusu: herkes gönderir (isimsiz olabilir), DEV paneli görür ve durumunu işaretler ----------

@@ -298,6 +298,11 @@ function oneri_table(): void {
   static $done = false; if ($done) return; $done = true;
   db()->exec("CREATE TABLE IF NOT EXISTS oneriler (id INT AUTO_INCREMENT PRIMARY KEY, personnel_id INT NULL, ad VARCHAR(120) NULL, unvan VARCHAR(20) NULL, sahip CHAR(64) NOT NULL, metin TEXT NOT NULL, durum VARCHAR(16) NOT NULL DEFAULT 'yeni', cevap VARCHAR(500) NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, INDEX (sahip), INDEX (durum)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 }
+// Notlarım: kişinin kendi notları (yalnızca kendisi ve DEV paneli)
+function not_table(): void {
+  static $done = false; if ($done) return; $done = true;
+  db()->exec("CREATE TABLE IF NOT EXISTS notlar (id INT AUTO_INCREMENT PRIMARY KEY, personnel_id INT NOT NULL, baslik VARCHAR(160) NOT NULL DEFAULT '', metin MEDIUMTEXT NOT NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, INDEX (personnel_id, updated_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
 // Şef yoklaması: tarih + vardiya + kişi (isim anahtarı) başına tek kayıt
 function yoklama_table(): void {
   static $done = false; if ($done) return; $done = true;
