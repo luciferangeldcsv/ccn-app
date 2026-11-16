@@ -112,6 +112,7 @@ aside #install { color: var(--ok); } aside #install[hidden] { display: none; }
     <button data-v="ai">🤖 Yapay zekâ</button>
     <button data-v="luci">💬 Vira sohbetleri</button>
     <button data-v="oneri">💡 Öneriler</button>
+    <button data-v="notlar">📝 Notlar</button>
     <div class="sp"></div>
     <button id="install" hidden>⬇️ Ana ekrana ekle</button>
     <button id="out">⎋ Çıkış</button>
@@ -172,7 +173,7 @@ async function start() {
 function show(v) {
   view = v; location.hash = v; clearInterval(timer); $('#m').onclick = null; $('#m').onchange = null;
   document.querySelectorAll('aside [data-v]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.v === v)));
-  ({ ozet, log: logView, den, kul, dos, ot, yay, duy, guv, ai, luci: luciView, oneri: oneriView }[v] || ozet)();
+  ({ ozet, log: logView, den, kul, dos, ot, yay, duy, guv, ai, luci: luciView, oneri: oneriView, notlar: notView }[v] || ozet)();
 }
 const M = (h) => { $('#m').innerHTML = h; };
 const fail = (e) => M(`<div class="card err">${esc(e.message)}</div>`);
@@ -468,6 +469,22 @@ async function ai() {
     if (!confirm('Anahtar silinsin mi? İsim okuma tekrar zayıflar.')) return;
     try { await api('dev-ai-kaydet', { anahtar: '' }); ai(); } catch (e) { alert(e.message); }
   });
+}
+// Notlar: kişilerin Notlarım'a yazdıkları; kişi adına ya da metne göre ara, bir kişinin tüm notlarını aç
+let notQ = '', notKisi = 0;
+async function notView() {
+  let d; try { d = await api('dev-notlar&q=' + encodeURIComponent(notQ) + (notKisi ? '&kisi=' + notKisi : '')); } catch (e) { return fail(e); }
+  const kisiAd = notKisi && d.notlar[0] ? d.notlar[0].ad : '';
+  M(`<div class="top"><h2>📝 Notlar</h2><span class="mut">${d.toplam} not · ${d.kisiSay} kişi</span></div>
+    <div class="card"><div class="filters"><input id="nt-q" placeholder="Ad ya da notta geçen kelime" value="${esc(notQ)}" style="flex:1;min-width:220px"><button class="btn pri" id="nt-ara">Ara</button>${notKisi ? `<button class="btn" id="nt-tum">← Tüm kişiler (${esc(kisiAd)} seçili)</button>` : ''}</div>
+      <p class="mut" style="margin:6px 0 0">${d.notlar.length} not gösteriliyor${notQ ? ' · arama: “' + esc(notQ) + '”' : ''}. Kişinin tüm notlarını görmek için adına tıkla.</p></div>
+    <div style="display:grid;gap:10px" id="nt-list">${d.notlar.length ? d.notlar.map((n) => `<div class="card" style="margin:0">
+      <div class="mut" style="font-size:12px"><a href="#" data-nk="${n.kisiId}"><b>${esc(n.ad)}</b></a> ${tag(n.unvan)} · oluşturma ${when(n.tarih)}${n.guncel !== n.tarih ? ' · son değişiklik ' + when(n.guncel) : ''}</div>
+      ${n.baslik ? `<h3 style="margin:6px 0 4px">${esc(n.baslik)}</h3>` : ''}<p style="margin:6px 0 0;white-space:pre-wrap">${esc(n.metin) || '<i class="mut">boş</i>'}</p></div>`).join('') : '<p class="mut">Not yok.</p>'}</div>`);
+  const ara = () => { notQ = $('#nt-q').value.trim(); notView(); };
+  $('#nt-ara').addEventListener('click', ara); $('#nt-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') ara(); });
+  const tum = $('#nt-tum'); if (tum) tum.addEventListener('click', () => { notKisi = 0; notView(); });
+  $('#nt-list').addEventListener('click', (e) => { const a = e.target.closest('[data-nk]'); if (!a) return; e.preventDefault(); notKisi = +a.dataset.nk; notQ = ''; notView(); });
 }
 // Öneri kutusu: personelin uygulama için gönderdiği fikirler (isimsiz olanlarda ad yok); durum + kısa yanıt gönderene görünür
 let onDurum = '';

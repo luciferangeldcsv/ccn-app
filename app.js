@@ -914,7 +914,7 @@ function dataRange(src) {
 }
 
 // ---------- Yönlendirme ----------
-const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'gorev', 'duyuru', 'egitim', 'sikayet', 'personel', 'ayarlar', 'bolum', 'yoklama'];
+const VIEWS = ['gunluk', 'ara', 'cizelge', 'yukle', 'gorev', 'duyuru', 'egitim', 'sikayet', 'personel', 'ayarlar', 'bolum', 'yoklama', 'notlar'];
 // sekmeler kullanıcının rolüne göre
 function tabList() {
   if (!SERVER) return ['gunluk', 'ara', 'cizelge', 'yukle', 'ayarlar'];
@@ -924,7 +924,7 @@ function tabList() {
 // Bölümler (deneme): yalnızca web panelinin sol menüsünde, yalnızca şefler
 const canAreas = () => SERVER && !!auth && !NATIVE && !!auth.ben && ['sef', 'dev'].includes(auth.ben.unvan); // yalnızca şefler (deneme için DEV)
 const canRoll = () => SERVER && !!auth && canEdit() && !NATIVE; // yoklama: şef ve üstü, web paneli
-const allowedView = (v) => VIEWS.includes(v) && (v === 'ara' || (v === 'bolum' ? canAreas() : v === 'yoklama' ? canRoll() : tabList().includes(v)));
+const allowedView = (v) => VIEWS.includes(v) && (v === 'ara' || (v === 'bolum' ? canAreas() : v === 'yoklama' ? canRoll() : v === 'notlar' ? !!(SERVER && auth) : tabList().includes(v)));
 function go(view) {
   ui.view = allowedView(view) ? view : 'gunluk'; render(); window.scrollTo(0, 0);
   try { if (location.hash !== '#' + ui.view) location.hash = ui.view; } catch (e) { /* çerçeve izin vermezse yoksay */ }
@@ -936,11 +936,12 @@ const TAB_ICON = {}; document.querySelectorAll('.tab').forEach((b) => { TAB_ICON
 TAB_ICON.duyuru = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 5.5a9 9 0 0 1 0 13"/></svg>';
 TAB_ICON.bolum = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
 TAB_ICON.yoklama = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 12l2 2 4-4M9 17h6"/></svg>';
+TAB_ICON.notlar = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>';
 TAB_ICON.gorev = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h10M9 12h10M9 19h10"/><path d="M3.5 5l1.5 1.5L7.5 4M3.5 12l1.5 1.5L7.5 11M3.5 19l1.5 1.5L7.5 18"/></svg>';
 TAB_ICON.egitim = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H11v17H4.5A2.5 2.5 0 0 0 2 22.5z"/><path d="M22 5.5A2.5 2.5 0 0 0 19.5 3H13v17h6.5a2.5 2.5 0 0 1 2.5 2.5z"/></svg>';
 TAB_ICON.sikayet = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v4M12 14h.01"/></svg>';
 TAB_ICON.personel = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 20a6.5 6.5 0 0 0-3-5.5"/></svg>';
-const TAB_LABEL = { yoklama: 'Yoklama', bolum: 'Bölümler (deneme)', gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', gorev: 'Görevler', duyuru: 'Duyurular', egitim: 'Eğitimler', sikayet: 'Şikayet', personel: 'Personel', ayarlar: 'Ayarlar' };
+const TAB_LABEL = { notlar: 'Notlarım', yoklama: 'Yoklama', bolum: 'Bölümler (deneme)', gunluk: 'Günlük', ara: 'Kişi Ara', cizelge: 'Çizelge', yukle: 'Liste Yükle', gorev: 'Görevler', duyuru: 'Duyurular', egitim: 'Eğitimler', sikayet: 'Şikayet', personel: 'Personel', ayarlar: 'Ayarlar' };
 $tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) go(b.dataset.view); });
 function unreadCount() { const seen = prefs.seenAnn || 0; const n = srv.duyurular.filter((a) => a.id > seen).length; setBadge(n); return n; }
 let lastBadge = -1;
@@ -977,7 +978,7 @@ function renderTabs() {
     $side.innerHTML = `<div class="side-title">Yönetim paneli</div>
       <button type="button" class="side-prof" data-act="profil">${avHtml(auth.ben)}<div><b>${esc(auth.ben.ad)}</b><span class="role-badge">${esc(titleOf(auth.ben))}</span></div></button>
       <div class="side-search"><input type="search" id="side-q" placeholder="Kişi ara (ad soyad)" autocomplete="off" value="${esc(ui.sideQ || '')}" aria-label="Kişi ara"><div id="side-res">${sideResults()}</div></div>
-      <nav class="side-nav">${tabList().filter((v) => v !== 'personel').flatMap((v) => (v === 'cizelge' ? [v, ...(canAreas() ? ['bolum'] : []), ...(canRoll() ? ['yoklama'] : [])] : [v])).map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}${v === 'sikayet' && srv.sikayetAcik ? `<span class="badge">${srv.sikayetAcik}</span>` : ''}</button>`).join('')}</nav>
+      <nav class="side-nav">${tabList().filter((v) => v !== 'personel').flatMap((v) => (v === 'cizelge' ? [v, ...(canAreas() ? ['bolum'] : []), ...(canRoll() ? ['yoklama'] : [])] : v === 'ayarlar' ? ['notlar', v] : [v])).map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}${v === 'sikayet' && srv.sikayetAcik ? `<span class="badge">${srv.sikayetAcik}</span>` : ''}</button>`).join('')}</nav>
       ${canPeople() ? `<div class="side-sub">Kişiler</div><nav class="side-nav">${[['all', 'Tüm kişiler', 2], ['yonetici', 'Yöneticiler', 4], ['mudur', 'Müdürler', 3], ['sef', 'Şefler', 2], ['personel', 'Personeller', 2]].filter(([, , m]) => myLevel() >= m).map(([k, l]) => {
         const n = srv.personel ? (k === 'all' ? srv.personel.length : srv.personel.filter((p) => p.unvan === k).length) : '';
         const on = ui.view === 'personel' && (ui.pRole || 'all') === k;
@@ -1008,7 +1009,7 @@ function render() {
   if (isDirty() && ui.view !== 'yukle') banner += canPublish()
     ? `<div class="banner pub"><p><b>Hazırlanan liste henüz yayında değil.</b> Personel siz “Yayınla” deyince görür.${srv.conflict ? ' <b>Dikkat:</b> başka bir yönetici bu arada yeni liste yayınladı; yayınlarsanız onun yerine geçer.' : ''}</p><button class="btn primary" data-act="publish">${ICON_UPLOAD}Yayınla</button>${ui.view !== 'cizelge' ? '<button class="btn" data-act="goto" data-view="cizelge">Çizelgeye git</button>' : ''}</div>`
     : `<div class="banner pub"><p><b>Hazırladığınız liste henüz yayında değil.</b> “Onaya gönder” deyince müdür ya da yönetici kontrol edip yayınlar.${srv.taslak && auth && srv.taslak.kimId === auth.ben.id && srv.taslak.onay ? ' <b>Onaya gönderildi</b> (' + fmtWhen(srv.taslak.tarih) + ').' : ''}</p><button class="btn primary" data-act="send-approval">${ICON_UPLOAD}Onaya gönder</button>${ui.view !== 'cizelge' ? '<button class="btn" data-act="goto" data-view="cizelge">Çizelgeye git</button>' : ''}</div>`;
-  const views = { yoklama: viewRoll, bolum: viewAreas, gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, gorev: viewTasks, duyuru: viewAnnouncements, egitim: viewTraining, sikayet: viewComplaints, personel: viewPersonnel, ayarlar: viewSettings };
+  const views = { notlar: viewNotes, yoklama: viewRoll, bolum: viewAreas, gunluk: viewDaily, ara: viewSearch, cizelge: viewGrid, yukle: viewUpload, gorev: viewTasks, duyuru: viewAnnouncements, egitim: viewTraining, sikayet: viewComplaints, personel: viewPersonnel, ayarlar: viewSettings };
   $app.innerHTML = banner + views[ui.view]();
   bindView();
 }
@@ -2041,6 +2042,7 @@ function viewSettings() {
   const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   const appPart = `<h2 class="sect">Uygulama</h2>
   <div class="card setlist">
+    ${SERVER && auth ? '<div class="setrow"><span><b>📝 Notlarım</b><small>Kendine notlar al</small></span><button class="btn small" data-act="goto" data-view="notlar">Aç</button></div>' : ''}
     ${SERVER && auth ? '<div class="setrow"><span><b>💡 Öneri kutusu</b><small>Uygulama için fikrini yaz; istersen isimsiz gönder</small></span><button class="btn small" data-act="oneri-ac">Öneri gönder</button></div>' : ''}
     <div class="setrow"><span><b>Sürüm ${esc(APP_VERSION)}</b><small>${native ? (window.Capacitor.getPlatform() === 'ios' ? 'App Store' : 'Google Play') + ' üzerinden güncellenir' : 'Web sürümü her açılışta güncel'} · İnternet: ${online ? 'bağlı' : 'yok'}</small></span>${native ? '<button class="btn" data-act="check-update">Güncellemeleri denetle</button>' : ''}</div>
     <div class="setrow"><span><b>Hata bildirimi</b><small>${errs ? errs + ' hata kaydı var' : 'Hata kaydı yok'} · isimler rapora eklenmez</small></span><span class="row" style="gap:6px"><button class="btn" data-act="send-report">Rapor gönder</button>${errs ? '<button class="btn" data-act="clear-errors">Temizle</button>' : ''}</span></div>
@@ -2163,6 +2165,7 @@ function bindView() {
   if (ui.view === 'gorev') bindTasks();
   if (ui.view === 'bolum') bindAreas();
   if (ui.view === 'yoklama') bindRoll();
+  if (ui.view === 'notlar') bindNotes();
   if (ui.view === 'egitim') bindTraining();
   if (ui.view === 'sikayet') bindComplaints();
   if (SERVER && auth && ui.view === 'duyuru') { const ids = srv.duyurular.filter((a) => !a.okudum).map((a) => a.id); if (ids.length) { srv.duyurular.forEach((a) => { a.okudum = true; }); api('duyuru-okundu', { ids }).catch(() => {}); } }
@@ -2300,6 +2303,10 @@ const actions = {
       sheet(`<h3 style="margin:0 0 10px">Tepki verenler</h3>${TEPKILER.filter((e) => (k[e] || []).length).map((e) => `<p style="margin:0 0 8px"><b>${e} ${k[e].length}</b><br><span class="small">${k[e].map((n) => esc(niceName(n))).join(', ')}</span></p>`).join('') || '<p class="muted">Henüz tepki yok.</p>'}<div class="row" style="justify-content:flex-end"><button class="btn" data-x="1">Kapat</button></div>`);
     } catch (err) { toast(err.message); } },
   'oneri-ac': () => suggestionSheet(),
+  'not-yeni': () => { ui.notSec = 'yeni'; render(); },
+  'not-ac': (el) => { ui.notSec = Number(el.dataset.id); ui.notOdak = !matchMedia('(pointer: coarse)').matches; render(); },
+  'not-kapat': () => { ui.notSec = null; render(); },
+  'not-sil': () => confirmSheet('Not silinsin mi?', 'Bu not kalıcı olarak silinir.', 'Sil', async () => { const id = ui.notSec; try { await api('not-sil', { id }); srv.notlar = srv.notlar.filter((n) => n.id !== id); ui.notSec = null; render(); toast('Not silindi'); } catch (e) { toast(e.message); } }),
   'pw-change': (el) => changePassword(el),
   'fs': (el) => { prefs.fontScale = el.dataset.v; savePrefs(); applyTheme(); render(); },
   'set-tab': (el) => { ui.setTab = el.dataset.t; render(); },
@@ -3336,6 +3343,54 @@ async function suggestionSheet() {
       catch (e) { ev.target.disabled = false; toast(e.message); }
     });
   });
+}
+// ---------- Notlarım: kişinin kendi notları (liste + kendiliğinden kaydeden düzenleyici) ----------
+async function loadNotes() {
+  if (srv.notYuk) return; srv.notYuk = true;
+  try { srv.notlar = (await api('notlar')).notlar || []; } catch (e) { srv.notlar = []; srv.notHata = e.message; }
+  srv.notYuk = false; if (ui.view === 'notlar') render();
+}
+function viewNotes() {
+  if (!srv.notlar) { loadNotes(); return '<div class="card"><p class="muted" style="margin:0">Notlar yükleniyor…</p></div>'; }
+  const q = (ui.notQ || '').toLocaleLowerCase('tr');
+  const list = srv.notlar.filter((n) => !q || (n.baslik + ' ' + n.metin).toLocaleLowerCase('tr').includes(q));
+  const sec = ui.notSec === 'yeni' ? { id: 0, baslik: '', metin: '' } : srv.notlar.find((n) => n.id === ui.notSec);
+  const ozet = (n) => esc((n.metin || '').replace(/\s+/g, ' ').slice(0, 80)) || '<i class="muted">boş not</i>';
+  const liste = `<div class="card stack not-liste">
+      <div class="row" style="gap:8px;flex-wrap:nowrap"><h2 style="flex:1;margin:0;font-size:22px">Notlarım</h2><button class="btn primary" data-act="not-yeni">${ICON_PLUS} Yeni not</button></div>
+      ${srv.notlar.length > 4 ? `<input type="search" id="not-q" placeholder="Notlarda ara" value="${esc(ui.notQ || '')}" autocomplete="off">` : ''}
+      ${list.length ? `<ul class="not-ul">${list.map((n) => `<li><button type="button" class="not-li${sec && sec.id === n.id ? ' on' : ''}" data-act="not-ac" data-id="${n.id}"><b>${esc(n.baslik || 'Başlıksız')}</b><span>${ozet(n)}</span><small>${fmtWhen(n.guncel)}</small></button></li>`).join('')}</ul>`
+        : `<p class="muted" style="margin:0">${srv.notlar.length ? 'Aramaya uyan not yok.' : 'Henüz not yok. “Yeni not” ile başla.'}</p>`}
+    </div>`;
+  const edit = sec ? `<div class="card stack not-duzen">
+      <div class="row" style="gap:8px;flex-wrap:nowrap"><button class="btn small not-geri" data-act="not-kapat">‹ Notlar</button><span class="small muted" id="not-durum" style="flex:1;text-align:right">${sec.id ? 'Son değişiklik ' + fmtWhen(sec.guncel) : ''}</span>${sec.id ? '<button class="btn small" data-act="not-sil" style="color:var(--off)">Sil</button>' : ''}</div>
+      <input id="not-baslik" maxlength="160" placeholder="Başlık" value="${esc(sec.baslik)}" class="not-baslik">
+      <textarea id="not-metin" placeholder="Notunu yaz…" class="not-metin">${esc(sec.metin)}</textarea>
+    </div>` : '';
+  return `<div class="not-wrap${sec ? ' acik' : ''}">${liste}${edit}</div>`;
+}
+let notTmr = null, notKayit = null;
+function bindNotes() {
+  const qi = document.getElementById('not-q'); if (qi) qi.addEventListener('input', () => { ui.notQ = qi.value; const pos = qi.selectionStart; render(); const n = document.getElementById('not-q'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } });
+  const b = document.getElementById('not-baslik'); const m = document.getElementById('not-metin'); if (!b || !m) return;
+  const durum = (s) => { const el = document.getElementById('not-durum'); if (el) el.textContent = s; };
+  const kaydet = async () => {
+    const baslik = b.value, metin = m.value; const yeni = ui.notSec === 'yeni';
+    if (yeni && !baslik.trim() && !metin.trim()) return;
+    durum('Kaydediliyor…');
+    try {
+      notKayit = api('not-kaydet', { id: yeni ? 0 : ui.notSec, baslik, metin }); const j = await notKayit;
+      let n = srv.notlar.find((x) => x.id === j.id); if (!n) { n = { id: j.id, tarih: j.guncel }; srv.notlar.unshift(n); }
+      Object.assign(n, { baslik, metin, guncel: j.guncel }); srv.notlar.sort((x, y) => (y.guncel || '').localeCompare(x.guncel || ''));
+      if (yeni) ui.notSec = j.id; durum('Kaydedildi ✓');
+      document.querySelectorAll('.not-li').forEach((el) => { if (Number(el.dataset.id) === j.id) { el.querySelector('b').textContent = baslik || 'Başlıksız'; } });
+      if (yeni) render();
+    } catch (e) { durum('Kaydedilemedi: ' + e.message); }
+  };
+  const planla = () => { durum('…'); clearTimeout(notTmr); notTmr = setTimeout(kaydet, 700); };
+  b.addEventListener('input', planla); m.addEventListener('input', planla);
+  b.addEventListener('blur', () => { if (notTmr) { clearTimeout(notTmr); notTmr = null; kaydet(); } }); m.addEventListener('blur', () => { if (notTmr) { clearTimeout(notTmr); notTmr = null; kaydet(); } });
+  if (ui.notSec === 'yeni' || ui.notOdak) { (ui.notSec === 'yeni' ? b : m).focus(); ui.notOdak = false; }
 }
 // ---------- Vardiya geri sayımı: sıradaki (ya da süren) vardiyaya kalan süre; 30 sn'de bir kendini günceller ----------
 function nextShift(me) {

@@ -597,6 +597,14 @@ h4.ph { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color
 .rangebar .field { min-width: 150px; }
 .rangebar .small, .rangebar .chips { align-self: flex-end; margin-bottom: 9px; }
 
+/* Notlarım */
+.not-wrap { display: grid; gap: 12px; } @media (min-width: 900px) { .not-wrap.acik { grid-template-columns: minmax(260px, 340px) 1fr; align-items: start; } .not-geri { display: none; } }
+@media (max-width: 899px) { .not-wrap.acik .not-liste { display: none; } }
+.not-ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 70vh; overflow: auto; }
+.not-li { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 10px 12px; font: inherit; color: inherit; cursor: pointer; display: grid; gap: 2px; }
+.not-li.on { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); } .not-li span { color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .not-li small { color: var(--muted); font-size: 12px; }
+.not-baslik { font: inherit; font-size: 20px; font-weight: 700; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--fg); padding: 6px 2px; }
+.not-metin { font: inherit; font-size: 16px; line-height: 1.55; min-height: 55vh; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg); color: var(--fg); resize: vertical; }
 /* Duyuru tepkileri ve öneri kutusu */
 .tepki-bar { display: flex; flex-wrap: wrap; gap: 6px; } .tepki { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; min-height: 34px; }
 .tepki b { font-size: 13px; color: var(--muted); } .tepki.on { border-color: var(--accent); background: var(--surface-2, var(--surface)); box-shadow: 0 0 0 1px var(--accent); } .tepki.on b { color: var(--accent); } .tepki.kim { font-size: 13px; color: var(--muted); }
@@ -765,7 +773,7 @@ body:has(#overlay > *) #luci-bub, body:has(#overlay > *) #luci-fab { display: no
   setTimeout(off, 6000);
 })();
 </script>
-<script src="app.js?v=845c4abc34"></script>
+<script src="app.js?v=b53c0fb702"></script>
 
 </body>
 </html>
