@@ -504,6 +504,9 @@ img.av { object-fit: cover; }
 .calsum span { font-size: 13px; padding: 4px 10px; border-radius: 99px; background: var(--kb, var(--surface-2)); color: var(--k, var(--fg)); }
 .role-badge { display: inline-block; margin-top: 4px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px; }
 .side-nav { display: grid; gap: 4px; }
+.side-grp { margin-top: 6px; } .side-grp-h { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 8px 12px; border-radius: 10px; cursor: pointer; }
+.side-grp-h span:first-child { flex: 1; text-align: left; } .side-grp-h:hover { background: var(--surface-2); color: var(--fg); } .side-ok { transition: transform .2s; transform: rotate(-90deg); } .side-grp.open .side-ok { transform: none; }
+.side-grp-h .badge { position: static; background: var(--off); color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 12px; font-weight: 700; letter-spacing: 0; min-width: 20px; text-align: center; }
 .side-nav button { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; font-size: 15px; padding: 10px 12px; border-radius: 10px; text-align: left; cursor: pointer; }
 .side-nav button svg { width: 20px; height: 20px; flex: none; }
 .side-nav button:hover { background: var(--surface-2); color: var(--fg); }
@@ -773,7 +776,7 @@ body:has(#overlay > *) #luci-bub, body:has(#overlay > *) #luci-fab { display: no
   setTimeout(off, 6000);
 })();
 </script>
-<script src="app.js?v=b53c0fb702"></script>
+<script src="app.js?v=a2ce8523ef"></script>
 
 </body>
 </html>

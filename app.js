@@ -978,11 +978,7 @@ function renderTabs() {
     $side.innerHTML = `<div class="side-title">Yönetim paneli</div>
       <button type="button" class="side-prof" data-act="profil">${avHtml(auth.ben)}<div><b>${esc(auth.ben.ad)}</b><span class="role-badge">${esc(titleOf(auth.ben))}</span></div></button>
       <div class="side-search"><input type="search" id="side-q" placeholder="Kişi ara (ad soyad)" autocomplete="off" value="${esc(ui.sideQ || '')}" aria-label="Kişi ara"><div id="side-res">${sideResults()}</div></div>
-      <nav class="side-nav">${tabList().filter((v) => v !== 'personel').flatMap((v) => (v === 'cizelge' ? [v, ...(canAreas() ? ['bolum'] : []), ...(canRoll() ? ['yoklama'] : [])] : v === 'ayarlar' ? ['notlar', v] : [v])).map((v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${v === 'duyuru' && un ? `<span class="badge">${un}</span>` : ''}${v === 'sikayet' && srv.sikayetAcik ? `<span class="badge">${srv.sikayetAcik}</span>` : ''}</button>`).join('')}</nav>
-      ${canPeople() ? `<div class="side-sub">Kişiler</div><nav class="side-nav">${[['all', 'Tüm kişiler', 2], ['yonetici', 'Yöneticiler', 4], ['mudur', 'Müdürler', 3], ['sef', 'Şefler', 2], ['personel', 'Personeller', 2]].filter(([, , m]) => myLevel() >= m).map(([k, l]) => {
-        const n = srv.personel ? (k === 'all' ? srv.personel.length : srv.personel.filter((p) => p.unvan === k).length) : '';
-        const on = ui.view === 'personel' && (ui.pRole || 'all') === k;
-        return `<button type="button" data-role="${k}" aria-current="${on ? 'page' : 'false'}">${k === 'all' ? TAB_ICON.personel : `<span class="rdot r-${k}"></span>`}<span>${l}</span>${n !== '' ? `<span class="cnt">${n}</span>` : ''}</button>`; }).join('')}</nav>` : ''}
+      ${sideGroups(un)}
       <button type="button" class="side-out" data-side-logout="1">Çıkış yap</button>`;
   } else $side.innerHTML = '';
   if (!show) return;
@@ -992,6 +988,29 @@ function renderTabs() {
   const cur = $tabs.querySelector('[aria-current="page"]'); if (cur && tl.length > 6) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
 
+// Sol menü: Günlük ve Çizelge üstte; diğerleri açılır gruplarda (açık/kapalı hatırlanır, açık ekranın grubu kendiliğinden açılır)
+const SIDE_GRUP = [['sef', 'Şef araçları', ['bolum', 'yoklama']], ['liste', 'Liste', ['yukle']], ['iletisim', 'İletişim', ['gorev', 'duyuru', 'egitim', 'sikayet']], ['kisisel', 'Kişisel', ['notlar', 'ayarlar']]];
+function sideGroups(un) {
+  const tl = tabList(); const var_ = (v) => (v === 'bolum' ? canAreas() : v === 'yoklama' ? canRoll() : v === 'notlar' ? !!(SERVER && auth) : tl.includes(v));
+  const rozet = (v) => (v === 'duyuru' ? un || 0 : v === 'sikayet' ? srv.sikayetAcik || 0 : 0);
+  const btn = (v) => `<button type="button" data-view="${v}" aria-current="${v === ui.view ? 'page' : 'false'}">${TAB_ICON[v] || ''}<span>${TAB_LABEL[v]}</span>${rozet(v) ? `<span class="badge">${rozet(v)}</span>` : ''}</button>`;
+  const acik = prefs.sideAcik || {};
+  const grup = (id, ad, ic, aktif, toplam) => { const o = aktif || !!acik[id];
+    return `<div class="side-grp${o ? ' open' : ''}"><button type="button" class="side-grp-h" data-sgrp="${id}" aria-expanded="${o}"><span>${ad}</span>${!o && toplam ? `<span class="badge">${toplam}</span>` : ''}<span class="side-ok" aria-hidden="true">▾</span></button>${o ? `<nav class="side-nav">${ic}</nav>` : ''}</div>`; };
+  let out = `<nav class="side-nav">${['gunluk', 'cizelge'].filter(var_).map(btn).join('')}</nav>`;
+  for (const [id, ad, vs] of SIDE_GRUP) { const v2 = vs.filter(var_); if (!v2.length) continue;
+    out += grup(id, ad, v2.map(btn).join(''), v2.includes(ui.view), v2.reduce((a, v) => a + rozet(v), 0)); }
+  if (canPeople()) {
+    const roller = [['all', 'Tüm kişiler', 2], ['yonetici', 'Yöneticiler', 4], ['mudur', 'Müdürler', 3], ['sef', 'Şefler', 2], ['personel', 'Personeller', 2]].filter(([, , m]) => myLevel() >= m).map(([k, l]) => {
+      const n = srv.personel ? (k === 'all' ? srv.personel.length : srv.personel.filter((p) => p.unvan === k).length) : '';
+      const on = ui.view === 'personel' && (ui.pRole || 'all') === k;
+      return `<button type="button" data-role="${k}" aria-current="${on ? 'page' : 'false'}">${k === 'all' ? TAB_ICON.personel : `<span class="rdot r-${k}"></span>`}<span>${l}</span>${n !== '' ? `<span class="cnt">${n}</span>` : ''}</button>`; }).join('');
+    out += grup('kisiler', 'Kişiler', roller, ui.view === 'personel', 0);
+  }
+  return out;
+}
+$side.addEventListener('click', (e) => { const h = e.target.closest('[data-sgrp]'); if (!h) return; e.stopPropagation(); const id = h.dataset.sgrp;
+  const ac = h.getAttribute('aria-expanded') !== 'true'; prefs.sideAcik = { ...(prefs.sideAcik || {}), [id]: ac }; savePrefs(); render(); }, true);
 function render() {
   luciMount();
   const sub = document.getElementById('brand-sub');
